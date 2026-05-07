@@ -2,6 +2,7 @@ import GizmoBase from '../base/gizmo-base';
 import ControllerBase from '../controller/base';
 import { Node, Component, Scene } from 'cc';
 import type { GizmoMouseEvent } from '../utils/defines';
+import { ServiceEvents } from '../../core/global-events';
 
 /**
  * 获取 Service（惰性访问，避免循环依赖）
@@ -90,7 +91,8 @@ class TransformBaseGizmo extends GizmoBase<Component> {
 
     // 发送节点修改消息
     protected broadcastNodeChangeMessage(node: Node) {
-        getService()?.broadcast?.('scene:change-node', node.uuid);
+        const EditorExtends = (cc as any).EditorExtends || (globalThis as any).EditorExtends;
+        ServiceEvents.broadcast('scene:change-node', EditorExtends.Node.getNodePath(node));
     }
 
     getSnappedValue(inNumber: number, snapStep: number): number {

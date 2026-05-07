@@ -371,7 +371,7 @@ export class PrefabService extends BaseService<IPrefabEvents> implements IPrefab
             if (!prefabUtils.isPrefabInstanceRoot(node) && prefabUtils.isPartOfAssetInPrefabInstance(node)) {
                 console.warn(`Node [${node.name}] is a prefab child of prefabInstance [${node['_prefab']?.root?.name}], ${operationTips}`);
                 // 消除其它面板的等待操作，例如hierarchy操作节点时会先进入等待状态，如果没有node的change消息，就会一直处于等待状态。
-                ServiceEvents.broadcast('scene:change-node', node.uuid);
+                ServiceEvents.broadcast('scene:change-node', EditorExtends.Node.getNodePath(node));
                 continue;
             }
 
@@ -398,7 +398,7 @@ export class PrefabService extends BaseService<IPrefabEvents> implements IPrefab
             if (prefabUtils.isPartOfAssetInPrefabInstance(node)) {
                 console.warn(`Node [${node.name}] is part of prefabInstance [${node['_prefab']?.root?.name}], ${operationTips}`);
                 // 消除其它面板的等待操作，例如hierarchy操作节点时会先进入等待状态，如果没有node的change消息，就会一直处于等待状态。
-                ServiceEvents.broadcast('scene:change-node', node.uuid);
+                ServiceEvents.broadcast('scene:change-node', EditorExtends.Node.getNodePath(node));
                 continue;
             }
 
@@ -451,7 +451,7 @@ export class PrefabService extends BaseService<IPrefabEvents> implements IPrefab
                     console.warn(`Node [${child.name}] is a prefab child of prefabInstance [${child['_prefab'].root?.name}], \
                     it's not allowed to modify hierarchy in current context, you can modify it in it's prefabAsset or do it after unlink prefab from root node`);
                     // 消除其它面板的等待操作，例如hierarchy操作节点时会先进入等待状态，如果没有node的change消息，就会一直处于等待状态。
-                    ServiceEvents.broadcast('scene:change-node', child.uuid);
+                    ServiceEvents.broadcast('scene:change-node', EditorExtends.Node.getNodePath(child));
                     return false;
                 }
             }
@@ -462,7 +462,7 @@ export class PrefabService extends BaseService<IPrefabEvents> implements IPrefab
                 console.warn(`Node [${targetChild.name}] is a prefab child of prefabInstance [${targetChild['_prefab'].root?.name}], \
                 it's not allowed to modify hierarchy in current context, you can modify it in it's prefabAsset or do it after unlink prefab from root node`);
                 // 消除其它面板的等待操作，例如hierarchy操作节点时会先进入等待状态，如果没有node的change消息，就会一直处于等待状态。
-                ServiceEvents.broadcast('scene:change-node', child.uuid);
+                ServiceEvents.broadcast('scene:change-node', EditorExtends.Node.getNodePath(child));
                 return false;
             }
         }
