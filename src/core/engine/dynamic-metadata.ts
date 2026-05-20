@@ -1,17 +1,15 @@
-import { existsSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import path from 'path';
 import lodash from 'lodash';
 import ts from 'typescript';
 import i18n from '../base/i18n';
 import type { ICocosConfigurationPropertySchemaInput } from '../configuration/script/metadata';
-import { objectSchema } from '../configuration/script/metadata';
+import { objectSchema, translateMetadataText } from '../configuration/script/metadata';
 import type { IEngineConfig } from './@types/config';
 import type { IFeatureItem, IModuleItem, ModuleRenderConfig } from './@types/modules';
 
 type Primitive = string | number | boolean;
 type FlagValue = boolean | number;
-type LocalizationValue = Record<string, unknown>;
-
 export interface IEngineDynamicMetadataSchemas {
     includeModules: ICocosConfigurationPropertySchemaInput;
     flagProperties: Record<string, ICocosConfigurationPropertySchemaInput>;
@@ -68,8 +66,7 @@ export function getEngineDynamicConfigContribution(options: IEngineDynamicConfig
     try {
         const locale = i18n._lang ?? 'zh';
         const renderConfig = getEngineRenderConfig(options.engineRoot);
-        const localization = loadLocalization(options.engineRoot, locale);
-        const features = collectFeatureDescriptors(renderConfig, localization);
+        const features = collectFeatureDescriptors(renderConfig);
         const macros = collectMacroDescriptors(options.engineRoot, locale);
         const flagDescriptors = collectFlagDescriptors(features);
         const flagProperties = buildFlagProperties(flagDescriptors);
@@ -93,45 +90,20 @@ export function getEngineDynamicConfigContribution(options: IEngineDynamicConfig
     }
 }
 
-function loadLocalization(engineRoot: string, locale: string): LocalizationValue | undefined {
-    const locales = Array.from(new Set([locale, 'zh', 'en']));
-    for (const candidate of locales) {
-        const localizationPath = path.join(engineRoot, 'editor', 'i18n', candidate, 'localization.js');
-        if (!existsSync(localizationPath)) {
-            continue;
-        }
-
-        try {
-            return loadCommonJsModuleFresh(localizationPath) as LocalizationValue;
-        } catch (error) {
-            console.warn(`[Engine] Failed to load engine localization: ${localizationPath}`, error);
-        }
-    }
-
-    return undefined;
-}
-
-function loadCommonJsModuleFresh(filePath: string): unknown {
-    const resolved = require.resolve(filePath);
-    delete require.cache[resolved];
-    return require(resolved);
-}
-
 function collectFeatureDescriptors(
-    renderConfig: ModuleRenderConfig,
-    localization?: LocalizationValue
+    renderConfig: ModuleRenderConfig
 ): IFeatureDescriptor[] {
     const descriptors: IFeatureDescriptor[] = [];
 
     for (const [featureKey, moduleItem] of Object.entries(renderConfig.features)) {
         if (isFeatureGroup(moduleItem)) {
             for (const [optionKey, optionItem] of Object.entries(moduleItem.options)) {
-                descriptors.push(createFeatureDescriptor(optionKey, optionItem, localization));
+                descriptors.push(createFeatureDescriptor(optionKey, optionItem));
             }
             continue;
         }
 
-        descriptors.push(createFeatureDescriptor(featureKey, moduleItem, localization));
+        descriptors.push(createFeatureDescriptor(featureKey, moduleItem));
     }
 
     return descriptors;
@@ -143,23 +115,22 @@ function isFeatureGroup(moduleItem: IModuleItem): moduleItem is Extract<IModuleI
 
 function createFeatureDescriptor(
     featureKey: string,
-    featureItem: IFeatureItem,
-    localization?: LocalizationValue
+    featureItem: IFeatureItem
 ): IFeatureDescriptor {
     const flags: IFlagDescriptor[] = [];
     for (const [flagKey, flagItem] of Object.entries(featureItem.flags ?? {})) {
         flags.push({
             key: flagKey,
-            label: resolveLocalizationText(flagItem.label, localization, lodash.startCase(flagKey)) ?? lodash.startCase(flagKey),
-            description: resolveLocalizationText(flagItem.description, localization),
+            label: resolveLocalizationText(flagItem.label, lodash.startCase(flagKey)) ?? lodash.startCase(flagKey),
+            description: resolveLocalizationText(flagItem.description),
             default: normalizeFlagValue(flagItem.default),
         });
     }
 
     return {
         id: featureKey,
-        label: resolveLocalizationText(featureItem.label, localization, lodash.startCase(featureKey)) ?? lodash.startCase(featureKey),
-        description: resolveLocalizationText(featureItem.description, localization),
+        label: resolveLocalizationText(featureItem.label, lodash.startCase(featureKey)) ?? lodash.startCase(featureKey),
+        description: resolveLocalizationText(featureItem.description),
         default: Boolean(featureItem.default),
         flags,
     };
@@ -186,7 +157,6 @@ function collectFlagDescriptors(features: IFeatureDescriptor[]): IFlagDescriptor
 
 function resolveLocalizationText(
     value: string | undefined,
-    localization?: LocalizationValue,
     fallback?: string
 ): string | undefined {
     if (!value) {
@@ -197,32 +167,13 @@ function resolveLocalizationText(
         return value;
     }
 
-    const key = value.slice('i18n:'.length);
-    const resolved = getByPath(localization, key)
-        ?? getByPath(localization, key.split('.').slice(1).join('.'));
-    return typeof resolved === 'string' ? resolved : fallback;
-}
-
-function getByPath(target: unknown, keyPath: string): unknown {
-    if (!target) {
-        return undefined;
+    const translated = translateMetadataText(value);
+    const strippedKey = value.slice('i18n:'.length);
+    if (translated && translated !== strippedKey) {
+        return translated;
     }
 
-    const segments = keyPath.split('.');
-    let current: unknown = target;
-    for (const segment of segments) {
-        if (!segment) {
-            return undefined;
-        }
-
-        if (!current || typeof current !== 'object' || !(segment in current)) {
-            return undefined;
-        }
-
-        current = (current as Record<string, unknown>)[segment];
-    }
-
-    return current;
+    return fallback;
 }
 
 function buildIncludeModulesSchema(features: IFeatureDescriptor[]): ICocosConfigurationPropertySchemaInput {
