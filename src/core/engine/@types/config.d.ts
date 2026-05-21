@@ -96,6 +96,10 @@ export interface IEngineModuleConfig {
     noDeprecatedFeatures?: { value: boolean, version: string };
 }
 
+export interface IEngineModuleProjectConfig extends IEngineModuleConfig {
+    name: string;
+}
+
 export interface IEngineConfig extends IEngineModuleConfig {
     physicsConfig: IPhysicsConfig;
     macroConfig?: Record<string, string | number | boolean>;
@@ -115,7 +119,7 @@ export interface IEngineConfig extends IEngineModuleConfig {
 }
 
 export interface IEngineProjectConfig extends Exclude<IEngineConfig, 'includeModules' | 'flags' | 'noDeprecatedFeatures'> {
-    configs?: Record<string, IEngineModuleConfig>;
+    configs?: Record<string, IEngineModuleProjectConfig>;
     globalConfigKey?: string;
 }
 

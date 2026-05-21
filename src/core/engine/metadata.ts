@@ -2,6 +2,7 @@ import type { IEngineConfig } from './@types/config';
 import type { ICocosConfigurationNode, ICocosConfigurationPropertySchemaInput } from '../configuration/script/metadata';
 import { arraySchema, createNode, objectSchema } from '../configuration/script/metadata';
 import { getEngineDynamicConfigContribution } from './dynamic-metadata';
+import { createDefaultEngineModuleProjectDefaults } from './module-config-defaults';
 
 interface IEngineMetadataOptions {
     defaultConfig: IEngineConfig;
@@ -17,6 +18,7 @@ export function createEngineMetadataNodes(options: IEngineMetadataOptions): ICoc
             macroConfig: options.defaultConfig.macroConfig,
         },
     }).metadata;
+    const moduleProjectDefaults = createDefaultEngineModuleProjectDefaults(options.engineRoot);
 
     return [
         createNode('engine.physicsConfig', 'i18n:configuration.engine.physicsConfig.title', 'engine', {
@@ -158,22 +160,19 @@ export function createEngineMetadataNodes(options: IEngineMetadataOptions): ICoc
         }, 3),
 
         createNode('engine.moduleConfig', 'i18n:configuration.engine.moduleConfig.title', 'engine', {
-            'engine.includeModules': dynamicMetadata.includeModules,
-            ...prefixProperties('engine.flags', dynamicMetadata.flagProperties),
-            'engine.noDeprecatedFeatures': {
-                type: 'object',
-                default: undefined,
-                title: 'i18n:configuration.engine.moduleConfig.noDeprecatedFeatures.title',
-                description: 'i18n:configuration.engine.moduleConfig.noDeprecatedFeatures.description',
-            },
             'engine.globalConfigKey': {
                 type: 'string',
-                default: '',
+                default: moduleProjectDefaults.globalConfigKey,
                 title: 'i18n:configuration.engine.projectConfig.globalConfigKey.title',
             },
             'engine.configs': objectSchema(undefined, {
+                default: moduleProjectDefaults.configs,
                 title: 'i18n:configuration.engine.projectConfig.configs.title',
                 additionalProperties: objectSchema({
+                    name: {
+                        type: 'string',
+                        title: 'i18n:builder.options.name',
+                    },
                     includeModules: dynamicMetadata.includeModules,
                     flags: dynamicMetadata.flagsObject,
                     noDeprecatedFeatures: objectSchema({

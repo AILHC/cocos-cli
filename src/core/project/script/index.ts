@@ -4,7 +4,8 @@ import { existsSync, mkdir, readJSON } from 'fs-extra';
 import { ProjectInfo, ProjectType } from '../@types/public';
 import { safeOutputJSON } from '../utils';
 
-import { defaultEngineSettings, defaultProjectSettings } from './settings-template';
+import { createDefaultEngineSettings, defaultProjectSettings } from './settings-template';
+import { GlobalPaths } from '../../../global';
 
 export interface IProject {
     /**
@@ -161,7 +162,7 @@ export class Project implements IProject {
             
             // 写入默认的 settings
             const settingsDir = join(projectPath, 'settings', 'v2', 'packages');
-            await safeOutputJSON(join(settingsDir, 'engine.json'), defaultEngineSettings);
+            await safeOutputJSON(join(settingsDir, 'engine.json'), createDefaultEngineSettings(GlobalPaths.enginePath));
             await safeOutputJSON(join(settingsDir, 'project.json'), defaultProjectSettings);
 
             return true;

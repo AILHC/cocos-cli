@@ -11,6 +11,7 @@ import {
 import { Modularize } from '@cocos/ccbuild';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { normalizeDtsRollupContent } from './generate-dts-postprocess';
 
 const execAsync = promisify(exec);// Dynamically build the real PlatformType union from @cocos/ccbuild enums.
 // This is needed because api-extractor incorrectly resolves
@@ -73,6 +74,7 @@ function buildPlatformTypeUnion(): string {
 async function postProcessDts(filePath: string) {
     let content = await fs.readFile(filePath, 'utf-8');
     let changed = false;
+    const fileName = path.basename(filePath);
 
     // Fix api-extractor circular self-reference for PlatformType
     const selfRef = 'type PlatformType = PlatformType;';
@@ -89,7 +91,7 @@ async function postProcessDts(filePath: string) {
     const banTypesComment = /[ \t]*\/\/ eslint-disable-next-line @typescript-eslint\/ban-types\r?\n/g;
     if (content.match(banTypesComment)) {
         content = content.replace(banTypesComment, '');
-        console.log(`  Post-processed: removed @typescript-eslint/ban-types comments in ${path.basename(filePath)}`);
+        console.log(`  Post-processed: removed @typescript-eslint/ban-types comments in ${fileName}`);
         changed = true;
     }
 
@@ -100,7 +102,14 @@ async function postProcessDts(filePath: string) {
     if (promoteRe.test(content)) {
         promoteRe.lastIndex = 0;
         content = content.replace(promoteRe, 'export declare $1 ');
-        console.log(`  Post-processed: promoted non-exported declarations to export in ${path.basename(filePath)}`);
+        console.log(`  Post-processed: promoted non-exported declarations to export in ${fileName}`);
+        changed = true;
+    }
+
+    const normalizedContent = normalizeDtsRollupContent(fileName, content);
+    if (normalizedContent !== content) {
+        content = normalizedContent;
+        console.log(`  Post-processed: normalized unstable ${fileName} rollup signatures`);
         changed = true;
     }
 

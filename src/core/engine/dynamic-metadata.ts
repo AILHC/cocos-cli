@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import lodash from 'lodash';
 import ts from 'typescript';
@@ -10,6 +10,7 @@ import type { IFeatureItem, IModuleItem, ModuleRenderConfig } from './@types/mod
 
 type Primitive = string | number | boolean;
 type FlagValue = boolean | number;
+type LocalizationValue = Record<string, unknown>;
 export interface IEngineDynamicMetadataSchemas {
     includeModules: ICocosConfigurationPropertySchemaInput;
     flagProperties: Record<string, ICocosConfigurationPropertySchemaInput>;
@@ -62,6 +63,13 @@ export function getEngineRenderConfig(engineRoot: string): ModuleRenderConfig {
     return JSON.parse(readUtf8File(renderConfigPath)) as ModuleRenderConfig;
 }
 
+export function getLocalizedEngineRenderConfig(engineRoot: string): ModuleRenderConfig {
+    const locale = i18n._lang ?? 'zh';
+    const renderConfig = getEngineRenderConfig(engineRoot);
+    const localization = loadLocalization(engineRoot, locale);
+    return localizeRenderConfig(renderConfig, localization);
+}
+
 export function getEngineDynamicConfigContribution(options: IEngineDynamicConfigOptions): IEngineDynamicConfigContribution {
     try {
         const locale = i18n._lang ?? 'zh';
@@ -88,6 +96,30 @@ export function getEngineDynamicConfigContribution(options: IEngineDynamicConfig
         console.warn('[Engine] Failed to build dynamic configuration metadata from engine source, fallback to static defaults.', error);
         return createFallbackContribution(options.fallbackConfig);
     }
+}
+
+function loadLocalization(engineRoot: string, locale: string): LocalizationValue | undefined {
+    const locales = Array.from(new Set([locale, 'zh', 'en']));
+    for (const candidate of locales) {
+        const localizationPath = path.join(engineRoot, 'editor', 'i18n', candidate, 'localization.js');
+        if (!existsSync(localizationPath)) {
+            continue;
+        }
+
+        try {
+            return loadCommonJsModuleFresh(localizationPath) as LocalizationValue;
+        } catch (error) {
+            console.warn(`[Engine] Failed to load engine localization: ${localizationPath}`, error);
+        }
+    }
+
+    return undefined;
+}
+
+function loadCommonJsModuleFresh(filePath: string): unknown {
+    const resolved = require.resolve(filePath);
+    delete require.cache[resolved];
+    return require(resolved);
 }
 
 function collectFeatureDescriptors(
@@ -121,16 +153,16 @@ function createFeatureDescriptor(
     for (const [flagKey, flagItem] of Object.entries(featureItem.flags ?? {})) {
         flags.push({
             key: flagKey,
-            label: resolveLocalizationText(flagItem.label, lodash.startCase(flagKey)) ?? lodash.startCase(flagKey),
-            description: resolveLocalizationText(flagItem.description),
+            label: resolveLocalizationText(flagItem.label, undefined, lodash.startCase(flagKey)) ?? lodash.startCase(flagKey),
+            description: resolveLocalizationText(flagItem.description, undefined),
             default: normalizeFlagValue(flagItem.default),
         });
     }
 
     return {
         id: featureKey,
-        label: resolveLocalizationText(featureItem.label, lodash.startCase(featureKey)) ?? lodash.startCase(featureKey),
-        description: resolveLocalizationText(featureItem.description),
+        label: resolveLocalizationText(featureItem.label, undefined, lodash.startCase(featureKey)) ?? lodash.startCase(featureKey),
+        description: resolveLocalizationText(featureItem.description, undefined),
         default: Boolean(featureItem.default),
         flags,
     };
@@ -157,6 +189,7 @@ function collectFlagDescriptors(features: IFeatureDescriptor[]): IFlagDescriptor
 
 function resolveLocalizationText(
     value: string | undefined,
+    localization?: LocalizationValue,
     fallback?: string
 ): string | undefined {
     if (!value) {
@@ -167,13 +200,78 @@ function resolveLocalizationText(
         return value;
     }
 
+    const key = value.slice('i18n:'.length);
+    const resolved = getByPath(localization, key)
+        ?? getByPath(localization, key.split('.').slice(1).join('.'));
+    if (typeof resolved === 'string') {
+        return resolved;
+    }
+
     const translated = translateMetadataText(value);
-    const strippedKey = value.slice('i18n:'.length);
-    if (translated && translated !== strippedKey) {
+    if (translated && translated !== key) {
         return translated;
     }
 
     return fallback;
+}
+
+function localizeRenderConfig(
+    renderConfig: ModuleRenderConfig,
+    localization?: LocalizationValue
+): ModuleRenderConfig {
+    return translateRenderConfigValue(renderConfig, localization);
+}
+
+function translateRenderConfigValue<T>(value: T, localization?: LocalizationValue): T {
+    if (Array.isArray(value)) {
+        return value.map((item) => translateRenderConfigValue(item, localization)) as T;
+    }
+
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>).map(([key, childValue]) => [
+                key,
+                translateRenderConfigValue(childValue, localization),
+            ])
+        ) as T;
+    }
+
+    if (typeof value === 'string') {
+        return translateRenderConfigText(value, localization) as T;
+    }
+
+    return value;
+}
+
+function translateRenderConfigText(value: string, localization?: LocalizationValue): string {
+    if (!value.startsWith('i18n:')) {
+        return value;
+    }
+
+    return resolveLocalizationText(value, localization, value.slice('i18n:'.length))
+        ?? value.slice('i18n:'.length);
+}
+
+function getByPath(target: unknown, keyPath: string): unknown {
+    if (!target) {
+        return undefined;
+    }
+
+    const segments = keyPath.split('.');
+    let current: unknown = target;
+    for (const segment of segments) {
+        if (!segment) {
+            return undefined;
+        }
+
+        if (!current || typeof current !== 'object' || !(segment in current)) {
+            return undefined;
+        }
+
+        current = (current as Record<string, unknown>)[segment];
+    }
+
+    return current;
 }
 
 function buildIncludeModulesSchema(features: IFeatureDescriptor[]): ICocosConfigurationPropertySchemaInput {

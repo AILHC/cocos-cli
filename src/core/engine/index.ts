@@ -7,7 +7,7 @@ import { join } from 'path';
 import { cloneDeep } from 'lodash';
 import { configurationRegistry, IBaseConfiguration } from '../configuration';
 import { assetManager } from '../assets';
-import { getEngineDynamicConfigContribution, getEngineRenderConfig } from './dynamic-metadata';
+import { getEngineDynamicConfigContribution, getEngineRenderConfig, getLocalizedEngineRenderConfig } from './dynamic-metadata';
 import { createEngineMetadataNodes } from './metadata';
 import i18n from '../base/i18n';
 
@@ -21,6 +21,7 @@ export interface IEngine {
     init(enginePath: string): Promise<this>;
     initEngine(info: IInitEngineInfo): Promise<this>;
     queryRenderConfig(): ModuleRenderConfig;
+    queryLocalizedRenderConfig(): ModuleRenderConfig;
     queryLayerBuiltin(): Promise<{ name: string; value: number }[]>;
     querySortingLayerBuiltin(): Promise<ReadonlyArray<{ id: number; name: string; value: number }>>;
 }
@@ -512,6 +513,13 @@ class EngineManager implements IEngine {
             throw new Error('Engine not init');
         }
         return getEngineRenderConfig(this._info.typescript.path);
+    }
+
+    queryLocalizedRenderConfig(): ModuleRenderConfig {
+        if (!this._init) {
+            throw new Error('Engine not init');
+        }
+        return getLocalizedEngineRenderConfig(this._info.typescript.path);
     }
 
     async queryLayerBuiltin() {

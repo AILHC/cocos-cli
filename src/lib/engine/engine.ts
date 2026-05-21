@@ -16,6 +16,11 @@ export async function getConfig(useDefault?: boolean) {
     return Engine.getConfig(useDefault);
 }
 
+export async function getRenderConfig() {
+    const { Engine } = await import('../../core/engine');
+    return Engine.queryLocalizedRenderConfig();
+}
+
 export async function initEngine(enginePath: string, projectPath: string, serverURL?: string) {
     const { initEngine } = await import('../../core/engine');
     return await initEngine(enginePath, projectPath, serverURL);

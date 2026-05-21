@@ -740,6 +740,8 @@ export { }
 exports[`DTS API compatibility builder.d.ts should match snapshot 1`] = `
 "import EventEmitter from 'events';
 import { EventEmitter as EventEmitter_2 } from 'stream';
+import { IAssetDeleteOptions } from './filesystem';
+import { IAssetWriteFileOptions } from './filesystem';
 import type { PluginItem } from '@babel/core';
 import { SpriteFrame } from 'cc';
 export declare interface AcornNode {
@@ -829,7 +831,7 @@ export declare class Asset extends VirtualAsset {
     basename: string;
     constructor(source: string, meta: Meta, assetDB: AssetDB);
     updateUrl(): void;
-    save(): boolean;
+    save(): Promise<boolean>;
     isDirectory(): boolean;
 }
 export declare const ASSET_HANDLER_TYPES: string[];
@@ -3483,9 +3485,9 @@ export declare class MetaManager {
     constructor(customConsole: CustomConsole);
     destroy(): void;
     read(path: string): boolean | undefined;
-    write(path: any): false | undefined;
-    remove(path: string): void;
-    get(path: string): MetaInfo;
+    write(path: string, options?: IAssetWriteFileOptions): Promise<false | undefined>;
+    remove(path: string, options?: IAssetDeleteOptions): Promise<void>;
+    get(path: string): Promise<MetaInfo>;
     move(pathA: string, pathB: string): void;
 }
 export declare enum MinigamePlatform {
@@ -4869,7 +4871,7 @@ export declare class VirtualAsset {
     saveToLibrary(extOrFile: string, buffer: Buffer | string): Promise<void>;
     copyToLibrary(extOrFile: string, target: string): Promise<void>;
     deleteFromLibrary(extOrFile: string): Promise<false | undefined>;
-    existsInLibrary(extOrFile: string): boolean;
+    existsInLibrary(extOrFile: string): Promise<boolean>;
     isDirectory(): boolean;
     createSubAsset(name: string, importer: string, options?: {
         displayName?: string;
@@ -6205,6 +6207,7 @@ export declare interface Features {
 }
 export declare function getConfig(useDefault?: boolean): Promise<IEngineConfig>;
 export declare function getInfo(): Promise<EngineInfo>;
+export declare function getRenderConfig(): Promise<ModuleRenderConfig>;
 export declare interface IChunkContent {
     skeleton: null | string;
     clips: string[];
@@ -6214,7 +6217,6 @@ export declare interface ICollisionMatrix {
 }
 export declare type ICroppingConfig = {
     name: string;
-    cache: Record<string, IDisplayModuleCache>,
     flags: IFlags_2,
     includeModules: string[],
     noDeprecatedFeatures: ICroppingConfigDeprecatedFeature;
@@ -6270,8 +6272,11 @@ export declare interface IEngineModuleConfig {
     flags?: IFlags;
     noDeprecatedFeatures?: { value: boolean, version: string };
 }
+export declare interface IEngineModuleProjectConfig extends IEngineModuleConfig {
+    name: string;
+}
 export declare interface IEngineProjectConfig extends Exclude<IEngineConfig, 'includeModules' | 'flags' | 'noDeprecatedFeatures'> {
-    configs?: Record<string, IEngineModuleConfig>;
+    configs?: Record<string, IEngineModuleProjectConfig>;
     globalConfigKey?: string;
 }
 export declare interface IFeatureGroup extends BaseItem {
@@ -6715,6 +6720,7 @@ export declare namespace Engine {
         init_4 as init,
         getInfo,
         getConfig,
+        getRenderConfig,
         initEngine,
         startEngineCompilation,
         queryLayerBuiltin,
@@ -6733,6 +6739,7 @@ export declare namespace Engine {
         ISplashSetting,
         IDesignResolution,
         IEngineModuleConfig,
+        IEngineModuleProjectConfig,
         IEngineConfig,
         IEngineProjectConfig,
         IInitEngineInfo,
@@ -6822,6 +6829,7 @@ export declare function getInfo(): Promise<EngineInfo>;
 export declare function getInfo_2(): Promise<ProjectInfo>;
 export declare function getMetadata(): Promise<ICocosConfigurationNode[]>;
 export declare function getProgrammingFacet(): Promise<ProgrammingFacet>;
+export declare function getRenderConfig(): Promise<ModuleRenderConfig>;
 export declare function getStatus(): {
     registered: boolean;
     url?: string;
@@ -7161,7 +7169,6 @@ export declare interface ICreatePrefabFromNodeParams {
 export declare type ICreateType = typeof CREATE_TYPES[number];
 export declare type ICroppingConfig = {
     name: string;
-    cache: Record<string, IDisplayModuleCache>,
     flags: IFlags_2,
     includeModules: string[],
     noDeprecatedFeatures: ICroppingConfigDeprecatedFeature;
@@ -7237,6 +7244,9 @@ export declare interface IEngineModuleConfig {
     flags?: IFlags;
     noDeprecatedFeatures?: { value: boolean, version: string };
 }
+export declare interface IEngineModuleProjectConfig extends IEngineModuleConfig {
+    name: string;
+}
 export declare interface IEngineOptions {
     root: string;
     distRoot: string;
@@ -7244,7 +7254,7 @@ export declare interface IEngineOptions {
     features: string[];
 }
 export declare interface IEngineProjectConfig extends Exclude<IEngineConfig, 'includeModules' | 'flags' | 'noDeprecatedFeatures'> {
-    configs?: Record<string, IEngineModuleConfig>;
+    configs?: Record<string, IEngineModuleProjectConfig>;
     globalConfigKey?: string;
 }
 export declare interface IEngineService extends IServiceEvents {

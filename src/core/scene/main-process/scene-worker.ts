@@ -137,34 +137,52 @@ export class SceneWorker {
     }
 
     async stop() {
-        if (!this.process) return true;
+        const process = this._process;
+        if (!process) return true;
         this.isManualStop = true;
         return new Promise<boolean>((resolve) => {
+            let settled = false;
+            const cleanup = () => {
+                clearTimeout(timeout);
+                process.off('exit', onExit);
+                process.off('error', onError);
+            };
+            const resolveOnce = (result: boolean) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+                resolve(result);
+            };
             const timeout = setTimeout(() => {
                 console.warn('Scene process stop timed out, force killing...');
-                try { this.process?.kill('SIGTERM'); } catch (e) { /* ignore */ }
+                try { process.kill('SIGTERM'); } catch (e) { /* ignore */ }
                 this.clear();
-                resolve(true);
+                resolveOnce(true);
             }, 10000);
 
-            this.process.once('exit', () => {
-                clearTimeout(timeout);
+            const onExit = () => {
                 console.log('Scene process stopped.');
                 this.clear();
-                resolve(true);
-            });
-            this.process.once('error', () => {
-                clearTimeout(timeout);
-                resolve(false);
-            });
+                resolveOnce(true);
+            };
+            const onError = (error: NodeJS.ErrnoException) => {
+                if (error.code === 'EPIPE' || error.message.includes('write EPIPE')) {
+                    return;
+                }
+                resolveOnce(false);
+            };
+
+            process.once('exit', onExit);
+            process.on('error', onError);
 
             try {
-                this.process.send(SceneWorker.ExitWorkerEvent);
+                process.send(SceneWorker.ExitWorkerEvent);
             } catch (e) {
-                clearTimeout(timeout);
-                try { this.process.kill('SIGTERM'); } catch (_) { /* ignore */ }
+                try { process.kill('SIGTERM'); } catch (_) { /* ignore */ }
                 this.clear();
-                resolve(true);
+                resolveOnce(true);
             }
         });
     }

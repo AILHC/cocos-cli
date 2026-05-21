@@ -71,7 +71,7 @@ describe('configuration metadata', () => {
         await expect(getMetadata()).resolves.toEqual([]);
     });
 
-    it('should expose engine metadata from the registered engine module using direct config keys', async () => {
+    it('should expose engine module metadata using config profile defaults', async () => {
         const runtime = await loadFreshRuntime();
         await runtime.project.open(TestGlobalEnv.projectRoot);
         await runtime.Engine.init(TestGlobalEnv.engineRoot);
@@ -79,15 +79,34 @@ describe('configuration metadata', () => {
         const nodes = await runtime.getMetadata();
         const engineModuleNode = findNode(nodes, 'engine.moduleConfig');
         const engineMacroNode = findNode(nodes, 'engine.macroConfig');
-        const includeModulesProperty = findProperty(engineModuleNode, 'engine.includeModules');
-        const physXFlagProperty = findProperty(engineModuleNode, 'engine.flags.LOAD_PHYSX_MANUALLY');
+        const globalConfigKeyProperty = findProperty(engineModuleNode, 'engine.globalConfigKey');
+        const configsProperty = findProperty(engineModuleNode, 'engine.configs');
         const macroProperty = findProperty(engineMacroNode, 'engine.macroConfig.ENABLE_TILEDMAP_CULLING');
+        const configItemSchema = configsProperty.additionalProperties as ICocosConfigurationPropertySchema | undefined;
 
-        expect(includeModulesProperty.type).toBe('array');
-        expect(includeModulesProperty.default).toEqual(runtime.Engine.getConfig(true).includeModules);
-        expect(includeModulesProperty).not.toHaveProperty('scope');
-        expect(physXFlagProperty.type).toBe('boolean');
-        expect(physXFlagProperty).not.toHaveProperty('scope');
+        expect(engineModuleNode.properties['engine.includeModules']).toBeUndefined();
+        expect(engineModuleNode.properties['engine.flags.LOAD_PHYSX_MANUALLY']).toBeUndefined();
+        expect(engineModuleNode.properties['engine.noDeprecatedFeatures']).toBeUndefined();
+        expect(globalConfigKeyProperty.type).toBe('string');
+        expect(globalConfigKeyProperty.default).toBe('defaultConfig');
+        expect(globalConfigKeyProperty).not.toHaveProperty('scope');
+        expect(configsProperty.type).toBe('object');
+        expect(configsProperty.default).toEqual({
+            defaultConfig: {
+                name: '默认配置',
+                includeModules: runtime.Engine.getConfig(true).includeModules,
+                flags: runtime.Engine.getConfig(true).flags,
+                noDeprecatedFeatures: {
+                    value: false,
+                    version: '',
+                },
+            },
+        });
+        expect(configsProperty).not.toHaveProperty('scope');
+        expect(configItemSchema?.properties?.name?.type).toBe('string');
+        expect(configItemSchema?.properties?.includeModules?.type).toBe('array');
+        expect(configItemSchema?.properties?.flags?.type).toBe('object');
+        expect(configItemSchema?.properties?.noDeprecatedFeatures?.type).toBe('object');
         expect(macroProperty.type).toBe('boolean');
         expect(macroProperty).not.toHaveProperty('scope');
         expect(engineMacroNode.properties['engine.macroConfig']).toBeUndefined();

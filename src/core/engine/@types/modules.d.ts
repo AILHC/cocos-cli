@@ -185,7 +185,6 @@ export type ICroppingConfigDeprecatedFeature = {
 
 export type ICroppingConfig = {
     name: string;
-    cache: Record<string, IDisplayModuleCache>,
     flags: IFlags,
     includeModules: string[],
     noDeprecatedFeatures: ICroppingConfigDeprecatedFeature;
