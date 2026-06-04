@@ -10,6 +10,16 @@ import {
     type IQueryNodeTreeParams,
     type INodeTreeItem,
     type INodeEvents,
+    type ISetParentParams,
+    type IReorderParams,
+    type ICopyParams,
+    type IPasteParams,
+    type IDuplicateParams,
+    type ICutParams,
+    type IClipboardState,
+    type IMoveArrayElementParams,
+    type IRemoveArrayElementParams,
+    type IChangeNodeLockParams,
     NodeType,
     NodeEventType,
     ISetPropertyOptions
@@ -65,8 +75,9 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
             if (!assetUuid) {
                 throw new Error(`Asset not found for dbURL: ${params.dbURL}`);
             }
+            const assetInfo = await Rpc.getInstance().request('assetManager', 'queryAssetInfo', [assetUuid]);
             const canvasNeeded = params.canvasRequired || false;
-            return await this._createNode(assetUuid, canvasNeeded, false, params);
+            return await this._createNode(assetUuid, canvasNeeded, false, params, assetInfo?.type);
         } catch (error) {
             console.error(error);
             throw error;
@@ -75,7 +86,7 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
         }
     }
 
-    async _createNode(assetUuid: string | null, canvasNeeded: boolean, checkUITransform: boolean, params: ICreateByNodeTypeParams | ICreateByAssetParams): Promise<INode | null> {
+    async _createNode(assetUuid: string | null, canvasNeeded: boolean, checkUITransform: boolean, params: ICreateByNodeTypeParams | ICreateByAssetParams, assetType?: string): Promise<INode | null> {
         const currentScene = Service.Editor.getRootNode();
         if (!currentScene) {
             throw new Error('Failed to create node: the scene is not opened.');
@@ -92,7 +103,9 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
         if (assetUuid) {
             const { node, canvasRequired } = await createNodeByAsset({
                 uuid: assetUuid,
-                canvasRequired: canvasNeeded
+                canvasRequired: canvasNeeded,
+                type: assetType,
+                workMode: workMode,
             });
             resultNode = node;
             parent = await this.checkCanvasRequired(workMode.toLowerCase(), Boolean(canvasRequired), parent, params.position as Vec3) as Node;
@@ -109,8 +122,9 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
          * 默认创建节点是从 prefab 模板，所以初始是 prefab 节点
          * 是否要 unlink 为普通节点
          * 有 nodeType 说明是内置资源创建的，需要移除 prefab info
+         * createByAsset 时，如果 assetType 不是 cc.Prefab 或者 unlinkPrefab 为 true，也需要移除
          */
-        if ('nodeType' in params) {
+        if ('nodeType' in params || assetType !== 'cc.Prefab' || params.unlinkPrefab) {
             Service.Prefab.removePrefabInfoFromNode(resultNode, true);
         }
 
@@ -404,6 +418,7 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
         });
         NodeMgr.clear();
         EditorExtends.Component.clear();
+        this._cutUuids = [];
     }
 
     public async previewSetProperty(options: ISetPropertyOptions): Promise<boolean> {
@@ -472,6 +487,260 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
 
     public getPathByUuid(uuid: string): string {
         return nodeMgr.getPathByUuid(uuid);
+    }
+
+    async setParent(params: ISetParentParams): Promise<string[]> {
+        try {
+            await Service.Editor.lock();
+            const root = Service.Editor.getRootNode();
+            if (!root) {
+                throw new Error('Failed to set parent: the scene is not opened.');
+            }
+
+            const uuids = params.paths.map(p => {
+                const node = NodeMgr.getNodeByPath(p);
+                if (!node) throw new Error(`Node not found at path: ${p}`);
+                return node.uuid;
+            });
+
+            const parentNode = NodeMgr.getNodeByPath(params.parentPath);
+            if (!parentNode) {
+                throw new Error(`Parent node not found at path: ${params.parentPath}`);
+            }
+
+            nodeMgr.setParent(parentNode.uuid, uuids, params.keepWorldTransform);
+
+            return uuids.map(uuid => {
+                const node = nodeMgr.query(uuid);
+                return node ? NodeMgr.getNodePath(node) : '';
+            }).filter(Boolean);
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
+    }
+
+    async reorder(params: IReorderParams): Promise<boolean> {
+        try {
+            await Service.Editor.lock();
+            const root = Service.Editor.getRootNode();
+            if (!root) {
+                throw new Error('Failed to reorder: the scene is not opened.');
+            }
+
+            const parentNode = NodeMgr.getNodeByPath(params.path);
+            if (!parentNode) {
+                throw new Error(`Parent node not found at path: ${params.path}`);
+            }
+
+            return nodeMgr.moveArrayElement(parentNode.uuid, 'children', params.target, params.offset);
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
+    }
+
+    private _cutUuids: string[] = [];
+
+    async copy(params: ICopyParams): Promise<string[]> {
+        try {
+            await Service.Editor.lock();
+            const root = Service.Editor.getRootNode();
+            if (!root) {
+                throw new Error('Failed to copy node: the scene is not opened.');
+            }
+
+            const uuids = params.paths.map(p => {
+                const node = NodeMgr.getNodeByPath(p);
+                if (!node) throw new Error(`Node not found at path: ${p}`);
+                return node.uuid;
+            });
+
+            // copy 覆盖之前的 cut 标记
+            this._cutUuids = [];
+            const copiedUuids = nodeMgr.copy(uuids);
+            return copiedUuids.map(uuid => {
+                const node = nodeMgr.query(uuid);
+                return node ? NodeMgr.getNodePath(node) : '';
+            }).filter(Boolean);
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
+    }
+
+    async paste(params: IPasteParams): Promise<string[]> {
+        try {
+            await Service.Editor.lock();
+            const root = Service.Editor.getRootNode();
+            if (!root) {
+                throw new Error('Failed to paste node: the scene is not opened.');
+            }
+
+            let parentUuid: string | null = null;
+            if (params.parentPath) {
+                const parentNode = NodeMgr.getNodeByPath(params.parentPath);
+                if (!parentNode) {
+                    throw new Error(`Parent node not found at path: ${params.parentPath}`);
+                }
+                parentUuid = parentNode.uuid;
+            }
+
+            // 剪切粘贴：移动节点而非创建副本
+            if (this._cutUuids.length > 0) {
+                const cutUuids = this._cutUuids;
+                this._cutUuids = [];
+                const movedUuids = nodeMgr.setParent(parentUuid || root.uuid, cutUuids, !!params.keepWorldTransform);
+                return movedUuids.map(uuid => {
+                    const node = nodeMgr.query(uuid);
+                    return node ? NodeMgr.getNodePath(node) : '';
+                }).filter(Boolean);
+            }
+
+            // 普通粘贴：创建副本
+            const copiedUuids = nodeMgr.getCopiedUuids();
+            if (copiedUuids.length === 0) {
+                throw new Error('No nodes have been copied.');
+            }
+
+            const newUuids = nodeMgr.paste(parentUuid, copiedUuids, params.keepWorldTransform);
+            return newUuids.map(uuid => {
+                const node = nodeMgr.query(uuid);
+                return node ? NodeMgr.getNodePath(node) : '';
+            }).filter(Boolean);
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
+    }
+
+    async duplicate(params: IDuplicateParams): Promise<string[]> {
+        try {
+            await Service.Editor.lock();
+            const root = Service.Editor.getRootNode();
+            if (!root) {
+                throw new Error('Failed to duplicate node: the scene is not opened.');
+            }
+
+            const uuids = params.paths.map(p => {
+                const node = NodeMgr.getNodeByPath(p);
+                if (!node) throw new Error(`Node not found at path: ${p}`);
+                return node.uuid;
+            });
+
+            const newUuids = nodeMgr.duplicate(uuids);
+            return newUuids.map(uuid => {
+                const node = nodeMgr.query(uuid);
+                return node ? NodeMgr.getNodePath(node) : '';
+            }).filter(Boolean);
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
+    }
+
+    async cut(params: ICutParams): Promise<string[]> {
+        try {
+            await Service.Editor.lock();
+            const root = Service.Editor.getRootNode();
+            if (!root) {
+                throw new Error('Failed to cut node: the scene is not opened.');
+            }
+
+            const uuids = params.paths.map(p => {
+                const node = NodeMgr.getNodeByPath(p);
+                if (!node) throw new Error(`Node not found at path: ${p}`);
+                return node.uuid;
+            });
+
+            // 只标记为剪切，不立即删除；paste 时通过 setParent 移动节点
+            this._cutUuids = uuids;
+
+            return params.paths;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
+    }
+
+    async queryClipboardState(): Promise<IClipboardState> {
+        if (this._cutUuids.length > 0) {
+            const paths = this._cutUuids.map(uuid => {
+                const node = nodeMgr.query(uuid);
+                return node ? NodeMgr.getNodePath(node) : '';
+            }).filter(Boolean);
+            return { type: 'cut', paths };
+        }
+        const copiedUuids = nodeMgr.getCopiedUuids();
+        if (copiedUuids.length > 0) {
+            const paths = copiedUuids.map(uuid => {
+                const node = nodeMgr.query(uuid);
+                return node ? NodeMgr.getNodePath(node) : '';
+            }).filter(Boolean);
+            return { type: 'copy', paths };
+        }
+        return { type: 'none', paths: [] };
+    }
+
+    async moveArrayElement(params: IMoveArrayElementParams): Promise<boolean> {
+        try {
+            await Service.Editor.lock();
+            const node = NodeMgr.getNodeByPath(params.nodePath);
+            if (!node) {
+                throw new Error(`Node not found at path: ${params.nodePath}`);
+            }
+            return nodeMgr.moveArrayElement(node.uuid, params.path, params.target, params.offset);
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
+    }
+
+    async removeArrayElement(params: IRemoveArrayElementParams): Promise<boolean> {
+        try {
+            await Service.Editor.lock();
+            const node = NodeMgr.getNodeByPath(params.nodePath);
+            if (!node) {
+                throw new Error(`Node not found at path: ${params.nodePath}`);
+            }
+            return nodeMgr.removeArrayElement(node.uuid, params.path, params.index);
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
+    }
+
+    async changeNodeLock(params: IChangeNodeLockParams): Promise<void> {
+        try {
+            await Service.Editor.lock();
+            const uuids = params.paths.map(p => {
+                const node = NodeMgr.getNodeByPath(p);
+                if (!node) throw new Error(`Node not found at path: ${p}`);
+                return node.uuid;
+            });
+            nodeMgr.changeNodeLock(uuids, params.locked, params.loop ?? false);
+        } catch (error) {
+            console.error(error);
+            throw error;
+        } finally {
+            Service.Editor.unlock();
+        }
     }
 }
 

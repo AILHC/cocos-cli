@@ -1,16 +1,22 @@
 import type {
     Asset,
     Prefab,
+    SpriteFrame,
 } from 'cc';
 
 import {
+    js,
     assetManager,
     Node,
+    Layers,
     Canvas,
+    UITransform,
     Scene,
     instantiate,
     CCObject,
 } from 'cc';
+
+import { Service } from '../core/decorator';
 
 
 /**
@@ -32,16 +38,251 @@ export async function loadAny<TAsset extends Asset>(uuid: string): Promise<TAsse
 
 export async function createNodeByAsset(info: {
     uuid: string,
-    canvasRequired: boolean,
+    canvasRequired?: boolean,
+    type?: string,
+    workMode?: string,
 }): Promise<{ node: Node, canvasRequired: boolean }> {
 
-    const { uuid, canvasRequired } = info;
-    const asset = await loadAny(uuid);
-    const node = cc.instantiate(asset);
+    const { uuid, type, canvasRequired, workMode } = info;
+
+    let asset;
+    let node;
+    let newCanvasRequired = canvasRequired ?? false;
+
+    switch (type) {
+        case 'cc.AnimationClip':
+            {
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                const animation: any = node.addComponent(cc.Animation);
+                if (animation) {
+                    animation.defaultClip = asset;
+                }
+            }
+            break;
+        case 'cc.AudioClip':
+            {
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                const audio: any = node.addComponent(cc.AudioSource);
+                if (audio) {
+                    audio.clip = asset;
+                }
+            }
+            break;
+        case 'cc.BitmapFont':
+            {
+                newCanvasRequired = true;
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                node.layer = Layers.Enum.UI_2D;
+                const label: any = node.addComponent(cc.Label);
+                if (label) {
+                    label.font = asset;
+                }
+            }
+            break;
+        case 'cc.LabelAtlas':
+            {
+                newCanvasRequired = true;
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                node.layer = Layers.Enum.UI_2D;
+                const label: any = node.addComponent(cc.Label);
+                if (label) {
+                    label.font = asset;
+                    label.fontSize = asset.fontSize;
+                    if (asset.fntConfig) {
+                        const commonHeight = asset.fntConfig.commonHeight;
+                        label.lineHeight = commonHeight ? commonHeight : label.lineHeight;
+                    }
+                }
+            }
+            break;
+        case 'cc.Mesh':
+            {
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                const model: any = node.addComponent(cc.MeshRenderer);
+                if (model) {
+                    model.mesh = asset;
+                }
+            }
+            break;
+        case 'cc.ParticleAsset':
+            {
+                newCanvasRequired = true;
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                const particle: any = node.addComponent(cc.ParticleSystem2D);
+                if (particle) {
+                    particle.file = asset;
+                }
+            }
+            break;
+        case 'cc.Prefab':
+            {
+                asset = await loadAny<Prefab>(uuid);
+                node = cc.instantiate(asset);
+                if (node) {
+                    if (node.getComponentsInChildren(UITransform).length > 0) {
+                        newCanvasRequired = node.getComponentsInChildren(Canvas).length === 0;
+                    }
+                }
+            }
+            break;
+        case 'cc.Script':
+            {
+                const name = (await Service.Script.queryScriptName(uuid)) || '';
+                const cid: string = (await Service.Script.queryScriptCid(uuid)) || '';
+                node = new Node(name);
+                if (cid && cid !== 'MissingScript' && cid !== 'cc.MissingScript') {
+                    node.addComponent(js.getClassById(cid) as any);
+                }
+            }
+            break;
+        case 'cc.SpriteFrame':
+            {
+                asset = await loadAny<SpriteFrame>(uuid);
+
+                let useSpriteRenderer = false;
+                if (workMode === '3d') {
+                    const scene = cc.director.getScene();
+                    const hasCanvas = scene && scene.getComponentsInChildren(Canvas).length > 0;
+                    useSpriteRenderer = !hasCanvas;
+                }
+
+                const spritePrefabUuid = '9db8cd0b-cbe4-42e7-96a9-a239620c0a9d';
+                const spriteRendererPrefabUuid = '279ed042-5a65-4efe-9afb-2fc23c61e15a';
+                const prefabUuid = useSpriteRenderer ? spriteRendererPrefabUuid : spritePrefabUuid;
+
+                const spritePrefabAsset = await loadAny<Prefab>(prefabUuid);
+                spritePrefabAsset.name = asset.name;
+                node = cc.instantiate(spritePrefabAsset) as Node;
+                node.name = asset.name;
+
+                if (useSpriteRenderer) {
+                    newCanvasRequired = false;
+                    const sprite: any = node.getComponent(cc.SpriteRenderer);
+                    if (sprite) {
+                        sprite.spriteFrame = asset;
+                    }
+                } else {
+                    newCanvasRequired = true;
+                    node.layer = Layers.Enum.UI_2D;
+                    const sprite: any = node.getComponent(cc.Sprite);
+                    if (sprite) {
+                        sprite.spriteFrame = asset;
+                    }
+                }
+            }
+            break;
+        case 'cc.TTFFont':
+            {
+                newCanvasRequired = true;
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                node.layer = Layers.Enum.UI_2D;
+                const label: any = node.addComponent(cc.Label);
+                if (label) {
+                    label.font = asset;
+                }
+            }
+            break;
+        case 'cc.TerrainAsset':
+            {
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                const terrain: any = node.addComponent(cc.Terrain);
+                if (terrain) {
+                    terrain._asset = asset;
+                }
+            }
+            break;
+        case 'cc.TiledMapAsset':
+            {
+                newCanvasRequired = true;
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                node.layer = Layers.Enum.UI_2D;
+                const tiledmap: any = node.addComponent(cc.TiledMap);
+                if (tiledmap) {
+                    tiledmap.tmxAsset = asset;
+                }
+            }
+            break;
+        case 'cc.VideoClip':
+            {
+                newCanvasRequired = true;
+                asset = await loadAny(uuid) as any;
+                node = new Node(asset.name);
+                node.layer = Layers.Enum.UI_2D;
+                const video: any = node.addComponent(cc.VideoPlayer);
+                if (video) {
+                    video.clip = asset;
+                }
+            }
+            break;
+        case 'dragonBones.DragonBonesAsset':
+            {
+                if (cc.dragonBones) {
+                    newCanvasRequired = true;
+                    asset = await loadAny(uuid) as any;
+                    node = new Node(asset.name);
+                    node.layer = Layers.Enum.UI_2D;
+                    const dragbone: any = node.addComponent(cc.dragonBones.ArmatureDisplay);
+                    if (dragbone) {
+                        dragbone.dragonAsset = asset;
+                    }
+                } else {
+                    asset = await loadAny(uuid);
+                    node = cc.instantiate(asset);
+                }
+            }
+            break;
+        case 'dragonBones.DragonBonesAtlasAsset':
+            {
+                if (cc.dragonBones) {
+                    newCanvasRequired = true;
+                    asset = await loadAny(uuid) as any;
+                    node = new Node(asset.name);
+                    node.layer = Layers.Enum.UI_2D;
+                    const dragbone: any = node.addComponent(cc.dragonBones.ArmatureDisplay);
+                    if (dragbone) {
+                        dragbone.dragonAtlasAsset = asset;
+                    }
+                } else {
+                    asset = await loadAny(uuid);
+                    node = cc.instantiate(asset);
+                }
+            }
+            break;
+        case 'sp.SkeletonData':
+            {
+                if (cc.sp) {
+                    newCanvasRequired = true;
+                    asset = await loadAny(uuid) as any;
+                    node = new Node(asset.name);
+                    node.layer = Layers.Enum.UI_2D;
+                    const spSkeleton: any = node.addComponent(cc.sp.Skeleton);
+                    if (spSkeleton) {
+                        spSkeleton.skeletonData = asset;
+                    }
+                } else {
+                    asset = await loadAny(uuid);
+                    node = cc.instantiate(asset);
+                }
+            }
+            break;
+        default:
+            asset = await loadAny(uuid);
+            node = cc.instantiate(asset);
+            break;
+    }
 
     return {
         node,
-        canvasRequired: canvasRequired,
+        canvasRequired: newCanvasRequired,
     };
 }
 

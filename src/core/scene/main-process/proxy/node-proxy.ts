@@ -14,7 +14,7 @@ import { INodeInfo } from '../../common/cli/node';
 import { Rpc } from '../rpc';
 import { DumpConverter } from './dump-converter';
 
-export interface INodeProxy extends Omit<IPublicNodeService, 'createByType' | 'createByAsset' | 'query' | 'getPathByUuid'> {
+export interface INodeProxy extends Omit<IPublicNodeService, 'createByType' | 'createByAsset' | 'query' | 'getPathByUuid' | 'setParent' | 'reorder' | 'copy' | 'paste' | 'duplicate' | 'cut' | 'moveArrayElement' | 'removeArrayElement' | 'changeNodeLock'> {
     createByType(params: ICreateByNodeTypeParams): Promise<INodeInfo | null>;
     createByAsset(params: ICreateByAssetParams): Promise<INodeInfo | null>;
     query(params?: IQueryNodeParams): Promise<INodeInfo | null>;

@@ -27,6 +27,7 @@ import './editor-proxy-scene.testcase';
 import './editor-proxy-prefab.testcase';
 import './node-proxy.testcase';
 import './node-for-editor.testcase';
+import './node-hierarchy.testcase';
 import './component-proxy.testcase';
 import './component-for-editor.testcase';
 import './prefab-proxy.testcase';

@@ -5317,6 +5317,7 @@ export declare interface IBaseCreateNodeParams {
     position?: IVec3;
     keepWorldTransform?: boolean;
     canvasRequired?: boolean;
+    unlinkPrefab?: boolean;
 }
 export declare interface IBaseIdentifier {
     assetName: string;
@@ -5361,6 +5362,11 @@ export declare interface ICameraService {
     setOriginAxes3D(config: IOriginAxesConfig): void;
     onUpdate(deltaTime: number): void;
 }
+export declare interface IChangeNodeLockParams {
+    paths: string[];
+    locked: boolean;
+    loop?: boolean;
+}
 export declare interface IChangeNodeOptions {
     source?: 'editor' | 'undo' | 'engine';
     type?: NodeEventType;
@@ -5372,6 +5378,10 @@ export declare interface IChangeNodeOptions {
 export declare interface ICLI {
     Scene: IServiceManager;
     SceneEvents: GlobalEventManager;
+}
+export declare interface IClipboardState {
+    type: 'cut' | 'copy' | 'none';
+    paths: string[];
 }
 export declare interface ICloseOptions {
     urlOrUUID?: string;
@@ -5406,6 +5416,9 @@ export declare interface IComponentService extends IServiceEvents {
     init(): void;
     unregisterCompMgrEvents(): void;
 }
+export declare interface ICopyParams {
+    paths: string[];
+}
 export declare interface ICreateByAssetParams extends IBaseCreateNodeParams {
     dbURL: string;
 }
@@ -5424,12 +5437,18 @@ export declare interface ICreatePrefabFromNodeParams {
     overwrite?: boolean;
 }
 export declare type ICreateType = typeof CREATE_TYPES[number];
+export declare interface ICutParams {
+    paths: string[];
+}
 export declare interface IDeleteNodeParams {
     path: string;
     keepWorldTransform?: boolean;
 }
 export declare interface IDeleteNodeResult {
     path: string;
+}
+export declare interface IDuplicateParams {
+    paths: string[];
 }
 export declare interface IEditorService extends IServiceEvents {
     getCurrentEditorType(): 'scene' | 'prefab' | 'unknown';
@@ -5529,6 +5548,12 @@ export declare interface ImageMeta {
     uri?: string;
     remap?: string;
 }
+export declare interface IMoveArrayElementParams {
+    nodePath: string;
+    path: string;
+    target: number;
+    offset: number;
+}
 export declare interface INode {
     path: string;
     active: IProperty;
@@ -5563,6 +5588,16 @@ export declare interface INodeService extends IServiceEvents {
     updatePropertyFromNull(options: ISetPropertyOptions): Promise<boolean>;
     setNodeAndChildrenLayer(options: ISetPropertyOptions): Promise<void>;
     getPathByUuid(uuid: string): string;
+    setParent(params: ISetParentParams): Promise<string[]>;
+    reorder(params: IReorderParams): Promise<boolean>;
+    copy(params: ICopyParams): Promise<string[]>;
+    paste(params: IPasteParams): Promise<string[]>;
+    duplicate(params: IDuplicateParams): Promise<string[]>;
+    cut(params: ICutParams): Promise<string[]>;
+    queryClipboardState(): Promise<IClipboardState>;
+    moveArrayElement(params: IMoveArrayElementParams): Promise<boolean>;
+    removeArrayElement(params: IRemoveArrayElementParams): Promise<boolean>;
+    changeNodeLock(params: IChangeNodeLockParams): Promise<void>;
 }
 export declare interface INodeTreeComponent {
     isCustom: boolean;
@@ -5602,6 +5637,10 @@ export declare interface IOriginAxesConfig {
     y: boolean;
     z: boolean;
 }
+export declare interface IPasteParams {
+    parentPath?: string;
+    keepWorldTransform?: boolean;
+}
 export declare interface IPrefab {
     uuid: string;
     fileId: string;
@@ -5618,6 +5657,7 @@ export declare interface IPrefabService extends IServiceEvents {
     unpackPrefabInstance(params: IUnpackPrefabInstanceParams): Promise<INode>;
     isPrefabInstance(params: IIsPrefabInstanceParams): Promise<boolean>;
     getPrefabInfo(params: IGetPrefabInfoParams): Promise<IPrefab | null>;
+    unlinkPrefab(params: IUnlinkPrefabParams): Promise<boolean>;
     removePrefabInfoFromNode(node: Node_2, removeNested?: boolean): void;
 }
 export declare interface IPrefabStateInfo {
@@ -5702,12 +5742,22 @@ export declare interface IRedirectInfo {
 export declare interface IReloadOptions {
     urlOrUUID?: string;
 }
+export declare interface IRemoveArrayElementParams {
+    nodePath: string;
+    path: string;
+    index: number;
+}
 export declare interface IRemoveComponentOptions {
     path: string;
 }
 export declare interface IRemovedComponentInfo {
     name: string;
     fileID: string;
+}
+export declare interface IReorderParams {
+    path: string;
+    target: number;
+    offset: number;
 }
 export declare interface IRevertToPrefabParams {
     nodePath: string;
@@ -5830,6 +5880,11 @@ export declare interface IServiceManager {
     SceneView: ISceneViewService;
     UI: IUIService;
 }
+export declare interface ISetParentParams {
+    paths: string[];
+    parentPath: string;
+    keepWorldTransform?: boolean;
+}
 export declare interface ISetPropertyOptions {
     nodePath: string;
     path: string;
@@ -5873,6 +5928,10 @@ export declare interface IUndoService {
     snapshot(): void;
     reset(): void;
     isDirty(): boolean;
+}
+export declare interface IUnlinkPrefabParams {
+    nodePath: string;
+    removeNested?: boolean;
 }
 export declare interface IUnpackPrefabInstanceParams {
     nodePath: string;
@@ -7209,6 +7268,7 @@ export declare interface IBaseCreateNodeParams {
     position?: IVec3;
     keepWorldTransform?: boolean;
     canvasRequired?: boolean;
+    unlinkPrefab?: boolean;
 }
 export declare interface IBaseIdentifier {
     assetName: string;
@@ -7253,6 +7313,11 @@ export declare interface ICameraService {
     setOriginAxes3D(config: IOriginAxesConfig): void;
     onUpdate(deltaTime: number): void;
 }
+export declare interface IChangeNodeLockParams {
+    paths: string[];
+    locked: boolean;
+    loop?: boolean;
+}
 export declare interface IChangeNodeOptions {
     source?: 'editor' | 'undo' | 'engine';
     type?: NodeEventType;
@@ -7268,6 +7333,10 @@ export declare interface IChunkContent {
 export declare interface ICLI {
     Scene: IServiceManager;
     SceneEvents: GlobalEventManager;
+}
+export declare interface IClipboardState {
+    type: 'cut' | 'copy' | 'none';
+    paths: string[];
 }
 export declare interface ICloseOptions {
     urlOrUUID?: string;
@@ -7331,6 +7400,9 @@ export declare interface IComponentService extends IServiceEvents {
 export declare interface IConfiguration {
     [key: string]: any;
 }
+export declare interface ICopyParams {
+    paths: string[];
+}
 export declare interface ICreateByAssetParams extends IBaseCreateNodeParams {
     dbURL: string;
 }
@@ -7374,6 +7446,9 @@ export declare interface ICustomJointTextureLayout {
     textureLength: number;
     contents: IChunkContent[];
 }
+export declare interface ICutParams {
+    paths: string[];
+}
 export declare type IDefaultConfig = {
     key: IDefaultConfigKeys;
     name: string;
@@ -7403,6 +7478,9 @@ export declare interface IDisplayModuleItem extends IFeatureItem {
     _value: boolean;
     _option?: string;
     options?: Record<string, IDisplayModuleItem>;
+}
+export declare interface IDuplicateParams {
+    paths: string[];
 }
 export declare interface IEditorService extends IServiceEvents {
     getCurrentEditorType(): 'scene' | 'prefab' | 'unknown';
@@ -7581,6 +7659,12 @@ export declare interface IModuleConfig {
 }
 export declare type IModuleItem = IFeatureItem | IFeatureGroup;
 export declare type IModules = Record<string, IModuleItem>;
+export declare interface IMoveArrayElementParams {
+    nodePath: string;
+    path: string;
+    target: number;
+    offset: number;
+}
 export declare function importAsset(source: string, target: string, options?: AssetOperationOption): Promise<IAssetInfo[]>;
 export declare interface ImportMap {
     imports?: Record<string, string>;
@@ -7629,6 +7713,16 @@ export declare interface INodeService extends IServiceEvents {
     updatePropertyFromNull(options: ISetPropertyOptions): Promise<boolean>;
     setNodeAndChildrenLayer(options: ISetPropertyOptions): Promise<void>;
     getPathByUuid(uuid: string): string;
+    setParent(params: ISetParentParams): Promise<string[]>;
+    reorder(params: IReorderParams): Promise<boolean>;
+    copy(params: ICopyParams): Promise<string[]>;
+    paste(params: IPasteParams): Promise<string[]>;
+    duplicate(params: IDuplicateParams): Promise<string[]>;
+    cut(params: ICutParams): Promise<string[]>;
+    queryClipboardState(): Promise<IClipboardState>;
+    moveArrayElement(params: IMoveArrayElementParams): Promise<boolean>;
+    removeArrayElement(params: IRemoveArrayElementParams): Promise<boolean>;
+    changeNodeLock(params: IChangeNodeLockParams): Promise<void>;
 }
 export declare interface INodeTreeComponent {
     isCustom: boolean;
@@ -7667,6 +7761,10 @@ export declare interface IOriginAxesConfig {
     x: boolean;
     y: boolean;
     z: boolean;
+}
+export declare interface IPasteParams {
+    parentPath?: string;
+    keepWorldTransform?: boolean;
 }
 export declare interface IPhysicsConfig {
     gravity: IVec3Like; 
@@ -7711,6 +7809,7 @@ export declare interface IPrefabService extends IServiceEvents {
     unpackPrefabInstance(params: IUnpackPrefabInstanceParams): Promise<INode>;
     isPrefabInstance(params: IIsPrefabInstanceParams): Promise<boolean>;
     getPrefabInfo(params: IGetPrefabInfoParams): Promise<IPrefab | null>;
+    unlinkPrefab(params: IUnlinkPrefabParams): Promise<boolean>;
     removePrefabInfoFromNode(node: Node_2, removeNested?: boolean): void;
 }
 export declare interface IPrefabStateInfo {
@@ -7808,12 +7907,22 @@ export declare interface IRedirectInfo {
 export declare interface IReloadOptions {
     urlOrUUID?: string;
 }
+export declare interface IRemoveArrayElementParams {
+    nodePath: string;
+    path: string;
+    index: number;
+}
 export declare interface IRemoveComponentOptions {
     path: string;
 }
 export declare interface IRemovedComponentInfo {
     name: string;
     fileID: string;
+}
+export declare interface IReorderParams {
+    path: string;
+    target: number;
+    offset: number;
 }
 export declare interface IRevertToPrefabParams {
     nodePath: string;
@@ -7936,6 +8045,11 @@ export declare interface IServiceManager {
     SceneView: ISceneViewService;
     UI: IUIService;
 }
+export declare interface ISetParentParams {
+    paths: string[];
+    parentPath: string;
+    keepWorldTransform?: boolean;
+}
 export declare interface ISetPropertyOptions {
     nodePath: string;
     path: string;
@@ -8026,6 +8140,10 @@ export declare interface IUndoService {
     snapshot(): void;
     reset(): void;
     isDirty(): boolean;
+}
+export declare interface IUnlinkPrefabParams {
+    nodePath: string;
+    removeNested?: boolean;
 }
 export declare interface IUnpackPrefabInstanceParams {
     nodePath: string;

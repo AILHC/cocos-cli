@@ -11,7 +11,8 @@ const NodeMgr = EditorExtends.Node;
 
 import get from 'lodash/get';
 import set from 'lodash/set';
-import { isEditorNode, getNodeName } from './node-utils';
+import { isEditorNode, getNodeName, setLayer } from './node-utils';
+import { prefabUtils } from '../prefab/utils';
 import { ServiceEvents } from '../core/global-events';
 
 // const { promisify } = require('util');
@@ -132,6 +133,7 @@ export class NodeManager {
         compMgr.unregisterCompMgrEvents();
         this.unregisterNodeMgrEvents();
         this.clear();
+        stashInstants = null;
     }
 
 
@@ -814,7 +816,7 @@ export class NodeManager {
      * 复制节点的动作，给下一步粘贴（创建）节点准备数据
      * @param {*} uuids 单个 string 或 array
      */
-    copyNode(uuids: string | string[]) {
+    copy(uuids: string | string[]) {
         if (!Array.isArray(uuids)) {
             uuids = [uuids];
         }
@@ -877,91 +879,59 @@ export class NodeManager {
         return uuids;
     }
 
-    // /**
-    //  * 复制节点自身
-    //  * 一般来自 ctrl + d 快捷键
-    //  * @param uuids
-    //  */
-    // duplicateNode(uuids: string | string[]) {
-    //     if (!Array.isArray(uuids)) {
-    //         uuids = [uuids];
-    //     }
+    getCopiedUuids(): string[] {
+        return stashInstants ? Object.keys(stashInstants) : [];
+    }
 
-    //     const newUuids: string[] = [];
-    //     const oldStashInstants = stashInstants;
-    //     uuids = this.copyNode(uuids);
+    duplicate(uuids: string | string[]) {
+        if (!Array.isArray(uuids)) {
+            uuids = [uuids];
+        }
 
-    //     for (const uuid of uuids) {
-    //         const node = this.query(uuid);
+        const newUuids: string[] = [];
+        const oldStashInstants = stashInstants;
+        uuids = this.copy(uuids);
 
-    //         if (!node) {
-    //             continue;
-    //         }
+        for (const uuid of uuids) {
+            const node = this.query(uuid);
 
-    //         const newUuid = this.createNode(node.parent?.uuid, null, uuid, false, true);
-    //         if (newUuid) {
-    //             newUuids.push(newUuid);
-    //         }
-    //     }
+            if (!node) {
+                continue;
+            }
 
-    //     // 需要使用上次缓存的数据，否则粘贴会找不到上次拷贝的数据 #15805
-    //     stashInstants = oldStashInstants;
+            const newUuid = this.createNodeFromStash(node.parent?.uuid, null, uuid, false, true);
+            if (newUuid) {
+                newUuids.push(newUuid);
+            }
+        }
 
-    //     const results = newUuids.filter(Boolean);
+        stashInstants = oldStashInstants;
 
-    //     // 选中新创建的节点
-    //     sceneSelection.clear();
-    //     results.forEach((uuid) => {
-    //         sceneSelection.select(uuid);
-    //     });
+        return newUuids.filter(Boolean);
+    }
 
-    //     return results;
-    // }
+    paste(target: string | null | undefined, uuids: string | string[], keepWorldTransform = false) {
+        if (!Array.isArray(uuids)) {
+            uuids = [uuids];
+        }
 
-    // /**
-    //  * 粘贴被复制的节点
-    //  * @param target
-    //  * @param uuids
-    //  * @param keepWorldTransform
-    //  */
-    // async pasteNode(target: string | null | undefined, uuids: string | string[], keepWorldTransform = false) {
-    //     if (!Array.isArray(uuids)) {
-    //         uuids = [uuids];
-    //     }
+        const newUuids: string[] = [];
 
-    //     const newUuids: string[] = [];
+        for (const uuid of uuids) {
+            const newUuid = this.createNodeFromStash(target, null, uuid, keepWorldTransform, true);
+            if (newUuid) {
+                newUuids.push(newUuid);
+                if (!target) {
+                    const node = this.query(newUuid);
+                    if (node) {
+                        target = node.parent?.uuid;
+                    }
+                }
+            }
+        }
 
-    //     for (const uuid of uuids) {
-    //         const newUuid = this.createNode(target, null, uuid, keepWorldTransform, true);
-    //         if (newUuid) {
-    //             const node = this.query(newUuid);
-    //             if (node) {
-    //                 // 预制体场景下，需要检查根节点有没有UI组件或canvas组件
-    //                 const needCheckCanvasRequire = (cce.SceneFacadeManager.getCurrentFacade().modeName === SceneModeType.Prefab) && this.checkNodeUseCanvasRequired(node);
-    //                 const parent = await this.checkCanvasRequired(node, needCheckCanvasRequire, this.getNewNodeParent(target), undefined);
-    //                 parent !== node && node.setParent(parent, keepWorldTransform);
-    //             }
-    //             newUuids.push(newUuid);
-    //             // 如果粘贴多个节点时，由于缺失了parent信息，会拿当前选中节点作为父节点
-    //             if (!target) {
-    //                 const node = this.query(newUuid);
-    //                 if (node) {
-    //                     target = node.parent?.uuid;
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     const results = newUuids.filter(Boolean);
-
-    //     // 选中新创建的节点
-    //     sceneSelection.clear();
-    //     results.forEach((uuid) => {
-    //         sceneSelection.select(uuid);
-    //     });
-
-    //     return results;
-    // }
+        return newUuids.filter(Boolean);
+    }
 
     /**
      * 挂载节点，如拖入和剪切
@@ -1016,100 +986,89 @@ export class NodeManager {
         return getNodeName(name, parent);
     }
 
-    // /**
-    //  * 创建一个新节点
-    //  * @param uuid
-    //  * @param name
-    //  * @param stashUuid
-    //  * @param keepWorldTransform
-    //  * @param keepLayer
-    //  */
-    // createNode(uuid: string | null | undefined, name: any, stashUuid: string | null, keepWorldTransform = false, keepLayer = false): undefined | string {
-    //     if (!cc.director.getScene()) {
-    //         return;
-    //     }
+    createNodeFromStash(parentUuid: string | null | undefined, name: any, stashUuid: string | null, keepWorldTransform = false, keepLayer = false): undefined | string {
+        if (!cc.director.getScene()) {
+            return;
+        }
 
-    //     if (keepWorldTransform === null) {
-    //         keepWorldTransform = true;
-    //     }
+        if (keepWorldTransform === null) {
+            keepWorldTransform = true;
+        }
 
-    //     /**
-    //      * TODO: uuid 为 parentUuid
-    //      * 理论上要在 prefab-scene-facade 的 createNode 中设置
-    //      * 注意 this.getNewNodeParent() 工具函数处理了无值情况下默认取第一个选中节点
-    //      * 如果提取到 prefab-scene-facade 设置，工具函数也要考虑
-    //      */
-    //     const parent = this.getNewNodeParent(uuid);
+        let parent: Node | null = null;
+        if (parentUuid) {
+            parent = this.query(parentUuid);
+        }
+        if (!parent) {
+            parent = director.getScene();
+        }
+        if (!parent) {
+            return;
+        }
 
-    //     let node: Node | null = null;
+        let node: Node | null = null;
 
-    //     if (stashUuid) {
-    //         if (stashInstants[stashUuid]) {
-    //             const { instant } = stashInstants[stashUuid];
+        if (stashUuid) {
+            if (stashInstants[stashUuid]) {
+                const { instant } = stashInstants[stashUuid];
 
-    //             if (instant) {
-    //                 node = cc.instantiate(instant);
-    //                 if (node) {
-    //                     // 查找到第一层的PrefabInstance并设置新的FileId
-    //                     visitNode(node, (target) => {
-    //                         // @ts-ignore
-    //                         const prefabInfo = target['_prefab'];
-    //                         if (prefabInfo?.instance) {
-    //                             // 复制需要产生新的Prefab实例，因为需要不同的fileId
-    //                             prefabInfo.instance = prefabUtils.cloneInstanceWithNewFileId(prefabInfo.instance);
-    //                             return true;
-    //                         }
-    //                     });
+                if (instant) {
+                    node = cc.instantiate(instant);
+                    if (node) {
+                        const visitNode = (n: Node, fn: (t: Node) => boolean | void) => {
+                            if (fn(n)) return;
+                            for (const child of n.children) {
+                                visitNode(child, fn);
+                            }
+                        };
+                        visitNode(node, (target) => {
+                            // @ts-ignore
+                            const prefabInfo = target['_prefab'];
+                            if (prefabInfo?.instance) {
+                                prefabInfo.instance = prefabUtils.cloneInstanceWithNewFileId(prefabInfo.instance);
+                                return true;
+                            }
+                        });
 
-    //                     name = getNodeName(node.name, parent);
-    //                 }
-    //             }
-    //         }
-    //     }
+                        name = getNodeName(node.name, parent);
+                    }
+                }
+            }
+        }
 
-    //     if (!node) {
-    //         node = new cc.Node();
-    //     }
+        if (!node) {
+            node = new cc.Node();
+        }
 
-    //     if (!node) {
-    //         return;
-    //     }
+        if (!node) {
+            return;
+        }
 
-    //     if (name) {
-    //         node.name = name;
-    //     }
+        if (name) {
+            node.name = name;
+        }
 
-    //     /**
-    //      * 新节点的 layer 跟随父级节点，但父级节点为场景根节点除外
-    //      * parent.layer 可能为 0 （界面下拉框为 None），此情况下新节点不跟随
-    //      */
-    //     if (parent.layer && parent !== director.getScene() && !keepLayer) {
-    //         setLayer(node, parent.layer, true);
-    //     }
+        if (parent.layer && parent !== director.getScene() && !keepLayer) {
+            setLayer(node, parent.layer, true);
+        }
 
-    //     this.emit('node:before-add', node);
-    //     this.emit('node:before-change', parent);
+        this.emit('node:before-add', node);
+        this.emit('node:before-change', parent);
 
-    //     node.setParent(parent, keepWorldTransform);
+        node.setParent(parent, keepWorldTransform);
 
-    //     if (!stashUuid) {
-    //         this.ensureUITransformComponent(node);
-    //     }
+        if (!stashUuid) {
+            this.ensureUITransformComponent(node);
+        }
 
-    //     // 发送添加节点事件，添加节点中的根节点
-    //     this.emit('node:add', node);
+        this.emit('node:add', node);
 
-    //     // 发送节点修改消息
-    //     if (parent) {
-    //         this.emit('node:change', parent, { type: NodeEventType.CHILD_CHANGED });
-    //     }
+        if (parent) {
+            this.emit('node:change', parent, { type: NodeEventType.CHILD_CHANGED });
+        }
 
-    //     // 选中新创建的节点
-    //     cce.Selection.clear();
-    //     cce.Selection.select(node.uuid);
-
-    //     return node.uuid;
-    // }
+        return node.uuid;
+    }
 
     /**
      * 确保节点有 UITransform 组件
@@ -1399,231 +1358,15 @@ export class NodeManager {
 
         return true;
     }
-    // /**
-    //  * 节点内包含UITransform组件，则需要父级也包含该组件,
-    //  * canvas本身不需要Canvas组件
-    //  * @param node
-    //  * @returns
-    //  */
-    // checkNodeUseCanvasRequired(node: Node | undefined): boolean {
-    //     if (!node) return false;
-    //     let flag = false;
-    //     if (node.getComponent('cc.Canvas')) return false;
-    //     node.walk((child) => {
-    //         if (flag) {
-    //             return;
-    //         }
-    //         child.components.forEach((component) => {
-    //             if (flag) {
-    //                 return;
-    //             }
-    //             flag = js.getClassName(component) === 'cc.UITransform';
-    //         });
-    //     });
 
-    //     return flag;
-    // }
-
-    // /**
-    //  * 检查并根据需要创建 canvas节点或为父级添加UITransform组件，返回父级节点，如果需要canvas节点，则父级节点会是canvas节点
-    //  * @param component
-    //  * @param canvasRequiredParam
-    //  * @param parent
-    //  * @param position
-    //  * @returns
-    //  */
-    // async checkCanvasRequired(node: Node | undefined, canvasRequiredParam: boolean | undefined, parent: Node, position: Vec3 | undefined): Promise<Node | null> {
-
-    //     /**
-    //      * TODO: mode 判断不应该在底层这里
-    //      * 从 assets 拖图片到场景，不会走 prefab-scene-facade 的 createNode
-    //      * 直接从 onDrop 走到了这里，先保持这样，后续改
-    //      */
-    //     const mode = cce.SceneFacadeManager.queryMode();
-    //     let prefabProxy: PrefabSceneProxy | null = null;
-    //     let prefabRoot = null;
-
-    //     if (mode === 'prefab') {
-    //         prefabProxy = cce.SceneFacadeManager['_facadeFSM'].prefabSceneFacade['_sceneProxy'] as PrefabSceneProxy;
-    //         prefabRoot = prefabProxy.getRootNode();
-
-    //         // prefab 的场景节点是临时的根节点，需转为 prefab root node
-    //         if (parent === director.getScene()) {
-    //             parent = prefabRoot;
-    //         }
-    //     }
-
-    //     if (canvasRequiredParam) {
-    //         let canvasNode: Node | null = null;
-
-    //         // 在 prefab 模式下，询问是否给根节点添加 UITransform 组件还是父级添加一个 Canvas 节点
-    //         if (mode === 'prefab') {
-    //             canvasNode = getUICanvasNode(parent, false);
-
-    //             const UITransformParentNode = getUITransformParentNode(parent);
-    //             if (!canvasNode) {
-    //                 if (!UITransformParentNode) {
-    //                     const result = await Editor.Dialog.warn(Editor.I18n.t('scene.contributions.messages.description.UITransform_lack'), {
-    //                         buttons: [
-    //                             Editor.I18n.t('scene.contributions.messages.description.UITransform_add_to_root'),
-    //                             Editor.I18n.t('scene.contributions.messages.description.UITransform_within_canvas'),
-    //                             Editor.I18n.t('scene.contributions.messages.description.UITransform_cancel'),
-    //                         ],
-    //                         default: 0,
-    //                         cancel: 2,
-    //                     });
-
-    //                     if (result.response === 0) {
-    //                         if (!prefabRoot) {
-    //                             console.error('prefab Root is not exist');
-    //                             return null;
-    //                         }
-    //                         prefabRoot.addComponent('cc.UITransform');
-
-    //                         if (prefabRoot.parent && !hasOneKindOfComponent(prefabRoot.parent, Canvas)) {
-    //                             // 为了显示，节点结构为：scene node > canvas node > prefab root node
-    //                             canvasNode = await createShouldHideInHierarchyCanvasNode(director.getScene()!);
-    //                             prefabRoot.parent = canvasNode;
-    //                         }
-    //                     }
-    //                     if (result.response === 2) {
-    //                         canvasNode = new Node();
-    //                     }
-    //                 } else {
-    //                     canvasNode = UITransformParentNode;
-    //                 }
-    //             } else {
-    //                 if (canvasNode.parent !== director.getScene()) {
-    //                     parent = canvasNode;
-    //                 }
-    //             }
-    //         } else {
-    //             canvasNode = getUICanvasNode(parent);
-    //             if (canvasNode) {
-    //                 parent = canvasNode;
-    //             }
-    //         }
-
-    //         // 自动创建一个 canvas 节点
-    //         if (!canvasNode) {
-    //             let canvasAssetUuid = 'f773db21-62b8-4540-956a-29bacf5ddbf5';
-
-    //             // 2d 项目创建的 ui 节点，canvas 下的 camera 的 visibility 默认勾上 default
-    //             if (cce.SceneFacadeManager['_projectType'] === '2d') {
-    //                 canvasAssetUuid = '4c33600e-9ca9-483b-b734-946008261697';
-    //             }
-
-    //             assetManager.assets.remove(canvasAssetUuid);
-    //             const canvasAsset = await loadAny<Prefab>(canvasAssetUuid);
-    //             canvasNode = cc.instantiate(canvasAsset) as Node;
-    //             cce.Prefab.removePrefabInfoFromNode(canvasNode);
-
-    //             parent.addChild(canvasNode);
-    //             parent = canvasNode;
-    //         }
-
-    //         // 目前 canvas 默认 z 为 1，而拖放到 Canvas 的控件因为检测的是 z 为 0 的平面，所以这边先强制把 z 设置为和 canvas 的一样
-    //         if (position) {
-    //             position.z = canvasNode.position.z;
-    //         }
-    //     }
-    //     return parent;
-    // }
-
-    // /**
-    //  * 从一个资源创建对应的节点
-    //  * @param {*} parentUuid
-    //  * @param {*} assetUuid
-    //  * @param {*} options { type: 资源类型, position: 位置坐标(vector3), name: 新的名字, canvasRequired?: true 是否需要有 cc.Canvas 父级  }
-    //  */
-    // async createNodeFromAsset(parentUuid: string | undefined | null, assetUuid: string, options: CreateNodeOptions): Promise<undefined | string> {
-    //     try {
-    //         if (!cc.director.getScene()) return;
-
-    //         let parent: Node | null = this.getNewNodeParent(parentUuid);
-    //         const { name, type, position, unlinkPrefab } = options;
-
-    //         // 有 assetUuid 时 type 默认可以为空
-    //         if (type && !creatableAssetTypes.includes(type)) return;
-
-    //         if (DEBUG_TIME_COST) {
-    //             console.time('createNodeFromAsset');
-    //         }
-
-    //         if (options.autoAdaptToCreate === undefined) {
-    //             options.autoAdaptToCreate = true;
-    //         }
-
-    //         const { node, canvasRequired } = await createNodeByAsset({
-    //             uuid: assetUuid,
-    //             type: type,
-    //             canvasRequired: options.canvasRequired,
-    //             autoAdaptToCreate: options.autoAdaptToCreate,
-    //         });
-
-    //         parent = await this.checkCanvasRequired(node, Boolean(canvasRequired), parent, position as Vec3) as Node;
-
-    //         if (name) {
-    //             // 使用创建时指定的名称
-    //             node.name = basename(name, extname(name));
-    //         }
-
-    //         if (DEBUG_TIME_COST) {
-    //             console.time('addNodeEvent');
-    //         }
-
-    //         this.emit('node:before-add', node);
-    //         this.emit('node:before-change', parent);
-
-    //         /**
-    //          * 默认创建节点是从 prefab 模板，所以初始是 prefab 节点
-    //          * 是否要 unlink 为普通节点
-    //          */
-    //         if (type !== 'cc.Prefab' || unlinkPrefab) {
-    //             cce.Prefab.removePrefabInfoFromNode(node);
-
-    //             /**
-    //              * 新节点的 layer 跟随父级节点，但父级节点为场景根节点除外
-    //              * parent.layer 可能为 0 （界面下拉框为 None），此情况下新节点不跟随
-    //              */
-    //             if (parent.layer && parent !== director.getScene()) {
-    //                 setLayer(node, parent.layer, true);
-    //             }
-    //         }
-
-    //         parent.addChild(node);
-
-    //         if (position) {
-    //             node.setWorldPosition(position);
-    //         }
-
-    //         // 发送添加节点事件，添加节点中的根节点. 'added'事件会在添加的所有节点（包括子节点）上发送
-    //         this.emit('node:add', node);
-    //         // 发送节点修改消息
-    //         this.emit('node:change', parent, { type: NodeEventType.CHILD_CHANGED });
-
-    //         if (DEBUG_TIME_COST) {
-    //             console.timeEnd('addNodeEvent');
-    //         }
-    //         // 选中新创建的节点
-    //         cce.Selection.clear();
-    //         cce.Selection.select(node.uuid);
-
-    //         if (DEBUG_TIME_COST) {
-    //             console.timeEnd('createNodeFromAsset');
-    //         }
-    //         return node.uuid;
-    //     } catch (error) {
-    //         console.error(error);
-    //         return;
-    //     }
-    // }
-
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
     private _walkNode(node: Node, func: Function) {
-        node && node.children && node.children.forEach((child) => {
-            func(child);
-            this._walkNode(child, func);
-        });
+        if (node && node.children) {
+            node.children.forEach((child) => {
+                func(child);
+                this._walkNode(child, func);
+            });
+        }
     }
 
     public baseRemoveNode(node: Node, keepWorldTransform?: boolean) {

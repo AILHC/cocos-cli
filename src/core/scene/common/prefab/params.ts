@@ -36,3 +36,11 @@ export interface IIsPrefabInstanceParams {
 export interface IGetPrefabInfoParams {
     nodePath: string;
 }
+
+// 解绑预制体参数
+export interface IUnlinkPrefabParams {
+    /** 要解绑的节点路径 */
+    nodePath: string;
+    /** 是否递归解绑嵌套的预制体实例 */
+    removeNested?: boolean;
+}

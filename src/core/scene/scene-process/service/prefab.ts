@@ -14,6 +14,7 @@ import type {
     IPrefabEvents,
     IPrefabService,
     IRevertToPrefabParams,
+    IUnlinkPrefabParams,
     IUnpackPrefabInstanceParams,
 } from '../../common';
 import { validateCreatePrefabParams, validateNodePathParams } from './prefab/validate-params';
@@ -122,6 +123,21 @@ export class PrefabService extends BaseService<IPrefabEvents> implements IPrefab
             return !!prefabUtils.getPrefab(node)?.instance;
         } catch (e) {
             console.error(`检查节点是否预制体实例失败：节点路径 ${params.nodePath} 错误信息:`, e);
+            throw e;
+        }
+    }
+
+    /**
+     * 解绑预制体实例，使其成为普通节点
+     */
+    async unlinkPrefab(params: IUnlinkPrefabParams): Promise<boolean> {
+        try {
+            validateNodePathParams(params);
+            const node = EditorExtends.Node.getNodeByPathOrThrow(params.nodePath);
+            this.unWrapPrefabInstance(node.uuid, !!params.removeNested);
+            return true;
+        } catch (e) {
+            console.error(`解绑预制体失败：节点路径 ${params.nodePath} 是否递归: ${params.removeNested} 错误信息:`, e);
             throw e;
         }
     }

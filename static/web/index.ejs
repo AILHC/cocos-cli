@@ -311,6 +311,37 @@
             </div>
         </div>
 
+        <!-- Hierarchy -->
+        <div class="panel-section" id="sec-hierarchy">
+            <h3 onclick="toggleSection('sec-hierarchy')">Hierarchy</h3>
+            <div class="section-body">
+                <div class="row">
+                    <button class="btn" onclick="doCopyNode()">Copy</button>
+                    <button class="btn" onclick="doPasteNode()">Paste</button>
+                    <button class="btn" onclick="doCutNode()">Cut</button>
+                    <button class="btn" onclick="doDuplicateNode()">Duplicate</button>
+                </div>
+                <div class="row">
+                    <label>Parent</label>
+                    <input type="text" id="targetParentPath" placeholder="e.g. Canvas/Parent"
+                           style="flex:1;background:#2a2a2a;color:#ddd;border:1px solid #555;border-radius:3px;padding:2px 4px;font-size:11px;">
+                    <button class="btn" onclick="fillParentFromList()" title="Fill from node list">&#8592;</button>
+                </div>
+                <div class="row">
+                    <button class="btn" onclick="doSetParent()">Set Parent</button>
+                    <button class="btn" onclick="doPasteToParent()">Paste Here</button>
+                </div>
+                <div class="row">
+                    <label>Reorder</label>
+                    <button class="btn" onclick="doReorder(-1)">Up</button>
+                    <button class="btn" onclick="doReorder(1)">Down</button>
+                </div>
+                <div class="row">
+                    <span id="hierarchyStatus" class="info-text">-</span>
+                </div>
+            </div>
+        </div>
+
         <!-- SceneView -->
         <div class="panel-section" id="sec-sceneview">
             <h3 onclick="toggleSection('sec-sceneview')">SceneView</h3>
@@ -637,6 +668,133 @@
                 }
             }
         }
+
+        /* ── Hierarchy ── */
+        function getSelectedPaths() {
+            try {
+                if (window.cli.Scene && window.cli.Scene.Selection) {
+                    return window.cli.Scene.Selection.query() || [];
+                }
+            } catch(e) {}
+            return [];
+        }
+
+        function hStatus(msg, cls) {
+            const el = document.getElementById('hierarchyStatus');
+            el.textContent = msg;
+            el.className = 'info-text ' + (cls || '');
+        }
+
+        function hRefresh() {
+            try { window.cli.Scene.Engine.repaintInEditMode(); } catch(_) {}
+            refreshNodeList();
+            setTimeout(refreshState, 200);
+        }
+
+        function fillParentFromList() {
+            const sel = document.getElementById('nodeList');
+            const opt = sel.options[sel.selectedIndex];
+            if (opt && opt.textContent) {
+                document.getElementById('targetParentPath').value = opt.textContent;
+            }
+        }
+        window.fillParentFromList = fillParentFromList;
+
+        async function doCopyNode() {
+            const paths = getSelectedPaths();
+            if (paths.length === 0) { hStatus('No selection', 'status-warn'); return; }
+            try {
+                const result = await window.cli.Scene.Node.copyNode({ paths });
+                hStatus('Copied ' + (result ? result.length : 0) + ' node(s)', 'status-ok');
+                log('copyNode: ' + paths.join(', '), 'status-ok');
+            } catch(e) { hStatus('Copy failed: ' + e.message, 'status-err'); log('copyNode error: ' + e.message, 'status-err'); }
+        }
+        window.doCopyNode = doCopyNode;
+
+        async function doPasteNode() {
+            try {
+                const result = await window.cli.Scene.Node.pasteNode({});
+                console.log('[Hierarchy] pasteNode result:', result);
+                hStatus('Pasted ' + result.length + ' node(s)', 'status-ok');
+                log('pasteNode: ' + result.join(', '), 'status-ok');
+                hRefresh();
+            } catch(e) { console.error('[Hierarchy] pasteNode error:', e); hStatus('Paste failed: ' + e.message, 'status-err'); log('pasteNode error: ' + e.message, 'status-err'); }
+        }
+        window.doPasteNode = doPasteNode;
+
+        async function doPasteToParent() {
+            const parentPath = document.getElementById('targetParentPath').value.trim().replace(/\/+$/, '');
+            try {
+                const params = {};
+                if (parentPath) params.parentPath = parentPath;
+                const result = await window.cli.Scene.Node.pasteNode(params);
+                hStatus('Pasted ' + result.length + ' to ' + (parentPath || 'root'), 'status-ok');
+                log('pasteNode → ' + (parentPath || '/') + ': ' + result.join(', '), 'status-ok');
+                hRefresh();
+            } catch(e) { hStatus('Paste failed: ' + e.message, 'status-err'); log('pasteNode error: ' + e.message, 'status-err'); }
+        }
+        window.doPasteToParent = doPasteToParent;
+
+        async function doCutNode() {
+            const paths = getSelectedPaths();
+            if (paths.length === 0) { hStatus('No selection', 'status-warn'); return; }
+            try {
+                await window.cli.Scene.Node.cutNode({ paths });
+                hStatus('Cut ' + paths.length + ' node(s)', 'status-ok');
+                log('cutNode: ' + paths.join(', '), 'status-ok');
+                safeCall('Selection', 'clear');
+                hRefresh();
+            } catch(e) { hStatus('Cut failed: ' + e.message, 'status-err'); log('cutNode error: ' + e.message, 'status-err'); }
+        }
+        window.doCutNode = doCutNode;
+
+        async function doDuplicateNode() {
+            const paths = getSelectedPaths();
+            if (paths.length === 0) { hStatus('No selection', 'status-warn'); return; }
+            try {
+                const result = await window.cli.Scene.Node.duplicateNode({ paths });
+                hStatus('Duplicated → ' + result.join(', '), 'status-ok');
+                log('duplicateNode: ' + result.join(', '), 'status-ok');
+                hRefresh();
+            } catch(e) { hStatus('Duplicate failed: ' + e.message, 'status-err'); log('duplicateNode error: ' + e.message, 'status-err'); }
+        }
+        window.doDuplicateNode = doDuplicateNode;
+
+        async function doSetParent() {
+            const paths = getSelectedPaths();
+            const parentPath = document.getElementById('targetParentPath').value.trim();
+            if (paths.length === 0) { hStatus('No selection', 'status-warn'); return; }
+            if (!parentPath) { hStatus('Enter parent path', 'status-warn'); return; }
+            try {
+                const result = await window.cli.Scene.Node.setParent({ paths, parentPath });
+                hStatus('Moved ' + result.length + ' → ' + parentPath, 'status-ok');
+                log('setParent → ' + parentPath + ': ' + result.join(', '), 'status-ok');
+                hRefresh();
+            } catch(e) { hStatus('Move failed: ' + e.message, 'status-err'); log('setParent error: ' + e.message, 'status-err'); }
+        }
+        window.doSetParent = doSetParent;
+
+        async function doReorder(delta) {
+            const paths = getSelectedPaths();
+            if (paths.length !== 1) { hStatus('Select exactly 1 node', 'status-warn'); return; }
+            const nodePath = paths[0];
+            const parts = nodePath.split('/');
+            const parentPath = parts.slice(0, -1).join('/') || '/';
+            try {
+                const EN = (cc && cc.EditorExtends) || window.EditorExtends;
+                const node = EN.Node.getNodeByPath(nodePath);
+                if (!node || !node.parent) { hStatus('Node has no parent', 'status-warn'); return; }
+                const from = node.getSiblingIndex();
+                const to = from + delta;
+                if (to < 0 || to >= node.parent.children.length) { hStatus('Already at edge', 'status-warn'); return; }
+                const result = await window.cli.Scene.Node.reorder({ path: parentPath, from, to });
+                hStatus('Reordered ' + from + ' → ' + to, result ? 'status-ok' : 'status-warn');
+                log('reorder ' + parentPath + ': ' + from + ' → ' + to, 'status-ok');
+                hRefresh();
+                refreshNodeList();
+            } catch(e) { hStatus('Reorder failed: ' + e.message, 'status-err'); log('reorder error: ' + e.message, 'status-err'); }
+        }
+        window.doReorder = doReorder;
 
         /* ── State Refresh ── */
         function refreshState() {
