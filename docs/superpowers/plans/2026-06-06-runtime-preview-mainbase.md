@@ -1121,6 +1121,8 @@ Reuse old implementation only for lifecycle patterns that survived Task 5 classi
 
 ### Task 14: Browser smoke as final integration
 
+2026-06-07 review 后状态：Task 14 暂停。只有 Task 15 的真实 CLI/Launcher startup、真实 settings output、fact-backed asset route、HTTP-base URL capture 和 parser probe 补齐后，才能继续 browser smoke。当前 `browser-smoke.test.ts` 只是 pre-browser HTTP smoke，不能作为 browser integration 完成证据。
+
 **Files:**
 - Create: `vitests/suites/runtime-preview/browser-smoke.test.ts` or Playwright smoke if Browser plugin is used
 - Modify: `docs/dev/runtime-preview-architecture-facts-20260606.md`
@@ -1149,17 +1151,46 @@ Expected:
 
 ---
 
-### Task 15: 补齐 review gate 阻塞验证
+### Task 15: 修复 review gate 阻塞项
 
 **Files:**
 - Modify: `vitests/suites/runtime-preview/editor-cli-output-consistency.test.ts`
 - Modify: `vitests/suites/runtime-preview/settings-generation.test.ts`
 - Modify: `vitests/suites/runtime-preview/http-contract.test.ts`
-- Modify/Create: `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts`
+- Create: `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts`
 - Modify/Create: `vitests/shared/*`
 - Modify: `src/runtime-preview/server/runtime-preview-routes.ts`
 - Modify: `src/runtime-preview/library/resolve-library-request.ts`
 - Modify: `src/core/launcher.ts`
+
+执行规则：
+
+- 每个 Step 先写能暴露 review 问题的 failing test 或 diagnostic assertion，再改 production/test harness。
+- 每个 Step 完成后独立提交；提交前运行该 Step 的最小测试集。
+- Step 3、Step 5、Step 7 后必须派资深子代理只读 review。
+- 不能用 `it.todo`、无诊断 `skip` 或 mocked data 让必须验证的主链路假通过。确实无法由当前项目触发的 native/pack/redirect case，必须写 diagnostic skip，记录 source operation、缺失原因和后续触发条件。
+- Task 15 完成前不继续 Task 14 browser integration。
+
+- [ ] **Step 0: 复现 Critical 失败**
+
+先新增一个最小 failing test，证明子代理指出的 production gap：
+
+- 通过 `Launcher.startRuntimePreview()` 或 CLI `preview --runtime` 真实启动 server。
+- 不传 test-only `capturedRuntimeUrls`。
+- 请求由当前 HTTP-base probe 捕获过的 representative asset import URL。
+- 测试语义必须期望 production server 返回 200；当前实现会因 404 失败。先保留红灯证据，再进入 Step 3 修 production fact source。
+
+Run:
+
+```powershell
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/launcher-runtime-preview.test.ts"
+```
+
+Commit after this Step:
+
+```text
+test(runtime-preview): reproduce production asset route gap
+```
 
 - [ ] **Step 1: 真实 CLI output consistency**
 
@@ -1173,6 +1204,18 @@ Expected:
 
 如果 CLI output 尚未生成或 shape 不一致，测试必须失败或输出明确 diagnostic，并在 facts 文档记录差异分类：`generated-output shape`、`runtime URL contract` 或 `test fixture issue`。
 
+Run:
+
+```powershell
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/editor-cli-output-consistency.test.ts"
+```
+
+Commit after this Step:
+
+```text
+test(runtime-preview): verify cli output consistency
+```
+
 - [ ] **Step 2: 真实 `getPreviewSettings()` E2E**
 
 `settings-generation.test.ts` 必须增加真实/default `PreviewSettingsProvider` 路径验证，覆盖 `getPreviewSettings()` 输出被 provider 消费。mocked `loadPreviewSettings` 只保留用于 timeout/cache 单元测试。
@@ -1183,19 +1226,50 @@ Expected:
 - 证明 preview settings path 不执行 normal build output copy、plugin build hooks、全量 asset copy 或完整 build pipeline。可以通过 source-level instrumentation、spy、diagnostic hook 或 stable side-effect check 实现。
 - 真实输出必须可作为 Task 12 HTTP contract input。
 
+Run:
+
+```powershell
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/settings-generation.test.ts"
+```
+
+Commit after this Step:
+
+```text
+test(runtime-preview): verify real preview settings output
+```
+
 - [ ] **Step 3: production asset route fact source**
 
 修正 production `preview --runtime` asset route 事实来源。真实 CLI server 不能依赖 test-only injected `capturedRuntimeUrls` 才能服务 asset URL。
 
-可选设计必须先基于 facts 选择：
+实现前必须先写出 route fact source 决策并更新 `docs/dev/runtime-preview-cli-design-20260606.md`：
 
-- 由真实 `getPreviewSettings()` / `bundleConfigs` / AssetDB metadata 生成精确 allow list。
-- 或由 engine HTTP-base capture fixture 产出的 facts 注入到 integration test，而 production route 仍只接受 engine/runtime 已产生的请求。
+- request path 是否允许，必须由真实 `settings/bundleConfigs`、AssetDB/library metadata、engine URL transform/captured runtime fact 之一决定。
+- production route 可以在 request time 查询 metadata 或 stat 目标文件；不能在 startup 扫描全量 `library` / `temp/programming`。
+- test-only `capturedRuntimeUrls` 只能用于 probe/contract fixture，不能作为 production `preview --runtime` 唯一 asset route fact source。
 
 禁止：
 
 - 根据 URL 形状直接放行所有 `/assets|remote/<bundle>/import|native/<tail>`。
 - startup 全量扫描 `library` 或 `temp/programming` 建立全局 URL/file index。
+
+修复完成后，Step 0 的 failing test 必须变为 passing。
+
+Run:
+
+```powershell
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/launcher-runtime-preview.test.ts suites/runtime-preview/http-contract.test.ts suites/runtime-preview/on-demand-resolver.test.ts"
+```
+
+Commit after this Step:
+
+```text
+fix(runtime-preview): make asset routes production fact backed
+```
+
+Review gate:
+
+- 派资深子代理只读 review Step 3，重点看 production route 是否仍需要 test-only captured URL，是否根据 URL 形状猜测，是否存在 startup full scan。
 
 - [ ] **Step 4: HTTP contract 消费真实 outputs**
 
@@ -1209,6 +1283,18 @@ Expected:
 - 未捕获但形态相似的 asset/native/remote URL 返回 404。
 - production startup 不做 full scan。
 
+Run:
+
+```powershell
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/http-contract.test.ts suites/runtime-preview/settings-generation.test.ts"
+```
+
+Commit after this Step:
+
+```text
+test(runtime-preview): drive http contract from real settings
+```
+
 - [ ] **Step 5: 扩展 HTTP-base URL capture**
 
 `http-url-capture` 必须覆盖除 JsonAsset import 外的 representative runtime requests：
@@ -1217,6 +1303,22 @@ Expected:
 - pack URL，如当前项目/runtime facts 能触发。
 - redirect/shared bundle URL，如当前项目/runtime facts 能触发。
 - 如果当前项目无法触发某类 URL，必须以 diagnostic skip 记录 source operation 和缺失原因，不能用手写近似 URL 替代。
+
+Run:
+
+```powershell
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/http-url-capture.probe.test.ts suites/runtime-preview/http-contract.test.ts"
+```
+
+Commit after this Step:
+
+```text
+test(runtime-preview): expand http runtime url capture
+```
+
+Review gate:
+
+- 派资深子代理只读 review Step 5，重点看 native/pack/redirect 是否来自真实 HTTP-base engine runtime；不能接受 filesystem-base URL 或手写近似 URL。
 
 - [ ] **Step 6: 扩展 filesystem-base `resources.load` parser probe**
 
@@ -1230,9 +1332,21 @@ Expected:
 
 失败时优先诊断 test harness、host boundary、artifact mapping、settings/on-demand resolver；不能直接提出 engine patch。
 
+Run:
+
+```powershell
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/editor-library-resources-load.probe.test.ts"
+```
+
+Commit after this Step:
+
+```text
+test(runtime-preview): expand resources load parser probes
+```
+
 - [ ] **Step 7: 真实 CLI/Launcher startup smoke**
 
-新增或改造 startup 测试，覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> startRuntimePreviewServer()` 或至少 `Launcher.startRuntimePreview()`。
+新增或改造 startup 测试，覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> startRuntimePreviewServer()`。如果直接跑 command process 成本过高，至少覆盖 `Launcher.startRuntimePreview()`，并在 facts 中记录 command-process coverage 尚未完成。
 
 最低覆盖：
 
@@ -1241,12 +1355,41 @@ Expected:
 - `/settings.js`、representative asset URL、script route 在真实 server 上可请求。
 - 端口释放。
 
+Run:
+
+```powershell
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/launcher-runtime-preview.test.ts suites/runtime-preview/cli-startup.test.ts"
+```
+
+Commit after this Step:
+
+```text
+test(runtime-preview): cover launcher startup smoke
+```
+
+Review gate:
+
+- 派资深子代理只读 review Step 7，重点看真实 startup path 是否覆盖，production roots 是否正确，server 是否能服务 settings、asset、script，端口是否释放。
+
 - [ ] **Step 8: 清理测试命名和旧 manifest 草稿**
 
 - 将 `browser-smoke.test.ts` 改名为 `pre-browser-http-smoke.test.ts`，真正 browser/page route 完成后再新增 browser smoke。
 - 删除 `src/runtime-preview/manifest/**`，或迁移到 test-only/reference 并保证 production `src/runtime-preview/**` 不可引用旧 full-manifest / recursive `walkFiles()` 方向。
 
 Run:
+
+```powershell
+rtk rg -n "runtime-preview/manifest|buildRuntimePreviewArtifactManifest|walkFiles" src/runtime-preview vitests
+rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- --passWithNoTests"
+```
+
+Commit after this Step:
+
+```text
+chore(runtime-preview): remove legacy manifest draft
+```
+
+Task 15 final verification:
 
 ```powershell
 rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- --passWithNoTests"
