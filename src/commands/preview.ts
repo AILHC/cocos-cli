@@ -12,6 +12,9 @@ export class PreviewCommand extends BaseCommand {
             .description('Preview a Cocos project')
             .requiredOption('-j, --project <path>', 'Path to the Cocos project (required)')
             .option('-p, --port <number>', 'Port number for the preview server', '9527')
+            .option('--host <host>', 'Host for the runtime preview server', '127.0.0.1')
+            .option('--runtime', 'Start the runtime preview server without opening a browser')
+            .option('--scene <uuid>', 'Start scene uuid for runtime preview diagnostics')
             .action(async (options: any) => {
                 try {
                     const resolvedPath = this.validateProjectPath(options.project);
@@ -25,13 +28,21 @@ export class PreviewCommand extends BaseCommand {
 
                     const { default: Launcher } = await import('../core/launcher');
                     const launcher = new Launcher(resolvedPath);
-                    await launcher.startPreview(port);
+                    if (options.runtime) {
+                        await launcher.startRuntimePreview({
+                            port,
+                            host: options.host,
+                            scene: options.scene,
+                        });
+                    } else {
+                        await launcher.startPreview(port);
+                    }
 
 
                     // 保持进程运行
                     process.stdin.resume();
                 } catch (error) {
-                    console.error(chalk.red('Failed to start MCP server'));
+                    console.error(chalk.red('Failed to start preview server'));
                     console.error(error);
                     process.exit(1);
                 }
