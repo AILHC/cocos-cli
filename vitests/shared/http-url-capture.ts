@@ -11,10 +11,18 @@ import {
 
 export interface CapturedRuntimeUrl {
   url: string;
-  routeCategory: 'query-extname' | 'import';
+  routeCategory: 'query-extname' | 'import' | 'native';
   sourceOperation: string;
-  expectedArtifactKind: 'extension-replacement' | 'serialized-json';
+  expectedArtifactKind: 'extension-replacement' | 'serialized-json' | 'native-image';
   probe: 'http-base';
+}
+
+export interface MissingRuntimeUrlDiagnostic {
+  routeCategory: 'pack' | 'redirect';
+  sourceOperation: string;
+  captured: false;
+  missingReason: string;
+  nextTriggerCondition: string;
 }
 
 function listen(server: Server): Promise<number> {
@@ -61,6 +69,41 @@ function queryImportReplacementExtension(libraryRoot: string, uuid: string): str
     return '.ccon';
   }
   return '';
+}
+
+function contentTypeForNativeFile(file: string): string {
+  const lowerFile = file.toLowerCase();
+  if (lowerFile.endsWith('.jpg') || lowerFile.endsWith('.jpeg')) {
+    return 'image/jpeg';
+  }
+  if (lowerFile.endsWith('.png')) {
+    return 'image/png';
+  }
+  return 'application/octet-stream';
+}
+
+export function getMissingPackAndRedirectDiagnostics(config: { packs: Record<string, unknown>; redirect: unknown[] }): MissingRuntimeUrlDiagnostic[] {
+  return [
+    {
+      routeCategory: 'pack',
+      sourceOperation: 'resources.load(representative frozen resources samples)',
+      captured: false,
+      missingReason: 'current synthesized resources bundle config has no config.packs entries',
+      nextTriggerCondition: 'add or find a frozen sample whose engine config.packs produces a packManager.load URL',
+    },
+    {
+      routeCategory: 'redirect',
+      sourceOperation: 'resources.load(representative frozen resources samples)',
+      captured: false,
+      missingReason: 'current synthesized resources bundle config has no redirect entries',
+      nextTriggerCondition: 'add or find a frozen sample whose asset info redirects to another bundle config',
+    },
+  ].filter((diagnostic) => {
+    if (diagnostic.routeCategory === 'pack') {
+      return Object.keys(config.packs).length === 0;
+    }
+    return config.redirect.length === 0;
+  });
 }
 
 function createCaptureServer(libraryRoot: string, capturedRuntimeUrls: CapturedRuntimeUrl[]): Server {
@@ -112,13 +155,43 @@ function createCaptureServer(libraryRoot: string, capturedRuntimeUrls: CapturedR
       return;
     }
 
+    const nativePrefix = '/assets/resources/native/';
+    if (pathName.startsWith(nativePrefix)) {
+      capturedRuntimeUrls.push({
+        url: pathName,
+        routeCategory: 'native',
+        sourceOperation: 'resources.load(ImageAsset)',
+        expectedArtifactKind: 'native-image',
+        probe: 'http-base',
+      });
+      const file = resolveLibraryImportFile(libraryRoot, pathName.slice(nativePrefix.length));
+      if (!file) {
+        response.writeHead(400, { 'content-type': 'text/plain' });
+        response.end(`Invalid native route: ${pathName}`);
+        return;
+      }
+
+      try {
+        const fileStat = await stat(file);
+        if (!fileStat.isFile()) {
+          throw new Error('not a file');
+        }
+        response.writeHead(200, { 'content-type': contentTypeForNativeFile(file) });
+        response.end(await readFile(file));
+      } catch {
+        response.writeHead(404, { 'content-type': 'text/plain' });
+        response.end(`No frozen library file for ${pathName}`);
+      }
+      return;
+    }
+
     response.writeHead(404, { 'content-type': 'text/plain' });
     response.end(`Unhandled route: ${pathName}`);
   });
 }
 
-function installHttpJsonDownloader(cc: any): void {
-  const handler = (url: string, _options: Record<string, unknown>, onComplete: (err: Error | null, data?: unknown) => void): void => {
+function installHttpDownloaders(cc: any): void {
+  const jsonHandler = (url: string, _options: Record<string, unknown>, onComplete: (err: Error | null, data?: unknown) => void): void => {
     fetch(url)
       .then(async (response) => {
         if (!response.ok) {
@@ -129,11 +202,28 @@ function installHttpJsonDownloader(cc: any): void {
       .then((json) => onComplete(null, json))
       .catch((err: Error) => onComplete(err));
   };
+  const imageHandler = (url: string, _options: Record<string, unknown>, onComplete: (err: Error | null, data?: unknown) => void): void => {
+    fetch(url)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} for ${url}`);
+        }
+        await response.arrayBuffer();
+        const image = new Image();
+        image.src = url;
+        return image;
+      })
+      .then((image) => onComplete(null, image))
+      .catch((err: Error) => onComplete(err));
+  };
 
   cc.assetManager.downloader.limited = false;
   cc.assetManager.downloader.register({
-    '.json': handler,
-    '.ccon': handler,
+    '.json': jsonHandler,
+    '.ccon': jsonHandler,
+    '.png': imageHandler,
+    '.jpg': imageHandler,
+    '.jpeg': imageHandler,
   });
 }
 
@@ -163,7 +253,7 @@ function installHttpQueryExtnameXHR(origin: string): void {
   });
 }
 
-export async function captureJsonAssetHttpRuntimeUrls(): Promise<CapturedRuntimeUrl[]> {
+async function captureHttpRuntimeUrls(options: { includeImageAsset: boolean }): Promise<CapturedRuntimeUrl[]> {
   const paths = getFixturePaths();
   const engine = await loadEngineSourceEntry();
   const { config, samples } = await buildEditorLibraryResourcesBundle(paths.editorLibraryRef, { buildFileIndex: false });
@@ -173,7 +263,7 @@ export async function captureJsonAssetHttpRuntimeUrls(): Promise<CapturedRuntime
   const origin = `http://127.0.0.1:${port}`;
 
   try {
-    installHttpJsonDownloader(engine.cc);
+    installHttpDownloaders(engine.cc);
     installHttpQueryExtnameXHR(origin);
 
     engine.cc.assetManager.init({
@@ -192,8 +282,22 @@ export async function captureJsonAssetHttpRuntimeUrls(): Promise<CapturedRuntime
     }
 
     await loadResource(engine.cc, samples.jsonAsset.resourcePath, engine.cc.JsonAsset);
+    if (options.includeImageAsset) {
+      if (!samples.imageAsset) {
+        throw new Error('No ImageAsset sample found in frozen editor library.');
+      }
+      await loadResource(engine.cc, samples.imageAsset.resourcePath, engine.cc.ImageAsset);
+    }
     return capturedRuntimeUrls;
   } finally {
     await close(server);
   }
+}
+
+export async function captureJsonAssetHttpRuntimeUrls(): Promise<CapturedRuntimeUrl[]> {
+  return captureHttpRuntimeUrls({ includeImageAsset: false });
+}
+
+export async function captureRepresentativeHttpRuntimeUrls(): Promise<CapturedRuntimeUrl[]> {
+  return captureHttpRuntimeUrls({ includeImageAsset: true });
 }

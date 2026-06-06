@@ -1268,7 +1268,7 @@ Run:
 rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/http-contract.test.ts suites/runtime-preview/settings-generation.test.ts"
 ```
 
-- [ ] **Step 5: 扩展 HTTP-base URL capture**
+- [x] **Step 5: 扩展 HTTP-base URL capture**
 
 `http-url-capture` 必须覆盖除 JsonAsset import 外的 representative runtime requests：
 
@@ -1276,6 +1276,8 @@ rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_spa
 - pack URL，如当前项目/runtime facts 能触发。
 - redirect/shared bundle URL，如当前项目/runtime facts 能触发。
 - 如果当前项目无法触发某类 URL，必须以 diagnostic skip 记录 source operation 和缺失原因，不能用手写近似 URL 替代。
+
+2026-06-07 执行状态：已通过真实 `resources.load(ImageAsset)` 捕获 ImageAsset native URL；pack / redirect 当前未捕获，已用 diagnostic 记录 source operation、缺失原因与后续触发条件，没有使用手写近似 URL。
 
 Run:
 
@@ -1298,6 +1300,8 @@ Review gate:
 - Spine `.atlas` / `.json`，如果 frozen 项目存在样本。
 
 失败时优先诊断 test harness、host boundary、artifact mapping、settings/on-demand resolver；不能直接提出 engine patch。
+
+2026-06-07 执行状态：已新增 ImageAsset native dependency 的 filesystem-base `resources.load()` probe；Texture2D / SpriteFrame dependency chain、TTF、Plist / AutoAtlas、Spine 仍未完成，不能把该 Step 视为完成。
 
 Run:
 
