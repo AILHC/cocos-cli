@@ -1318,6 +1318,12 @@ rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_spa
 
 新增或改造 startup 测试，覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> startRuntimePreviewServer()`。如果直接跑 command process 成本过高，至少覆盖 `Launcher.startRuntimePreview()`，并在 facts 中记录 command-process coverage 尚未完成。
 
+2026-06-07 执行状态：
+- 已新增 child-process `tsx` 诊断测试，真实调用 `Launcher.startRuntimePreview({ host, port: 0, scene })`。
+- 当前基线仍阻塞于 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 缺失；该测试在 blocker 消失时必须失败并替换为真实 startup smoke。
+- 因真实 server 尚未启动成功，Step 7 仍未完成；`PreviewCommand -> Launcher.startRuntimePreview()` command-process coverage、真实 `/settings.js`、representative asset、script route 和端口释放仍待 blocker 解除后验证。
+- 生成或修改 engine root 下 `bin/.cache/dev-cli/editor/**` 前必须等待用户确认。
+
 最低覆盖：
 
 - `preview --runtime --host --port --scene` 参数进入 runtime preview path。
