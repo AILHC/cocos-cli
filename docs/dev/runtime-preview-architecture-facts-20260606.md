@@ -25,7 +25,7 @@
 
 `D:\workspace\engines\cocos\3.8.6` 当前存在 `editor/assets/**/*.meta` 修改。这些文件是已知 Creator 运行现场噪声，本任务不把它们作为 runtime-preview 实现事实，也不纳入提交范围。
 
-`src/runtime-preview/manifest/**`、`vitests/suites/runtime-preview/manifest-extraction.test.ts`、旧 `editor-library-resources-load.probe.test.ts` 是 Preflight 已分类草稿；当前主线不继续旧 full-manifest 方向。
+旧 `src/runtime-preview/manifest/**` 与 `vitests/suites/runtime-preview/manifest-extraction.test.ts` 已在 Task 15 Step 8 删除；当前主线不继续 full-manifest / startup recursive scan 方向。`editor-library-resources-load.probe.test.ts` 已转为 filesystem-base parser probe，仍需继续补 Texture2D / SpriteFrame / TTF / Plist / Spine 覆盖。
 
 ## 已否定假设
 
@@ -339,7 +339,7 @@ Frozen editor `temp/programming`：
 - 当前 `cli-startup.test.ts` 验证 server lifecycle、health route、settings route、startup roots log 和端口释放；真实 CLI 命令行进程、真实 `getPreviewSettings()` 端到端和 browser smoke 尚未验证。
 
 2026-06-06 Task 14 pre-browser HTTP smoke 结果：
-- `vitests/suites/runtime-preview/browser-smoke.test.ts` 启动 runtime preview server 并请求代表性端点：`/settings.js`、`/assets/resources/config.json`、HTTP-base captured import URL、`/scripting/x/.../import-map.json` 和一个实际 chunk。
+- `vitests/suites/runtime-preview/pre-browser-http-smoke.test.ts` 启动 runtime preview server 并请求代表性端点：`/settings.js`、`/assets/resources/config.json`、HTTP-base captured import URL、`/scripting/x/.../import-map.json` 和一个实际 chunk。
 - 该 smoke 在打开浏览器前验证短链路端点可用，仍不声明真实 browser page 已集成通过。
 - 当前尚未实现 root preview page route，因此没有打开浏览器；browser smoke 需要在页面入口和真实 `getPreviewSettings()` 端到端完成后再执行。
 
@@ -352,7 +352,7 @@ Frozen editor `temp/programming`：
 - Task 11 gap：`settings-generation.test.ts` 全部使用 mocked `loadPreviewSettings`；真实 `getPreviewSettings()` E2E 和 normal build boundary 尚未验证。
 - Task 12 gap：`http-contract.test.ts` 使用手写 injected `settings/bundleConfigs/script2library`，没有消费真实 Task 11 output。
 - Task 13 gap：`cli-startup.test.ts` 直接调用 `startRuntimePreviewServer()`，没有覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> server` 的真实命令链。
-- Minor：当前 `browser-smoke.test.ts` 实际是 pre-browser HTTP smoke；`src/runtime-preview/manifest/**` 旧 recursive `walkFiles()` 草稿仍在，需删除或隔离为 test-only/reference。
+- Minor：`browser-smoke.test.ts` 已改名为 `pre-browser-http-smoke.test.ts`；`src/runtime-preview/manifest/**` 旧 recursive `walkFiles()` 草稿已删除。
 
 2026-06-07 Task 15 Step 0/3 局部修复结果：
 - 新增 `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts`，先复现 production-like server 不传 test-only `capturedRuntimeUrls` 时 representative HTTP-base captured import URL 返回 404。

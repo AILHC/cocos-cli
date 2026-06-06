@@ -71,8 +71,8 @@
 
 | 文件/目录 | 分类 | 原因 | 后续动作 |
 | --- | --- | --- | --- |
-| `src/runtime-preview/manifest/**` | 实现方式废弃 | 当前草稿以 `RuntimePreviewArtifactManifest` / full index 为中心，和计划中的 request-time provider / resolver 边界冲突 | 后续实现不在此目录继续；需要时删除或替换为 `context`、`library`、`programming`、`settings`、`server` 模块 |
-| `vitests/suites/runtime-preview/manifest-extraction.test.ts` | 实现方式废弃 | 固化 manifest extraction 和全量文件计数；可作为 frozen artifact 事实参考，但不能作为 production 架构测试 | 不继续运行为主线测试；由 `editor-cli-output-consistency.test.ts`、`on-demand-resolver.test.ts` 替代 |
+| `src/runtime-preview/manifest/**` | 实现方式废弃 | 旧草稿以 `RuntimePreviewArtifactManifest` / full index 为中心，和计划中的 request-time provider / resolver 边界冲突 | 已在 Task 15 Step 8 删除；后续实现不在此目录继续 |
+| `vitests/suites/runtime-preview/manifest-extraction.test.ts` | 实现方式废弃 | 固化 manifest extraction 和全量文件计数；可作为 frozen artifact 事实参考，但不能作为 production 架构测试 | 已在 Task 15 Step 8 删除；由 `editor-cli-output-consistency.test.ts`、`on-demand-resolver.test.ts` 替代 |
 | `vitests/shared/engine-source.ts`、`cocos-cc-source-entry.ts`、PAL/external stubs | 待源码验证 | 可能来自 P6 harness 方向，符合真实 engine source 引入目标，但需按 Task 8/8.5 审核 `PREVIEW=true`、`TEST=false` 与 host boundary | Task 8/8.5 重新验证后决定保留或修正 |
 | `vitests/shared/editor-library-bundle.ts`、`editor-library-resources-load.probe.test.ts` | 待源码验证 | 方向符合 filesystem-base parser probe，但当前草稿来自旧阶段，需确认无手写 URL、无 mock Cocos public API、无 TypeScript 语法错误 | Task 9.5 重新审查并修正；不能作为 HTTP contract URL 来源 |
 | `vitests/package.json`、`vitest.config.ts`、`fixture-paths.ts`、`setup-engine-env.ts` | 业务意图保留 | 独立 Vitest package 和 fixture env 符合目标；配置需按当前 plan 校验 alias、jsdom、host boundary | Task 6/8 继续验证，保留原 Jest 不变 |
