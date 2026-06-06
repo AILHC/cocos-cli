@@ -294,7 +294,7 @@ class EngineManager implements IEngine {
         }
         this._info.typescript.builtin = this._info.typescript.path = enginePath;
         this._info.native.builtin = this._info.native.path = join(enginePath, 'native');
-        this._info.version = await import(join(enginePath, 'package.json')).then((pkg) => pkg.version);
+        this._info.version = (await fse.readJSON(join(enginePath, 'package.json'))).version;
         this._info.tmpDir = join(enginePath, '.temp');
         this._loadEngineI18n(enginePath);
         this._defaultConfig = this.resolveDefaultConfig(this._info.typescript.path);

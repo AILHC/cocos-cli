@@ -65,6 +65,7 @@ export default defineConfig({
       'pal/system-info/enum-type': resolve(engineRoot, 'pal/system-info/enum-type/index.ts'),
       'pal/system-info': resolve(root, 'shared/pal-system-info.ts'),
       'pal/wasm': resolve(root, 'shared/pal-wasm.ts'),
+      'cc/preload': resolve(root, '../packages/cc-module/preload.js'),
       'cc/env': resolve(root, 'shared/cocos-internal-constants.ts'),
       'cc.decorator': resolve(engineRoot, 'cocos/core/data/decorators/index.ts'),
       cc: resolve(root, 'shared/cocos-cc-source-entry.ts'),

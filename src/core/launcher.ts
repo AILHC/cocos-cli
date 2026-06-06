@@ -1,4 +1,4 @@
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { IBuildCommandOption, Platform } from './builder/@types/protected';
 import utils from './base/utils';
 import { newConsole } from './base/console';
@@ -26,6 +26,15 @@ export default class Launcher {
         newConsole.record();
     }
 
+    private getEngineRoot() {
+        const testEngineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT;
+        const testProjectRoot = process.env.COCOS_CLI_TEST_PROJECT_ROOT;
+        if (testEngineRoot && testProjectRoot && resolve(this.projectPath) === resolve(testProjectRoot)) {
+            return testEngineRoot;
+        }
+        return GlobalPaths.enginePath;
+    }
+
     private async init() {
         if (this._init) {
             return;
@@ -45,7 +54,7 @@ export default class Launcher {
         await Project.open(this.projectPath);
         // 初始化引擎
         const { initEngine } = await import('./engine');
-        await initEngine(GlobalPaths.enginePath, this.projectPath);
+        await initEngine(this.getEngineRoot(), this.projectPath);
         console.log('initEngine success');
     }
 
@@ -60,7 +69,7 @@ export default class Launcher {
         await this.init();
         // 在导入资源之前，初始化 scripting 模块，才能正常导入编译脚本
         const { Engine } = await import('./engine');
-        await scripting.initialize(this.projectPath, GlobalPaths.enginePath, Engine.getConfig().includeModules);
+        await scripting.initialize(this.projectPath, this.getEngineRoot(), Engine.getConfig().includeModules);
 
         const { createProgrammingFacet } = await import('./scripting/programming/FacetInstance');
         await createProgrammingFacet(Engine.getInfo().typescript.path, scripting.projectPath, Engine.getConfig().includeModules);
@@ -82,7 +91,7 @@ export default class Launcher {
         await initBuilder();
 
         // 启动场景进程，需要在 Builder 之后，因为服务器路由场景还没有做前缀约束匹配范围比较广
-        await startupScene(GlobalPaths.enginePath, this.projectPath);
+        await startupScene(this.getEngineRoot(), this.projectPath);
     }
 
     async startPreview(port?: number) {
@@ -124,7 +133,7 @@ export default class Launcher {
         const projectProgrammingRoot = process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF
             ? join(process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF, 'programming')
             : getDefaultProjectProgrammingRoot(this.projectPath);
-        const engineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT || GlobalPaths.enginePath;
+        const engineRoot = this.getEngineRoot();
 
         const server = await startRuntimePreviewServer({
             projectRoot: this.projectPath,
