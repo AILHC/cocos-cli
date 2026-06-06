@@ -1289,7 +1289,7 @@ Review gate:
 
 - 派资深子代理只读 review Step 5，重点看 native/pack/redirect 是否来自真实 HTTP-base engine runtime；不能接受 filesystem-base URL 或手写近似 URL。
 
-- [ ] **Step 6: 扩展 filesystem-base `resources.load` parser probe**
+- [x] **Step 6: 扩展 filesystem-base `resources.load` parser probe**
 
 `editor-library-resources-load.probe.test.ts` 必须从 frozen editor library 选择 representative samples，覆盖：
 
@@ -1301,7 +1301,12 @@ Review gate:
 
 失败时优先诊断 test harness、host boundary、artifact mapping、settings/on-demand resolver；不能直接提出 engine patch。
 
-2026-06-07 执行状态：已新增 ImageAsset native dependency 的 filesystem-base `resources.load()` probe；Texture2D / SpriteFrame dependency chain、TTF、Plist / AutoAtlas、Spine 仍未完成，不能把该 Step 视为完成。
+2026-06-07 执行状态：
+- 已新增 ImageAsset native dependency、Texture2D / SpriteFrame dependency chain、Plist 源资产转换后的 serialized SpriteAtlas、Spine SkeletonData 的 filesystem-base `resources.load()` probe。
+- host IO 已按 frozen PNG 读取 width/height 注入 jsdom `Image`，避免 SpriteFrame 反序列化因图片尺寸为 0 误判失败。
+- TTFFont 当前无 `assets/resources` 映射，记录 diagnostic；不能手写资源路径。
+- runtime `.plist` parser 当前没有被 SpriteAtlas case 触发，记录 diagnostic；不能把 serialized SpriteAtlas 加载宣称为 `.plist` parser 覆盖。
+- Spine `.atlas` standalone 与 Spine SkeletonData 共用 resources path，`resources.load(path, Asset)` 会按 engine `Config.getInfoWithPath()` 匹配到 `sp.SkeletonData`，记录 diagnostic；不能把该 case 宣称为 standalone atlas parser 已通过。
 
 Run:
 

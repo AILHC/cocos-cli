@@ -25,7 +25,7 @@
 
 `D:\workspace\engines\cocos\3.8.6` 当前存在 `editor/assets/**/*.meta` 修改。这些文件是已知 Creator 运行现场噪声，本任务不把它们作为 runtime-preview 实现事实，也不纳入提交范围。
 
-旧 `src/runtime-preview/manifest/**` 与 `vitests/suites/runtime-preview/manifest-extraction.test.ts` 已在 Task 15 Step 8 删除；当前主线不继续 full-manifest / startup recursive scan 方向。`editor-library-resources-load.probe.test.ts` 已转为 filesystem-base parser probe，仍需继续补 Texture2D / SpriteFrame / TTF / Plist / Spine 覆盖。
+旧 `src/runtime-preview/manifest/**` 与 `vitests/suites/runtime-preview/manifest-extraction.test.ts` 已在 Task 15 Step 8 删除；当前主线不继续 full-manifest / startup recursive scan 方向。`editor-library-resources-load.probe.test.ts` 已转为 filesystem-base parser probe，覆盖当前 frozen facts 可触发的 JsonAsset、ImageAsset、Texture2D、SpriteFrame、Plist 源资产转换后的 serialized SpriteAtlas 和 Spine SkeletonData；TTFFont、runtime `.plist` parser 与 Spine `.atlas` standalone 为 diagnostic gap。
 
 ## 已否定假设
 
@@ -173,7 +173,7 @@ Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-inf
 已确认 harness 决策：
 - P6 可作为“真实 engine source + host boundary mocks”的测试结构参考，不能照搬业务测试语义。
 - Runtime preview probe 必须使用 browser preview 语义：`EDITOR=false`、`PREVIEW=true`、`TEST=false`、`WEB=true`。
-- `cc` entry 不允许为了拿一个 class 而 re-export 大范围目录 index；当前主线只 re-export `asset-manager/index.ts` 和 `json-asset.ts`，Texture/SpriteFrame 等后续按 probe 事实逐个加入。
+- `cc` entry 不允许为了拿一个 class 而 re-export 大范围目录 index；当前主线只 re-export `asset-manager/index.ts` 以及 probe 已确认需要的精确 asset class 模块：`Asset`、`JsonAsset`、`ImageAsset`、`Texture2D`、`SpriteFrame`、`SpriteAtlas`、`TTFFont`、`SpineSkeletonData`。
 - Host boundary mock 只能位于 DOM、canvas、PAL、native external artifact 层；不能 mock `assetManager`、`resources`、`Bundle`、`parser`、`factory`、`Asset`、`JsonAsset` 等 Cocos public API。
 - `pal/wasm` 在测试中解析 `external:` 到 engine `native/external` 并读取真实 artifact；不能返回空 `ArrayBuffer` 掩盖需要 wasm 的加载分支。
 - meshopt ASM/WASM 当前未接入真实 decoder factory；如果 sample 触发 meshopt，测试必须明确失败并要求补 artifact mapping，不能用 `supported=false` 表示“不需要”。
@@ -289,7 +289,11 @@ Frozen editor `temp/programming`：
 - 真实 engine `resources.load()` 可通过 frozen editor library 加载 `JsonAsset`，进入 engine downloader/parser/factory 链路。
 - 2026-06-07 补充：真实 engine `resources.load(ImageAsset)` 可通过 frozen editor library 加载 ImageAsset native dependency，并触发 `.png` native file download；该验证使用 frozen library request-time file index，仅属于 filesystem-base parser probe，不输出 HTTP route contract。
 - 该 probe 使用 filesystem `importBase/nativeBase`，不输出 HTTP route contract。
-- Texture2D / SpriteFrame dependency chain 当前仍为 todo；TTF、Plist/AutoAtlas、Spine 仍未覆盖。后续必须先补 host boundary 与 sample selection 事实，再启用这些链路；不能把当前 todo 视为已验证。
+- 2026-06-07 Step 6 补充：已启用 Texture2D / SpriteFrame dependency chain；host IO 必须从 frozen PNG 读取 width/height 并注入 jsdom `Image`，否则 SpriteFrame 反序列化会因图片尺寸为 0 触发 rect 越界并超时。
+- 2026-06-07 Step 6 补充：已启用 Plist 源资产转换后的 serialized `SpriteAtlas` 样本，验证 `resources.load(SpriteAtlas)` 可加载该 serialized import JSON；该 case 没有下载 `.plist`，不能声明 runtime `.plist` parser 已覆盖。
+- 2026-06-07 Step 6 补充：已启用 Spine `sp.SkeletonData` `.json` 样本，验证当前 frozen Spine 数据可由真实 engine source 反序列化。
+- Spine `.atlas` standalone 当前只能作为 diagnostic：frozen `.atlas` asset 与 `sp.SkeletonData` 共用同一个 resources path，engine `Config.getInfoWithPath(path, Asset)` 对 `cc.Asset` base type 会匹配到 `sp.SkeletonData`；除非有独立 resources path 或更具体 asset type，否则不能用 `resources.load(path, Asset)` 精确证明 `.atlas` standalone parser。
+- TTFFont 当前只能作为 diagnostic：frozen library 存在 4 个 serialized `cc.TTFFont` 和 4 个 native TTF 文件，但 `.assets-info1.0.0.json` / `.assets-data.json` 没有 `assets/resources` 映射，不能构造真实 `resources.load(TTFFont)` 入口。
 
 2026-06-06 Task 9.75 HTTP-base URL capture 结果：
 - 通过本地 HTTP fixture、HTTP `base/importBase/nativeBase` 和真实 engine `resources.load(JsonAsset)` 捕获 runtime URL。
@@ -347,7 +351,7 @@ Frozen editor `temp/programming`：
 - 当前 `vitests` 能通过，但测试/验证链路尚未按计划闭环，不能声明 runtime preview 已完成或继续 browser integration。
 - Critical：production `preview --runtime` 不会给 route context 传入 `capturedRuntimeUrls`；而 `resolveLibraryRequest()` 没有 `allowedRequestPaths` 时拒绝所有 asset import/native request。因此 injected HTTP contract 通过不等于真实 CLI server 能服务 representative asset URL。
 - Task 9 gap：`editor-cli-output-consistency.test.ts` 还没有真实验证 CLI AssetDB output，只验证 active/frozen editor library，并把 `cli-output-not-generated-yet` 当作通过状态。
-- Task 9.5 gap：filesystem-base `resources.load` parser probe 只覆盖 `JsonAsset`；ImageAsset / Texture2D / SpriteFrame 仍是 todo，TTF、Plist/AutoAtlas、Spine 未覆盖。
+- Task 9.5 gap 已推进：filesystem-base `resources.load` parser probe 覆盖 JsonAsset、ImageAsset、Texture2D、SpriteFrame、Plist 源资产转换后的 serialized SpriteAtlas、Spine SkeletonData；TTFFont、runtime `.plist` parser 与 Spine `.atlas` standalone 按 frozen facts 记录 diagnostic gap。
 - Task 9.75 gap：HTTP-base capture 只覆盖 `query-extname` 和一个 JsonAsset import URL；native dependency、pack、redirect bundle URL 尚未捕获。
 - Task 11 gap：`settings-generation.test.ts` 全部使用 mocked `loadPreviewSettings`；真实 `getPreviewSettings()` E2E 和 normal build boundary 尚未验证。
 - Task 12 gap：`http-contract.test.ts` 使用手写 injected `settings/bundleConfigs/script2library`，没有消费真实 Task 11 output。
