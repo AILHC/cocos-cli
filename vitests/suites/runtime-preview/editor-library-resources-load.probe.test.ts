@@ -32,6 +32,29 @@ describe('editor library resources.load probe', () => {
     expect(hostIO.queryExtnameUrls).toContain(`/query-extname/${samples.jsonAsset!.uuid}`);
   });
 
+  it('loads ImageAsset through real engine resources.load from frozen editor library native dependency', async () => {
+    const paths = getFixturePaths();
+    const engine = await loadEngineSourceEntry();
+    const { config, samples, fileIndex } = await buildEditorLibraryResourcesBundle(paths.editorLibraryRef);
+
+    expect(samples.imageAsset?.resourcePath).toBeTruthy();
+    expect(config.paths[samples.imageAsset!.uuid]).toEqual([
+      samples.imageAsset!.resourcePath,
+      'cc.ImageAsset',
+    ]);
+
+    const hostIO = installEditorLibraryHostIO(engine.cc, fileIndex);
+    engine.cc.assetManager.init({ importBase: '', nativeBase: '' });
+    engine.cc.resources.init(config);
+
+    const asset = await loadResource(engine.cc, samples.imageAsset!.resourcePath, engine.cc.ImageAsset);
+
+    expect(asset).toBeInstanceOf(engine.cc.ImageAsset);
+    expect(hostIO.downloadedUrls.some((url) => (
+      new RegExp(`${samples.imageAsset!.uuid}\\.(?:png|jpg|jpeg)$`).test(url)
+    ))).toBe(true);
+  });
+
   it.todo('loads image, texture, and sprite frame dependencies after host image boundary and HTTP URL capture are wired', async () => {
     const paths = getFixturePaths();
     const engine = await loadEngineSourceEntry();

@@ -287,13 +287,16 @@ Frozen editor `temp/programming`：
 
 2026-06-06 Task 9.5 filesystem-base parser probe 结果：
 - 真实 engine `resources.load()` 可通过 frozen editor library 加载 `JsonAsset`，进入 engine downloader/parser/factory 链路。
+- 2026-06-07 补充：真实 engine `resources.load(ImageAsset)` 可通过 frozen editor library 加载 ImageAsset native dependency，并触发 `.png` native file download；该验证使用 frozen library request-time file index，仅属于 filesystem-base parser probe，不输出 HTTP route contract。
 - 该 probe 使用 filesystem `importBase/nativeBase`，不输出 HTTP route contract。
-- ImageAsset / Texture2D / SpriteFrame dependency chain 当前为 todo：初次自动样本选择命中 `w:0,h:0` 的 ImageAsset，并在 Texture/SpriteFrame 链路中超时。后续必须先补 host image boundary 与 HTTP-base URL capture，再启用该链路；不能把当前 todo 视为已验证。
+- Texture2D / SpriteFrame dependency chain 当前仍为 todo；TTF、Plist/AutoAtlas、Spine 仍未覆盖。后续必须先补 host boundary 与 sample selection 事实，再启用这些链路；不能把当前 todo 视为已验证。
 
 2026-06-06 Task 9.75 HTTP-base URL capture 结果：
 - 通过本地 HTTP fixture、HTTP `base/importBase/nativeBase` 和真实 engine `resources.load(JsonAsset)` 捕获 runtime URL。
 - 已捕获 `/query-extname/e62d10c9-29b9-4d53-833b-5769b524b759`，来源为 current engine `editor-path-replace.ts`。
 - 已捕获 `/assets/resources/import/e6/e62d10c9-29b9-4d53-833b-5769b524b759.json`，来源为 engine `url-transformer.combine()` 对 `resources.load('test_area_edge_graphic/Season_1', JsonAsset)` 的 HTTP-base import URL 生成。
+- 2026-06-07 补充：已通过真实 engine `resources.load(ImageAsset)` 捕获 ImageAsset native URL，`routeCategory = native`，`expectedArtifactKind = native-image`；捕获过程由 engine runtime 发起请求，fixture server 只按收到的 native request tail 服务 frozen library 文件。
+- 当前 pack / redirect HTTP-base URL 未捕获；诊断原因是当前 synthesized resources bundle config 没有 `config.packs` 与 `redirect` entries。后续触发条件是找到或构造能让 engine `packManager.load()` 或 redirect asset info 产生 runtime request 的 frozen sample / bundle config fact，不允许用手写近似 URL 替代。
 - 该 HTTP-base captured URL 可以作为 Task 12 HTTP contract 输入；filesystem-base probe URL 仍不能作为 HTTP route contract。
 - Captured URL fixture 已抽到 `vitests/shared/http-url-capture.ts`，字段包含 `url`、`routeCategory`、`sourceOperation`、`expectedArtifactKind`、`probe`。
 - HTTP capture fixture 服务文件时不使用 `walkFiles()` / `byRuntimeUrl` full index；它只按当前 HTTP request tail 做 path normalization、bucket 文件存在性检查和 direct file read。`walkFiles()` 仍只属于 filesystem-base parser probe 的 reference index helper，不得进入 production resolver。
