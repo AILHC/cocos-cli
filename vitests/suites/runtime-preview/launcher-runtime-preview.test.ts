@@ -4,6 +4,11 @@ import { getFixturePaths } from '@shared/fixture-paths';
 import { captureJsonAssetHttpRuntimeUrls } from '@shared/http-url-capture';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
+import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 describe('runtime preview production asset routes', () => {
   it('serves an engine-captured asset import URL without test-only capturedRuntimeUrls', async () => {
@@ -69,4 +74,45 @@ describe('runtime preview production asset routes', () => {
       await server.close();
     }
   });
+
+  it('diagnoses the current real Launcher.startRuntimePreview blocker before claiming startup coverage', async () => {
+    const paths = getFixturePaths();
+    const editorLoader = join(paths.engineRoot, 'bin/.cache/dev-cli/editor/loader.js');
+    const webLoader = join(paths.engineRoot, 'bin/.cache/dev-cli/web/loader.js');
+
+    expect({
+      editorLoaderExists: existsSync(editorLoader),
+      webLoaderExists: existsSync(webLoader),
+      blocker: existsSync(editorLoader) ? null : 'missing-engine-dev-cli-editor-loader',
+    }).toEqual({
+      editorLoaderExists: false,
+      webLoaderExists: true,
+      blocker: 'missing-engine-dev-cli-editor-loader',
+    });
+
+    const repoRoot = join(process.cwd(), '..');
+    const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
+    const code = `
+      import('./src/core/launcher.ts').then(async (m) => {
+        const Launcher = m.default?.default ?? m.default;
+        const launcher = new Launcher(process.env.COCOS_CLI_TEST_PROJECT_ROOT);
+        await launcher.startRuntimePreview({
+          host: '127.0.0.1',
+          port: 0,
+          scene: 'diagnostic-scene',
+        });
+      }).catch((error) => {
+        console.error(error && (error.stack || error.message || error));
+        process.exit(1);
+      });
+    `;
+
+    await expect(execFileAsync(process.execPath, [tsxCli, '-e', code], {
+      cwd: repoRoot,
+      env: process.env,
+      timeout: 30_000,
+    })).rejects.toMatchObject({
+      stderr: expect.stringMatching(/bin[\\\/]\.cache[\\\/]dev-cli[\\\/]editor[\\\/]loader(?:\.js)?|editor[\\\/]loader(?:\.js)?/),
+    });
+  }, 30_000);
 });

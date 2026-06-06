@@ -364,7 +364,7 @@ Frozen editor `temp/programming`：
 - 当测试传入 `capturedRuntimeUrls` 时，resolver 仍执行严格 allow list；未捕获但形态相似的 native/remote URL 继续返回 404。
 - captured mode 不再为了 asset route 调 `PreviewSettingsProvider.getPreviewSettings()`；`http-contract.test.ts` 已覆盖 captured asset URL 在 settings generation 会失败时仍可按 captured fact 服务。
 - 已验证：`launcher-runtime-preview.test.ts`、`http-contract.test.ts`、`on-demand-resolver.test.ts` 和完整 `npm --prefix vitests test -- --passWithNoTests` 通过。
-- 未完成：真实 `Launcher.startRuntimePreview()` / CLI command process、真实 `getPreviewSettings()` E2E、native/pack/redirect HTTP-base capture、完整 `resources.load` parser coverage 仍按 Task 15 后续步骤处理。
+- 未完成：真实 `Launcher.startRuntimePreview()` 成功启动 / CLI command process、真实 `getPreviewSettings()` E2E、native/pack/redirect HTTP-base capture 仍按 Task 15 后续步骤处理。`resources.load` parser probe 已覆盖当前 frozen facts 可触发的主链路，TTFFont、runtime `.plist` parser 与 Spine `.atlas` standalone 作为 diagnostic gap 保留。
 
 2026-06-07 Task 15 Step 1/2 诊断结果：
 - `src/core/engine/index.ts` 在 Windows absolute path 下使用 `import(join(enginePath, 'package.json'))` 会失败；已改为 `fs-extra.readJSON(join(enginePath, 'package.json'))`，避免 ESM/source runner 与 compiled CommonJS 的行为差异。`settings-generation.test.ts` 通过真实 `tsx` child process 验证 `Engine.init(D:\workspace\engines\cocos\3.8.6)` 能读取真实 package version。
@@ -372,6 +372,12 @@ Frozen editor `temp/programming`：
 - 真实 `Launcher.startRuntimePreview()` 已推进到 engine preload 阶段，但当前 engine root 只有 `bin/.cache/dev-cli/web/loader.js`，缺少 `bin/.cache/dev-cli/editor/loader.js`，`cc-module` 的 `EngineLoader.createEngineLoader()` 因此无法加载 `editor/loader`。
 - 按当前计划约束，生成或修改 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor/**` 属于修改 engine root 产物，执行前需要用户确认。确认前不能把真实 `getPreviewSettings()` E2E 或真实 `Launcher.startRuntimePreview()` 声明为完成。
 - 已验证：`npm --prefix vitests test -- suites/runtime-preview/editor-cli-output-consistency.test.ts suites/runtime-preview/settings-generation.test.ts` 通过；该通过结果包含明确 blocker 诊断，不等于 Step 1/2 真实闭环已完成。
+
+2026-06-07 Task 15 Step 7 诊断结果：
+- `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts` 已新增 child-process `tsx` 诊断测试，真实调用 `new Launcher(projectRoot).startRuntimePreview({ host, port: 0, scene })`。
+- 该测试在当前基线下必须失败于 `missing-engine-dev-cli-editor-loader` 事实：`D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 缺失，而 `web/loader.js` 存在。
+- 因 blocker 未解除，Step 7 只能确认真实 `Launcher.startRuntimePreview()` 当前到达 engine preload 前置阶段；尚未覆盖成功启动 server 后的 `/settings.js`、representative asset URL、script route 和端口释放。
+- `PreviewCommand -> Launcher.startRuntimePreview()` 的 CLI command-process coverage 尚未完成；不能用 `cli-startup.test.ts` 的 direct `startRuntimePreviewServer()` lifecycle 测试替代。
 
 ### Runtime preview 实现边界
 
