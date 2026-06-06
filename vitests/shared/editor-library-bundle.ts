@@ -1,5 +1,5 @@
 import { readFile, readdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname, join, relative } from 'node:path';
 
 type EngineConstructor = new (...args: never[]) => unknown;
@@ -56,6 +56,7 @@ export interface EditorLibraryResourceSample {
   uuid: string;
   resourcePath: string;
   type: string;
+  sourceUrl: string;
 }
 
 export interface EditorLibraryFileIndex {
@@ -72,6 +73,11 @@ export interface EditorLibraryResourcesBundle {
     imageAsset?: EditorLibraryResourceSample;
     texture2D?: EditorLibraryResourceSample;
     spriteFrame?: EditorLibraryResourceSample;
+    spriteAtlas?: EditorLibraryResourceSample;
+    spineAtlas?: EditorLibraryResourceSample;
+    skeletonData?: EditorLibraryResourceSample;
+    ttfFont?: EditorLibraryResourceSample;
+    bitmapFont?: EditorLibraryResourceSample;
     textAsset?: EditorLibraryResourceSample;
   };
 }
@@ -83,6 +89,12 @@ export interface BuildEditorLibraryResourcesBundleOptions {
 export interface EditorLibraryHostIO {
   downloadedUrls: string[];
   queryExtnameUrls: string[];
+}
+
+export interface EditorLibraryTtfDiagnostic {
+  serializedTtfUuids: string[];
+  nativeTtfFiles: string[];
+  resourcesMappedTtfUuids: string[];
 }
 
 async function readJson<T>(file: string): Promise<T> {
@@ -142,7 +154,19 @@ function rememberSample(
   } else if (sample.type === 'cc.Texture2D') {
     samples.texture2D ??= sample;
   } else if (sample.type === 'cc.SpriteFrame') {
-    samples.spriteFrame ??= sample;
+    if (!samples.spriteFrame || sample.sourceUrl.includes('.png@')) {
+      samples.spriteFrame = sample;
+    }
+  } else if (sample.type === 'cc.SpriteAtlas') {
+    samples.spriteAtlas ??= sample;
+  } else if (sample.type === 'cc.Asset' && sample.sourceUrl.endsWith('.atlas')) {
+    samples.spineAtlas ??= sample;
+  } else if (sample.type === 'sp.SkeletonData') {
+    samples.skeletonData ??= sample;
+  } else if (sample.type === 'cc.TTFFont') {
+    samples.ttfFont ??= sample;
+  } else if (sample.type === 'cc.BitmapFont') {
+    samples.bitmapFont ??= sample;
   } else if (sample.type === 'cc.TextAsset') {
     samples.textAsset ??= sample;
   }
@@ -212,6 +236,7 @@ export async function buildEditorLibraryResourcesBundle(
       uuid,
       resourcePath,
       type: serialized.__type__,
+      sourceUrl: projectAssetPath,
     };
     config.uuids.push(uuid);
     config.paths[uuid] = uuid.includes('@')
@@ -258,8 +283,83 @@ export async function buildEditorLibraryResourcesBundle(
   };
 }
 
+export async function inspectEditorLibraryTtfDiagnostic(libraryRoot: string): Promise<EditorLibraryTtfDiagnostic> {
+  const assetInfo = await readJson<AssetInfoMetadata>(join(libraryRoot, '.assets-info1.0.0.json'));
+  const assetData = await readJson<Record<string, AssetDataRecord>>(join(libraryRoot, '.assets-data.json'));
+  const files = await walkFiles(libraryRoot);
+  const serializedTtfUuids: string[] = [];
+  const nativeTtfFiles: string[] = [];
+
+  for (const file of files) {
+    if (file.toLowerCase().endsWith('.ttf')) {
+      nativeTtfFiles.push(toRuntimeUrl(libraryRoot, file));
+      continue;
+    }
+
+    if (!file.endsWith('.json')) {
+      continue;
+    }
+
+    const serialized = await readJson<{ __type__?: string }>(file);
+    if (serialized.__type__ === 'cc.TTFFont') {
+      serializedTtfUuids.push(basename(file, '.json'));
+    }
+  }
+
+  const ttfUuidSet = new Set(serializedTtfUuids);
+  const resourcesMappedTtfUuids = new Set<string>();
+  for (const [projectAssetPath, info] of Object.entries(assetInfo.map)) {
+    if (ttfUuidSet.has(info.uuid) && toResourcePath(projectAssetPath)) {
+      resourcesMappedTtfUuids.add(info.uuid);
+    }
+  }
+  for (const [uuid, record] of Object.entries(assetData)) {
+    if (ttfUuidSet.has(uuid) && toResourcePath(record.url)) {
+      resourcesMappedTtfUuids.add(uuid);
+    }
+  }
+
+  return {
+    serializedTtfUuids: serializedTtfUuids.sort(),
+    nativeTtfFiles: nativeTtfFiles.sort(),
+    resourcesMappedTtfUuids: [...resourcesMappedTtfUuids].sort(),
+  };
+}
+
 function normalizeRequestUrl(url: string): string {
   return new URL(url, 'http://runtime-preview.local').pathname;
+}
+
+function readPngSize(file: string): { width: number; height: number } | null {
+  const buffer = readFileSync(file);
+  if (
+    buffer.length < 24
+    || buffer[0] !== 0x89
+    || buffer[1] !== 0x50
+    || buffer[2] !== 0x4e
+    || buffer[3] !== 0x47
+  ) {
+    return null;
+  }
+
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  };
+}
+
+function installImageSize(image: HTMLImageElement, file: string): void {
+  const size = readPngSize(file);
+  if (!size) {
+    return;
+  }
+
+  Object.defineProperties(image, {
+    width: { value: size.width, configurable: true },
+    height: { value: size.height, configurable: true },
+    naturalWidth: { value: size.width, configurable: true },
+    naturalHeight: { value: size.height, configurable: true },
+  });
 }
 
 function installQueryExtnameXHR(hostIO: EditorLibraryHostIO, fileIndex: EditorLibraryFileIndex): void {
@@ -312,11 +412,13 @@ export function installEditorLibraryHostIO(cc: EngineLike, fileIndex: EditorLibr
   const imageHandler = (url: string, _options: Record<string, unknown>, onComplete: (err: Error | null, data?: unknown) => void): void => {
     const requestUrl = normalizeRequestUrl(url);
     hostIO.downloadedUrls.push(requestUrl);
-    if (!fileIndex.byRuntimeUrl.has(requestUrl)) {
+    const file = fileIndex.byRuntimeUrl.get(requestUrl);
+    if (!file) {
       onComplete(new Error(`No frozen library file for runtime URL: ${requestUrl}`));
       return;
     }
     const image = new Image();
+    installImageSize(image, file);
     image.src = requestUrl;
     onComplete(null, image);
   };

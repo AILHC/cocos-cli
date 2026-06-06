@@ -9,6 +9,9 @@ export interface EngineSourceRuntime {
     ImageAsset?: unknown;
     Texture2D?: unknown;
     SpriteFrame?: unknown;
+    SpriteAtlas?: unknown;
+    SpineSkeletonData?: unknown;
+    TTFFont?: unknown;
   };
 }
 
