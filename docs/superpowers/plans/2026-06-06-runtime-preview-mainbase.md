@@ -1170,7 +1170,7 @@ Expected:
 - 不能用 `it.todo`、无诊断 `skip` 或 mocked data 让必须验证的主链路假通过。确实无法由当前项目触发的 native/pack/redirect case，必须写 diagnostic skip，记录 source operation、缺失原因和后续触发条件。
 - Task 15 完成前不继续 Task 14 browser integration。
 
-- [ ] **Step 0: 复现 Critical 失败**
+- [x] **Step 0: 复现 Critical 失败**
 
 先新增一个最小 failing test，证明子代理指出的 production gap：
 
@@ -1219,7 +1219,7 @@ Run:
 rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/settings-generation.test.ts"
 ```
 
-- [ ] **Step 3: production asset route fact source**
+- [x] **Step 3: production asset route fact source**
 
 修正 production `preview --runtime` asset route 事实来源。真实 CLI server 不能依赖 test-only injected `capturedRuntimeUrls` 才能服务 asset URL。
 

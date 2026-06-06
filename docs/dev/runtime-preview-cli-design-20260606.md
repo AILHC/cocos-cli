@@ -174,7 +174,7 @@ flowchart LR
 
 `/query-extname/:uuid` 不是 import/native mapping 规则。它只服务 current engine preview branch 中 `editor-path-replace.ts` 的扩展名替换需求。
 
-Asset import/native route shape 是 engine-required，但具体 request path 仍必须来自 captured/runtime fact、bundle config 或后续 AssetDB/library metadata fact。当前 Task 12 只允许 HTTP-base captured URL 集合中的 import request；未捕获的 native、remote、pack、redirect 形态必须返回 404，不能因为 tail 碰巧命中文件就服务。
+Asset import/native route shape 是 engine-required，但具体 request path 仍必须来自 captured/runtime fact、bundle config 或后续 AssetDB/library metadata fact。当前 production 路径在没有 test-only `capturedRuntimeUrls` 时，只允许 `bundleConfigs[<bundle>].paths` 明确记录的 import payload uuid，并在 request time 直查对应 library bucket 文件；test-only captured mode 仍保持严格 allow list。未捕获且没有 bundle config / metadata fact 支撑的 native、remote、pack、redirect 形态必须返回 404，不能因为 tail 碰巧命中文件就服务。
 
 ## 性能设计
 

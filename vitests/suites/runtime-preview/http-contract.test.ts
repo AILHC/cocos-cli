@@ -101,4 +101,31 @@ describe('runtime preview HTTP route contract', () => {
     expect(runtimeContext.preloadedLibraryFileCount).toBe(0);
     expect(runtimeContext.preloadedProgrammingFileCount).toBe(0);
   });
+
+  it('serves captured asset URLs without requiring settings generation', async () => {
+    const paths = getFixturePaths();
+    const runtimeContext = createRuntimePreviewContext({
+      projectRoot: paths.projectRoot,
+      engineRoot: paths.engineRoot,
+      projectLibraryRoot: paths.editorLibraryRef,
+      projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+    });
+    const capturedUrls = await captureJsonAssetHttpRuntimeUrls();
+    const capturedImport = capturedUrls.find((entry) => entry.routeCategory === 'import');
+    expect(capturedImport?.probe).toBe('http-base');
+
+    const routeContext = {
+      runtimeContext,
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings: async () => {
+          throw new Error('settings generation should not run for captured asset routes');
+        },
+      }),
+      capturedRuntimeUrls: capturedUrls,
+    };
+
+    const response = await handleRuntimePreviewRequest(routeContext, capturedImport!.url);
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(String(response.body)).__type__).toBe('cc.JsonAsset');
+  });
 });

@@ -318,7 +318,7 @@ Frozen editor `temp/programming`：
 - `/settings.js` 由 `PreviewSettingsProvider.settingsJsSource` 返回，内容形态为 `window._CCSettings = ...;`。
 - `/assets/resources/config.json` 从 `PreviewSettingsProvider.bundleConfigs` 按 bundle name 返回。
 - HTTP-base captured import URL `/assets/resources/import/e6/e62d10c9-29b9-4d53-833b-5769b524b759.json` 通过 `resolveLibraryRequest()` 映射到 frozen editor library 中真实 bucket 文件。
-- `resolveLibraryRequest()` 必须由 fact source 提供 `allowedRequestPaths`；当前 Task 12 只允许 HTTP-base captured URL 集合中的 request。未捕获但形态相似的 `/assets|remote/<bundle>/import|native/<tail>` 必须返回 404。
+- `resolveLibraryRequest()` 必须由 fact source 授权 request。test-only captured mode 只允许 HTTP-base captured URL 集合中的 request；production mode 在没有 `capturedRuntimeUrls` 时，只允许 `bundleConfigs[<bundle>].paths` 明确记录的 import payload uuid。
 - allowed request 通过后，resolver 只按当前 request tail 在 project/internal library root 下做 direct `stat`，不扫描 root、不建立全局 URL/file index。
 - `/assets/<bundle>/index.js` / `/remote/<bundle>/index.js` 按 engine `downloadBundle()` 事实返回 dummy bundle script；该 route 只在对应 bundle config 存在时返回 200。
 - `/query-extname/<uuid>` 只检查 library bucket 中是否存在 `<uuid>.cconb` 或 `<uuid>.ccon`，并返回 import payload extension replacement；普通 `.json` 返回空字符串。该 route 不参与 import/native 判断。
@@ -348,6 +348,14 @@ Frozen editor `temp/programming`：
 - Task 12 gap：`http-contract.test.ts` 使用手写 injected `settings/bundleConfigs/script2library`，没有消费真实 Task 11 output。
 - Task 13 gap：`cli-startup.test.ts` 直接调用 `startRuntimePreviewServer()`，没有覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> server` 的真实命令链。
 - Minor：当前 `browser-smoke.test.ts` 实际是 pre-browser HTTP smoke；`src/runtime-preview/manifest/**` 旧 recursive `walkFiles()` 草稿仍在，需删除或隔离为 test-only/reference。
+
+2026-06-07 Task 15 Step 0/3 局部修复结果：
+- 新增 `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts`，先复现 production-like server 不传 test-only `capturedRuntimeUrls` 时 representative HTTP-base captured import URL 返回 404。
+- `resolveLibraryRequest()` 增加 production fact source：当没有 `allowedRequestPaths` 时，只允许 `bundleConfigs[<bundle>].paths` 明确记录的 import payload uuid；仍只按当前 request tail 对 project/internal library 做 direct `stat`，不扫描 library root。
+- 当测试传入 `capturedRuntimeUrls` 时，resolver 仍执行严格 allow list；未捕获但形态相似的 native/remote URL 继续返回 404。
+- captured mode 不再为了 asset route 调 `PreviewSettingsProvider.getPreviewSettings()`；`http-contract.test.ts` 已覆盖 captured asset URL 在 settings generation 会失败时仍可按 captured fact 服务。
+- 已验证：`launcher-runtime-preview.test.ts`、`http-contract.test.ts`、`on-demand-resolver.test.ts` 和完整 `npm --prefix vitests test -- --passWithNoTests` 通过。
+- 未完成：真实 `Launcher.startRuntimePreview()` / CLI command process、真实 `getPreviewSettings()` E2E、native/pack/redirect HTTP-base capture、完整 `resources.load` parser coverage 仍按 Task 15 后续步骤处理。
 
 ### Runtime preview 实现边界
 
