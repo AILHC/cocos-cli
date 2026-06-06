@@ -109,8 +109,11 @@ export async function handleRuntimePreviewRequest(
         return serveOnDemandFile(programmingFile);
     }
 
+    const capturedRuntimeUrls = context.capturedRuntimeUrls?.map((entry) => entry.url);
+    const bundleConfigs = capturedRuntimeUrls ? undefined : (await context.settingsProvider.getPreviewSettings()).bundleConfigs;
     const libraryFile = await resolveLibraryRequest(context.runtimeContext, pathname, {
-        allowedRequestPaths: context.capturedRuntimeUrls?.map((entry) => entry.url),
+        allowedRequestPaths: capturedRuntimeUrls,
+        bundleConfigs,
     });
     if (libraryFile) {
         return serveOnDemandFile(libraryFile);

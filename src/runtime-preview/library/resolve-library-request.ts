@@ -8,6 +8,7 @@ export interface ResolvedRuntimePreviewFile {
 
 export interface ResolveLibraryRequestOptions {
     allowedRequestPaths?: Iterable<string>;
+    bundleConfigs?: Array<Record<string, any>>;
 }
 
 function decodePathname(requestPath: string): string | null {
@@ -18,22 +19,32 @@ function decodePathname(requestPath: string): string | null {
     }
 }
 
-function toLibraryRouteTail(requestPath: string): string | null {
+interface LibraryRoute {
+    bundleName: string;
+    artifactKind: 'import' | 'native';
+    tail: string;
+}
+
+function parseLibraryRoute(requestPath: string): LibraryRoute | null {
     const pathname = decodePathname(requestPath);
     if (!pathname) {
         return null;
     }
 
-    const match = /^\/(?:assets|remote)\/[^/]+\/(?:import|native)\/(.+)$/.exec(pathname);
+    const match = /^\/(?:assets|remote)\/([^/]+)\/(import|native)\/(.+)$/.exec(pathname);
     if (!match) {
         return null;
     }
 
-    const tail = match[1];
+    const tail = match[3];
     if (!tail || tail.split('/').includes('..')) {
         return null;
     }
-    return tail;
+    return {
+        bundleName: match[1],
+        artifactKind: match[2] as 'import' | 'native',
+        tail,
+    };
 }
 
 function normalizeAllowedRequestPath(requestPath: string): string | null {
@@ -44,11 +55,7 @@ function normalizeAllowedRequestPath(requestPath: string): string | null {
     return pathname;
 }
 
-function isAllowedRequestPath(requestPath: string, allowedRequestPaths?: Iterable<string>): boolean {
-    if (!allowedRequestPaths) {
-        return false;
-    }
-
+function isCapturedRequestPath(requestPath: string, allowedRequestPaths: Iterable<string>): boolean {
     const normalizedRequestPath = normalizeAllowedRequestPath(requestPath);
     if (!normalizedRequestPath) {
         return false;
@@ -63,17 +70,67 @@ function isAllowedRequestPath(requestPath: string, allowedRequestPaths?: Iterabl
     return false;
 }
 
+function getUuidFromImportTail(tail: string): string | null {
+    const fileName = tail.split('/').pop();
+    if (!fileName) {
+        return null;
+    }
+
+    const match = /^([0-9a-fA-F-]{32,36})(?:\.(?:json|ccon|cconb))?$/.exec(fileName);
+    return match?.[1] ?? null;
+}
+
+function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<Record<string, any>>): boolean {
+    if (!bundleConfigs) {
+        return false;
+    }
+
+    const bundleConfig = bundleConfigs.find((config) => config.name === route.bundleName);
+    if (!bundleConfig) {
+        return false;
+    }
+
+    if (route.artifactKind !== 'import') {
+        return false;
+    }
+
+    if (typeof bundleConfig.importBase === 'string' && bundleConfig.importBase !== 'import') {
+        return false;
+    }
+
+    const uuid = getUuidFromImportTail(route.tail);
+    if (!uuid) {
+        return false;
+    }
+
+    return Boolean(bundleConfig.paths && Object.prototype.hasOwnProperty.call(bundleConfig.paths, uuid));
+}
+
+function isAllowedRequestPath(requestPath: string, options: ResolveLibraryRequestOptions): boolean {
+    const route = parseLibraryRoute(requestPath);
+    if (!route) {
+        return false;
+    }
+
+    const { allowedRequestPaths } = options;
+    if (!allowedRequestPaths) {
+        return isBundleConfigBackedRequest(route, options.bundleConfigs);
+    }
+
+    return isCapturedRequestPath(requestPath, allowedRequestPaths);
+}
+
 export async function resolveLibraryRequest(
     context: RuntimePreviewContext,
     requestPath: string,
     options: ResolveLibraryRequestOptions = {},
 ): Promise<ResolvedRuntimePreviewFile | null> {
-    if (!isAllowedRequestPath(requestPath, options.allowedRequestPaths)) {
+    if (!isAllowedRequestPath(requestPath, options)) {
         return null;
     }
 
-    const routeTail = toLibraryRouteTail(requestPath);
-    if (!routeTail) {
+    const route = parseLibraryRoute(requestPath);
+    if (!route) {
         return null;
     }
 
@@ -83,7 +140,7 @@ export async function resolveLibraryRequest(
     ].filter((root): root is string => Boolean(root));
 
     for (const root of candidateRoots) {
-        const absolutePath = resolve(root, ...routeTail.split('/'));
+        const absolutePath = resolve(root, ...route.tail.split('/'));
         try {
             const fileStat = await stat(absolutePath);
             if (fileStat.isFile()) {
