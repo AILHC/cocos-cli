@@ -281,7 +281,9 @@ Frozen editor `temp/programming`：
 - `E:\own_space\cocos_work_lab_38x\library` 与 frozen editor `library` 的 `.assets-data.json`、`.internal-data.json` key set 一致。
 - 代表性 editor output 文件在 active project library 与 frozen reference 中均存在：serialized JSON、PNG、TTF 子目录、Spine atlas、binary native-like。
 - `E:\own_space\cocos_work_lab_38x\temp\programming\packer-driver\targets\preview\import-map.json` 与 frozen editor programming reference 均存在。
-- 当前未发现 CLI default output root：`E:\own_space\cocos_work_lab_38x\library\cli` 不存在，`E:\own_space\cocos_work_lab_38x\temp\cli\programming` 不存在。当前状态分类为 `cli-output-not-generated-yet`，不是 CLI/editor output 已一致。
+- 2026-06-07 轻量 CLI AssetDB generation probe 后，`E:\own_space\cocos_work_lab_38x\library\cli` 与 `E:\own_space\cocos_work_lab_38x\temp\cli\programming` 已存在，但 generation 进程最终失败，当前只能分类为 `cli-output-incomplete-after-failed-generation`，不是 CLI/editor output 已一致。
+- 当前 CLI output 诊断：`library/cli/.assets-data.json` 与 `.assets-dependency.json` 存在；`.assets-info1.0.0.json`、`.internal-data.json`、`.internal-info1.0.0.json`、`.internal-dependency.json` 缺失；representative 文件中 PNG 与 atlas 存在，serialized JSON、TTF 子目录文件、binary native-like sample 缺失；`temp/cli/programming/packer-driver/targets/preview/import-map.json` 存在。
+- 轻量 generation probe 的失败链路：不经过 `Engine.initEngine()` 时，AssetDB importer 会缺少真实 `cc.JsonAsset`、`ImageAsset`、`SpriteAtlas` 等 constructors，后续还会缺 `cc/mods-mgr`。因此真实 CLI AssetDB/settings 链路不能跳过 editor engine preload。
 
 2026-06-06 Task 9.5 filesystem-base parser probe 结果：
 - 真实 engine `resources.load()` 可通过 frozen editor library 加载 `JsonAsset`，进入 engine downloader/parser/factory 链路。
@@ -356,6 +358,13 @@ Frozen editor `temp/programming`：
 - captured mode 不再为了 asset route 调 `PreviewSettingsProvider.getPreviewSettings()`；`http-contract.test.ts` 已覆盖 captured asset URL 在 settings generation 会失败时仍可按 captured fact 服务。
 - 已验证：`launcher-runtime-preview.test.ts`、`http-contract.test.ts`、`on-demand-resolver.test.ts` 和完整 `npm --prefix vitests test -- --passWithNoTests` 通过。
 - 未完成：真实 `Launcher.startRuntimePreview()` / CLI command process、真实 `getPreviewSettings()` E2E、native/pack/redirect HTTP-base capture、完整 `resources.load` parser coverage 仍按 Task 15 后续步骤处理。
+
+2026-06-07 Task 15 Step 1/2 诊断结果：
+- `src/core/engine/index.ts` 在 Windows absolute path 下使用 `import(join(enginePath, 'package.json'))` 会失败；已改为 `fs-extra.readJSON(join(enginePath, 'package.json'))`，避免 ESM/source runner 与 compiled CommonJS 的行为差异。`settings-generation.test.ts` 通过真实 `tsx` child process 验证 `Engine.init(D:\workspace\engines\cocos\3.8.6)` 能读取真实 package version。
+- `src/core/launcher.ts` 已将 test engine root 选择收敛为 `getEngineRoot()`，用于 `initEngine()`、`scripting.initialize()`、`startupScene()` 和 `startRuntimePreview()` 的 runtime context；只有同时设置 `COCOS_CLI_TEST_ENGINE_ROOT`、`COCOS_CLI_TEST_PROJECT_ROOT` 且当前 `Launcher.projectPath` 匹配 test project root 时才覆盖 `GlobalPaths.enginePath`，避免测试前半段初始化到错误 engine root，同时降低 env 泄漏影响普通 production 命令的风险。
+- 真实 `Launcher.startRuntimePreview()` 已推进到 engine preload 阶段，但当前 engine root 只有 `bin/.cache/dev-cli/web/loader.js`，缺少 `bin/.cache/dev-cli/editor/loader.js`，`cc-module` 的 `EngineLoader.createEngineLoader()` 因此无法加载 `editor/loader`。
+- 按当前计划约束，生成或修改 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor/**` 属于修改 engine root 产物，执行前需要用户确认。确认前不能把真实 `getPreviewSettings()` E2E 或真实 `Launcher.startRuntimePreview()` 声明为完成。
+- 已验证：`npm --prefix vitests test -- suites/runtime-preview/editor-cli-output-consistency.test.ts suites/runtime-preview/settings-generation.test.ts` 通过；该通过结果包含明确 blocker 诊断，不等于 Step 1/2 真实闭环已完成。
 
 ### Runtime preview 实现边界
 

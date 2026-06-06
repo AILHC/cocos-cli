@@ -1189,6 +1189,8 @@ rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_spa
 
 `editor-cli-output-consistency.test.ts` 必须从当前 CLI AssetDB/library/programming output 或可复现的 CLI generation path 取事实，不能再把 `cli-output-not-generated-yet` 当作通过状态。
 
+2026-06-07 执行状态：已移除 `cli-output-not-generated-yet` 成功语义，并记录当前真实 probe 结果。`library/cli` 与 `temp/cli/programming` 已由轻量 CLI AssetDB generation probe 产生，但 generation 进程最终失败，当前产物分类为 `cli-output-incomplete-after-failed-generation`。测试已断言当前缺失 metadata 与 representative files；该 Step 尚未完成，完整 consistency 仍依赖真实 engine preload 后的成功 CLI generation。
+
 最低覆盖：
 
 - frozen editor library 与 CLI output 的 `.assets-data.json` / `.assets-info1.0.0.json` shape。
@@ -1206,6 +1208,8 @@ rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_spa
 - [ ] **Step 2: 真实 `getPreviewSettings()` E2E**
 
 `settings-generation.test.ts` 必须增加真实/default `PreviewSettingsProvider` 路径验证，覆盖 `getPreviewSettings()` 输出被 provider 消费。mocked `loadPreviewSettings` 只保留用于 timeout/cache 单元测试。
+
+2026-06-07 执行状态：已修复并验证 Windows absolute engine root 下 `Engine.init()` 的 `package.json` 读取；已诊断真实 `Launcher.startRuntimePreview()` / `getPreviewSettings()` E2E 当前阻塞于 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 缺失。诊断测试在该 blocker 消失时必须失败并改为真实 E2E 验证。该 Step 尚未完成；生成或修改 engine root 下 `dev-cli/editor/**` 前必须等待用户确认。
 
 最低覆盖：
 

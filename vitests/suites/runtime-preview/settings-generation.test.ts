@@ -1,5 +1,13 @@
+import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
+import { getFixturePaths } from '@shared/fixture-paths';
+
+const execFileAsync = promisify(execFile);
 
 describe('runtime preview settings provider', () => {
   it('delegates to CLI preview settings output and preserves settings, bundle configs, and script map', async () => {
@@ -61,6 +69,56 @@ describe('runtime preview settings provider', () => {
     expect(result.diagnostics.elapsedMs).toBe(7);
     expect(result.diagnostics.normalBuildPipelineExecuted).toBe(false);
     expect(result.diagnostics.source).toBe('cli-getPreviewSettings');
+  });
+
+  it('initializes CLI Engine from the real engine root on Windows absolute paths', async () => {
+    const paths = getFixturePaths();
+    const packageJson = JSON.parse(await readFile(join(paths.engineRoot, 'package.json'), 'utf8')) as { version: string };
+    const repoRoot = join(process.cwd(), '..');
+    const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
+    const code = `
+      import('./src/core/engine/index.ts').then(async (m) => {
+        const engineModule = m.default || m;
+        await engineModule.Engine.init(process.env.COCOS_CLI_TEST_ENGINE_ROOT);
+        console.log(JSON.stringify(engineModule.Engine.getInfo()));
+      }).catch((error) => {
+        console.error(error && (error.stack || error.message || error));
+        process.exit(1);
+      });
+    `;
+
+    const { stdout } = await execFileAsync(process.execPath, [tsxCli, '-e', code], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        COCOS_CLI_TEST_ENGINE_ROOT: paths.engineRoot,
+      },
+      timeout: 30_000,
+    });
+    const info = JSON.parse(stdout.trim()) as { version: string; typescript: { path: string } };
+
+    expect(info.typescript.path).toBe(paths.engineRoot);
+    expect(info.version).toBe(packageJson.version);
+  });
+
+  it('diagnoses the current real preview settings E2E blocker before claiming default provider coverage', () => {
+    const paths = getFixturePaths();
+    const editorLoader = join(paths.engineRoot, 'bin/.cache/dev-cli/editor/loader.js');
+    const webLoader = join(paths.engineRoot, 'bin/.cache/dev-cli/web/loader.js');
+
+    const diagnostics = {
+      editorLoaderExists: existsSync(editorLoader),
+      webLoaderExists: existsSync(webLoader),
+      blocker: existsSync(editorLoader)
+        ? null
+        : 'missing-engine-dev-cli-editor-loader',
+    };
+
+    expect(diagnostics).toEqual({
+      editorLoaderExists: false,
+      webLoaderExists: true,
+      blocker: 'missing-engine-dev-cli-editor-loader',
+    });
   });
 
   it('caches successful generation without erasing independent script or bundle data', async () => {
