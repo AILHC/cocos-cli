@@ -72,8 +72,8 @@ Task 15 建议提交 checkpoint：
 - Important：`http-contract.test.ts` 手写 injected `settings/bundleConfigs/script2library`，没有消费 Task 11 的真实 output。
 - Important：`settings-generation.test.ts` 全部使用 mocked `loadPreviewSettings`，真实 `getPreviewSettings()` E2E 和 normal build boundary 尚未验证。
 - Important：`cli-startup.test.ts` 直接调用 `startRuntimePreviewServer()`，没有覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> server` 的真实命令链。
-- Minor：`browser-smoke.test.ts` 当前实际是 pre-browser HTTP smoke，应改名避免误判。
-- Minor：`src/runtime-preview/manifest/**` 旧 recursive `walkFiles()` 草稿仍在，虽然未被 production import，但应删除或迁到 test-only/reference，避免后续误用。
+- Minor：review 当时发现 `browser-smoke.test.ts` 实际是 pre-browser HTTP smoke。2026-06-07 Task 15 Step 8 已改为 `pre-browser-http-smoke.test.ts`。
+- Minor：review 当时发现 `src/runtime-preview/manifest/**` 旧 recursive `walkFiles()` 草稿仍在。2026-06-07 Task 15 Step 8 已删除，避免后续误用。
 
 结论：Task 8/8.5 的 `PREVIEW=true`、`TEST=false` 方向正确；Task 10 的 `dependScripts -> programming records/chunk` 连接基本有效。但 Task 9、9.5、9.75、11、12、13 必须补验证后才能继续。
 
@@ -1120,7 +1120,7 @@ Reuse old implementation only for lifecycle patterns that survived Task 5 classi
 
 ### Task 14: Browser smoke as final integration
 
-2026-06-07 review 后状态：Task 14 暂停。只有 Task 15 的真实 CLI/Launcher startup、真实 settings output、fact-backed asset route、HTTP-base URL capture 和 parser probe 补齐后，才能继续 browser smoke。当前 `browser-smoke.test.ts` 只是 pre-browser HTTP smoke，不能作为 browser integration 完成证据。
+2026-06-07 review 后状态：Task 14 暂停。只有 Task 15 的真实 CLI/Launcher startup、真实 settings output、fact-backed asset route、HTTP-base URL capture 和 parser probe 补齐后，才能继续 browser smoke。当前 `pre-browser-http-smoke.test.ts` 只是 pre-browser HTTP smoke，不能作为 browser integration 完成证据。
 
 **Files:**
 - Create: `vitests/suites/runtime-preview/browser-smoke.test.ts` or Playwright smoke if Browser plugin is used
@@ -1330,10 +1330,15 @@ Review gate:
 
 - 派资深子代理只读 review Step 7，重点看真实 startup path 是否覆盖，production roots 是否正确，server 是否能服务 settings、asset、script，端口是否释放。
 
-- [ ] **Step 8: 清理测试命名和旧 manifest 草稿**
+- [x] **Step 8: 清理测试命名和旧 manifest 草稿**
 
 - 将 `browser-smoke.test.ts` 改名为 `pre-browser-http-smoke.test.ts`，真正 browser/page route 完成后再新增 browser smoke。
 - 删除 `src/runtime-preview/manifest/**`，或迁移到 test-only/reference 并保证 production `src/runtime-preview/**` 不可引用旧 full-manifest / recursive `walkFiles()` 方向。
+
+2026-06-07 执行状态：
+- 已将 pre-browser HTTP smoke 测试改名为 `vitests/suites/runtime-preview/pre-browser-http-smoke.test.ts`。
+- 已删除旧 `src/runtime-preview/manifest/**` 与 `vitests/suites/runtime-preview/manifest-extraction.test.ts`。
+- production `src/runtime-preview/**` 不再存在旧 full-manifest / recursive `walkFiles()` 草稿。
 
 Run:
 

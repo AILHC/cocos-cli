@@ -41,9 +41,6 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: [resolve(root, 'shared/setup-engine-env.ts')],
     include: ['suites/**/*.test.ts'],
-    exclude: [
-      'suites/runtime-preview/manifest-extraction.test.ts',
-    ],
     testTimeout: 30000,
   },
   resolve: {
