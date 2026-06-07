@@ -24,6 +24,8 @@
 
 备份分支只能提供需求意图、route 名称、历史问题和测试启发，不能作为 URL mapping、library resolver、settings 或 bundle config 的权威。
 
+冻结 editor `library` 和 `temp/programming` 已完成。后续每个测试和实现必须标明它们使用冻结产物的角色：`hard input`、`compatibility baseline`、`test fixture` 或 `not used`。如果某项实现不再使用冻结产物作为判断依据，必须在验收矩阵中写明降级原因，不能默默把 frozen output 变成普通参考。
+
 ### 0.2 提交规则
 
 不要求每个小 step 都提交。提交边界按“可独立回滚、可独立验证、语义完整”判断：
@@ -43,6 +45,7 @@
 - 不用 frozen editor output 替代 production output。
 - 不用 mock Cocos public API 证明 engine runtime loading 成功。
 - 不用打开浏览器瞬间无错误作为验收通过。
+- 不让 root preview page 或 preview-app 覆盖 `assets.importBase`、`assets.nativeBase`、bundle config、internal route 或 engine/runtime 已生成的 URL。preview page 只能消费 `/settings.js` 和 current runtime facts。
 
 ## 1. 目标验收矩阵
 
@@ -69,6 +72,7 @@
 - URL 由 engine runtime/settings/bundle config 生成，server 不猜 URL。
 - `settings.js` 来自 CLI `getPreviewSettings()` 或等价封装。
 - `library` 与 `temp/programming` 使用真实产物事实。
+- 冻结 editor `library` / `temp/programming` 在每项测试中的角色必须标明为 `hard input`、`compatibility baseline`、`test fixture` 或 `not used`。
 - scripting route 由 preview records/chunks 和 `dependScripts` 驱动。
 - extension asset-db 支持，不硬编码 `view-state-group`。
 - 启动反馈和日志可见。
@@ -141,7 +145,7 @@ Expected:
 至少写入：
 
 ```markdown
-| RP-ENGINE-001 | runtime preview Vitest 和 CLI runtime path 需要 Node.js PAL / host boundary | `vitests/shared/**`, `src/runtime-preview/**` | `ec7f8d2161 feat(runtime-preview): add nodejs pal adapter`, `cc.config.json`, `pal/**/nodejs` | engine backup + current 3.8.6 source + engine-source probe | `npm --prefix vitests test -- suites/runtime-preview/engine-source-runtime.probe.test.ts` | active |
+| RP-ENGINE-001 | runtime preview Vitest 和 CLI runtime path 需要 Node.js PAL / host boundary | `needs-review: map exact CLI commits/files/tests before active` | `ec7f8d2161 feat(runtime-preview): add nodejs pal adapter`, `cc.config.json`, `pal/**/nodejs` | engine backup + current 3.8.6 source + engine-source probe | `npm --prefix vitests test -- suites/runtime-preview/engine-source-runtime.probe.test.ts` | needs-review |
 ```
 
 如果某个 CLI commit 尚不能精确对应，状态必须写 `needs-review`，不能虚构对应关系。
@@ -152,6 +156,7 @@ Expected:
 
 - engine patch 不能只写“适配 runtime preview”。
 - 必须说明它对应哪个 CLI 测试或 CLI 行为。
+- 没有 CLI commit、CLI test、CLI behavior 三者闭环时，状态不能写 `active`。
 - 如果 engine patch 影响非 runtime preview 语义，状态先写 `needs-review`。
 
 - [ ] **Step 4: 提交 ledger**
@@ -224,7 +229,7 @@ Run the same full-suite command from Step 1.
 
 Expected:
 
-- `11 files / 26 tests` pass.
+- 当前基线约为 `11 files / 26 tests`；以 full-suite pass、无 skipped real-engine test、无 unexpected timeout 为准。新增测试后不要用旧文件数/用例数判定失败。
 
 - [ ] **Step 5: 提交稳定性修复**
 
@@ -365,6 +370,7 @@ Expected:
 
 - Test has a generic extension mount case.
 - `view-state-group` is only a fixture instance.
+- Extension acceptance covers disabled extension skip, project/global package enable config, and `mount.enable`; otherwise status remains `partial`.
 
 - [ ] **Step 5: 提交 asset route completion**
 
@@ -517,15 +523,28 @@ Browser smoke can run only after:
 - scripting SystemJS/import-map/chunk routes work.
 - root preview page route exists or a factual preview-app entry exists.
 
+Root preview page / preview-app rules:
+
+- It may load `/settings.js`, engine scripts, scripting routes and runtime asset requests.
+- It must not assign or overwrite `assets.importBase`, `assets.nativeBase`, `assets.server`, bundle config, internal bundle route or captured runtime URL.
+- If a preview-app entry is copied or adapted from old editor / backup code, the test must grep or inspect it for these forbidden overrides before browser smoke can run.
+
 - [ ] **Step 2: 启动真实 preview server**
 
 Test should start actual runtime preview server path, not only `handleRuntimePreviewRequest()`.
+
+Minimum coverage:
+
+- Small-project browser smoke must cover `Launcher.startRuntimePreview()` or a wrapper that calls it.
+- P6 / feature-c browser smoke must cover a real CLI child process: `node dist/cli.js preview --runtime ...`.
 
 Expected:
 
 - server listens on `127.0.0.1` random or configured free port.
 - test captures server URL.
 - server logs startup roots.
+- test records PID or server handle.
+- test performs graceful shutdown and asserts port release.
 
 - [ ] **Step 3: 打开浏览器并监听运行期**
 
@@ -542,8 +561,11 @@ Must capture:
 Wait policy:
 
 - Do not pass immediately after page open.
-- Wait for a runtime-ready signal, or wait until required requests complete and then observe a stable window.
-- Minimum stable window: 5 seconds after scene/resources load signal, unless a stronger engine-ready signal is implemented.
+- Browser smoke must define an explicit ready contract before implementation.
+- Preferred ready signal: page sets `window.__RUNTIME_PREVIEW_READY = { scene, resources, timestamp }` only after settings, required scripting files, bundle config, representative resources, and scene or resource marker have loaded.
+- If scene load is not yet available, use a representative `resources.load` marker and write that limitation into the acceptance matrix.
+- Network idle or arbitrary sleep is not a ready signal.
+- Minimum stable window: 5 seconds after the explicit ready signal, unless a stronger engine-ready signal is implemented.
 
 - [ ] **Step 4: 定义失败条件**
 
@@ -558,6 +580,16 @@ Fail on:
 - scene/resource load timeout
 - network request to runtime server with 404/500 not explicitly diagnostic
 
+Failure taxonomy:
+
+- `fail-settings`: `/settings.js` missing, malformed, timeout, or wrong server/import/native base.
+- `fail-route-contract`: required runtime URL not served or served from unproven source.
+- `fail-programming`: SystemJS/import-map/record/chunk/script route missing.
+- `fail-engine-adaptation`: engine source/PAL/parser/downloader error independent of project content.
+- `fail-browser-host-boundary`: DOM/canvas/WebGL/browser automation environment issue.
+- `fail-project-boundary`: project-side native-only static import or unsupported project dependency.
+- `fail-timeout`: ready signal or stable window not reached.
+
 - [ ] **Step 5: 定义通过证据**
 
 Test output must record:
@@ -569,6 +601,8 @@ Test output must record:
 - number of console errors
 - loaded scene or representative resource marker
 - log file path
+- failure taxonomy category if failed
+- console/pageerror/network evidence file path if failed
 
 - [ ] **Step 6: 提交 browser smoke**
 
@@ -601,9 +635,11 @@ Document:
 - known native-only static import boundary
 - extension asset-db domains expected
 
-- [ ] **Step 2: 启动真实 runtime preview**
+- [ ] **Step 2: 脚本化启动真实 runtime preview**
 
-Run:
+Do not use a foreground-only command as the acceptance procedure. Create or use a script that spawns the CLI process, waits for `server:listening`, runs browser smoke, collects logs/metrics, then shuts the process down.
+
+Command shape to be wrapped by the script:
 
 ```powershell
 rtk powershell -NoProfile -Command "Set-Location -LiteralPath 'F:\ps_copy\p6\trunk\Project\GameClient\feature-c'; node 'E:\own_space\engines\cocos-cli\dist\cli.js' preview --runtime --host 0.0.0.0 --port 19530"
@@ -613,6 +649,15 @@ If the port is occupied:
 
 - identify the process.
 - do not kill it without checking whether it is current test server.
+
+The script must record:
+
+- CLI child PID
+- listening URL
+- startup stdout/stderr excerpt
+- runtime preview log path
+- graceful shutdown result
+- port release result
 
 - [ ] **Step 3: 收集性能和编译指标**
 
