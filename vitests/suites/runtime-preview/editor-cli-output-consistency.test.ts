@@ -92,18 +92,15 @@ describe('frozen editor output and CLI AssetDB output consistency', () => {
       return;
     }
 
-    expect(diagnostics).toMatchObject({
-      missingMetadataFiles: expect.arrayContaining([
-        '.assets-info1.0.0.json',
-        '.internal-data.json',
-        '.internal-info1.0.0.json',
-        '.internal-dependency.json',
-      ]),
-      missingRepresentativeFiles: expect.arrayContaining([
-        '00/00614c43-17eb-4463-be7a-c162c2b92d43.json',
-        '08/0835f102-5471-47a3-9a76-01c07ac9cdb2/OpenSans-Regular.ttf',
-        '12/1263d74c-8167-4928-91a6-4e2672411f47@17020.bin',
-      ]),
-    });
+    expect(diagnostics.missingMetadataFiles).toEqual([
+      '.assets-info1.0.0.json',
+      '.internal-data.json',
+      '.internal-info1.0.0.json',
+      '.internal-dependency.json',
+    ]);
+    expect(diagnostics.missingRepresentativeFiles).toEqual([
+      '08/0835f102-5471-47a3-9a76-01c07ac9cdb2/OpenSans-Regular.ttf',
+      '12/1263d74c-8167-4928-91a6-4e2672411f47@17020.bin',
+    ]);
   });
 });

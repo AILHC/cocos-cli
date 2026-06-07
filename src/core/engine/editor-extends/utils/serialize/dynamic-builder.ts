@@ -15,10 +15,8 @@ import {
     IObjParsingInfo,
 } from './parser';
 
-// import deserializer types
-import D = deserialize.Internal;
 import { Builder, IBuilderOptions } from './base-builder';
-type AnyCCClass = D.AnyCCClass_;
+type AnyCCClass = deserialize.Internal.AnyCCClass_;
 
 namespace Format {
     export interface Class {

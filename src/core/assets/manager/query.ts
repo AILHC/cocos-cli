@@ -533,7 +533,9 @@ class AssetQueryManager {
                 return asset.meta;
             case 'depends':
                 {
-                    return Array.from(asset.getData('depends') || []);
+                    // Some virtual/sub assets do not have a persisted data record; asset.getData() throws in that case.
+                    const data = asset._assetDB.dataManager.dataMap[asset.uuid];
+                    return Array.from(data && data.value && data.value.depends || []);
                 }
             case 'dependeds':
                 {

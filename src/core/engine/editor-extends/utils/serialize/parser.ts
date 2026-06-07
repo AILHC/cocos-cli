@@ -21,10 +21,8 @@ import { SERVER_MODE } from 'cc/editor/populate-internal-constants';
 import CompiledBuilder from './compiled/builder';
 import DynamicBuilder from './dynamic-builder';
 
-// import deserializer types
-import D = deserialize.Internal;
 import { Builder, IBuilderOptions } from './base-builder';
-type AnyCCClass = D.AnyCCClass_;
+type AnyCCClass = deserialize.Internal.AnyCCClass_;
 
 const { PersistentMask, DontSave, DontDestroy, EditorOnly } = CCObject.Flags;
 

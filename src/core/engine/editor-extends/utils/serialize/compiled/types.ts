@@ -1,29 +1,22 @@
 import {
-    deserialize,
-} from 'cc';
-
-// import deserializer types
-import D = deserialize.Internal;
-type OtherObjectData = D.OtherObjectData_;
-type AnyData = D.AnyData_;
-import DataTypeID = D.DataTypeID_;
-type DataTypes = D.DataTypes_;
-type IArrayData = D.IArrayData_;
-type IClassObjectData = D.IClassObjectData_;
-type ICustomObjectData = D.ICustomObjectData_;
-type ICustomObjectDataContent = D.ICustomObjectDataContent_;
-type IDictData = D.IDictData_;
-type IMask = D.IMask_;
-type IClass = D.IClass_;
-
-const {
-    DICT_JSON_LAYOUT,
-    CLASS_TYPE,
     CLASS_KEYS,
     CLASS_PROP_TYPE_OFFSET,
+    CLASS_TYPE,
     CUSTOM_OBJ_DATA_CONTENT,
+    DataTypeID,
+    DICT_JSON_LAYOUT,
     MASK_CLASS,
-} = deserialize._macros;
+    type AnyData,
+    type DataTypes,
+    type IArrayData,
+    type IClass,
+    type IClassObjectData,
+    type ICustomObjectData,
+    type ICustomObjectDataContent,
+    type IDictData,
+    type IMask,
+    type OtherObjectData,
+} from './deserializer-format';
 
 export class TraceableItem {
    

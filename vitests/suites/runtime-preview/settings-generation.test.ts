@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -8,6 +7,7 @@ import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-setti
 import { getFixturePaths } from '@shared/fixture-paths';
 
 const execFileAsync = promisify(execFile);
+const diagnosticSceneUuid = '5d1de01c-5229-4d34-bde3-2c90372f88d9';
 
 describe('runtime preview settings provider', () => {
   it('delegates to CLI preview settings output and preserves settings, bundle configs, and script map', async () => {
@@ -101,24 +101,34 @@ describe('runtime preview settings provider', () => {
     expect(info.version).toBe(packageJson.version);
   });
 
-  it('diagnoses the current real preview settings E2E blocker before claiming default provider coverage', () => {
-    const paths = getFixturePaths();
-    const editorLoader = join(paths.engineRoot, 'bin/.cache/dev-cli/editor/loader.js');
-    const webLoader = join(paths.engineRoot, 'bin/.cache/dev-cli/web/loader.js');
-
-    const diagnostics = {
-      editorLoaderExists: existsSync(editorLoader),
-      webLoaderExists: existsSync(webLoader),
-      blocker: existsSync(editorLoader)
-        ? null
-        : 'missing-engine-dev-cli-editor-loader',
+  it('forwards runtime server and scene build options to CLI preview settings generation', async () => {
+    const buildOptions = {
+      server: 'http://127.0.0.1:19530',
+      startScene: diagnosticSceneUuid,
     };
-
-    expect(diagnostics).toEqual({
-      editorLoaderExists: false,
-      webLoaderExists: true,
-      blocker: 'missing-engine-dev-cli-editor-loader',
+    const loadPreviewSettings = vi.fn(async () => ({
+      settings: {
+        assets: {
+          server: buildOptions.server,
+        },
+        launch: {
+          launchScene: buildOptions.startScene,
+        },
+      },
+      script2library: {},
+      bundleConfigs: [],
+    }));
+    const provider = new PreviewSettingsProvider({
+      loadPreviewSettings,
+      buildOptions,
+      timeoutMs: 1000,
     });
+
+    const result = await provider.getPreviewSettings();
+
+    expect(loadPreviewSettings).toHaveBeenCalledWith(buildOptions);
+    expect(result.settings.assets.server).toBe(buildOptions.server);
+    expect(result.settingsJsSource).toContain(`"launchScene":"${diagnosticSceneUuid}"`);
   });
 
   it('caches successful generation without erasing independent script or bundle data', async () => {

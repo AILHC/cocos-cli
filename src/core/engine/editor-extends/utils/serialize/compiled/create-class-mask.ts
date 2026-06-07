@@ -1,22 +1,16 @@
 import {
-    deserialize,
-} from 'cc';
-
-// import deserializer types
-import D = deserialize.Internal;
-import DataTypeID = D.DataTypeID_;
-type IClass = D.IClass_;
-type IClassObjectData = D.IClassObjectData_;
-type IMask = D.IMask_;
+    CLASS_PROP_TYPE_OFFSET,
+    CUSTOM_OBJ_DATA_CLASS,
+    DataTypeID,
+    MASK_CLASS,
+    OBJ_DATA_MASK,
+    type IClass,
+    type IClassObjectData,
+    type IMask,
+} from './deserializer-format';
 
 import { ClassNode, CustomClassNode, TraceableDict, TraceableItem } from './types';
 
-const {
-    CLASS_PROP_TYPE_OFFSET,
-    MASK_CLASS,
-    OBJ_DATA_MASK,
-    CUSTOM_OBJ_DATA_CLASS,
-} = deserialize._macros;
 
 // 同一个构造函数，生成的类型可能有多个，每个类型叫作一个 Type。
 class Type {
