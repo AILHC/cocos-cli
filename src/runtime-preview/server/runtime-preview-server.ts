@@ -12,6 +12,8 @@ export interface RuntimePreviewServerOptions {
     internalLibraryRoot?: string;
     host?: string;
     port?: number;
+    scene?: string;
+    settingsBuildOptions?: Record<string, any>;
     settingsProvider?: PreviewSettingsProvider;
     capturedRuntimeUrls?: Array<{ url: string }>;
 }
@@ -56,7 +58,23 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         projectProgrammingRoot: options.projectProgrammingRoot,
         internalLibraryRoot: options.internalLibraryRoot,
     });
-    const settingsProvider = options.settingsProvider ?? new PreviewSettingsProvider();
+    let serverUrl = '';
+    let settingsProvider = options.settingsProvider;
+    const getSettingsProvider = (): PreviewSettingsProvider => {
+        if (!settingsProvider) {
+            if (!serverUrl) {
+                throw new Error('Runtime preview settings provider requested before server URL was assigned.');
+            }
+            settingsProvider = new PreviewSettingsProvider({
+                buildOptions: {
+                    ...(options.settingsBuildOptions ?? {}),
+                    server: serverUrl,
+                    startScene: options.scene,
+                },
+            });
+        }
+        return settingsProvider;
+    };
     const startupLogLines = [
         `projectRoot=${context.projectRoot}`,
         `engineRoot=${context.engineRoot}`,
@@ -82,7 +100,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
 
             const routeResponse = await handleRuntimePreviewRequest({
                 runtimeContext: context,
-                settingsProvider,
+                settingsProvider: getSettingsProvider(),
                 capturedRuntimeUrls: options.capturedRuntimeUrls,
             }, request.url ?? '/');
             response.writeHead(routeResponse.statusCode, routeResponse.headers);
@@ -95,6 +113,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
 
     const port = await listen(server, requestedPort, host);
     const url = `http://${host}:${port}`;
+    serverUrl = url;
     return {
         server,
         host,

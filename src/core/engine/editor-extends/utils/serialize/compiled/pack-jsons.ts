@@ -1,41 +1,34 @@
 import {
-    deserialize,
-} from 'cc';
-
-// import deserializer types
-import D = deserialize.Internal;
-type AnyData = D.AnyData_;
-import DataTypeID = D.DataTypeID_;
-type IArrayData = D.IArrayData_;
-type IClass = D.IClass_;
-type IClassObjectData = D.IClassObjectData_;
-type ICustomObjectData = D.ICustomObjectData_;
-type IDictData = D.IDictData_;
-import File = D.File_;
-type IFileData = D.IFileData_;
-type IMask = D.IMask_;
-type IPackedFileData = D.IPackedFileData_;
-import Refs = D.Refs_;
-type IRefs = D.IRefs_;
-type OtherObjectTypeID = D.OtherObjectTypeID_;
-type SharedString = D.SharedString_;
-type StringIndex = D.StringIndex_;
-type StringIndexBnotNumber = D.StringIndexBnotNumber_;
+    ARRAY_ITEM_VALUES,
+    CLASS_PROP_TYPE_OFFSET,
+    CUSTOM_OBJ_DATA_CLASS,
+    DataTypeID,
+    DICT_JSON_LAYOUT,
+    EMPTY_PLACEHOLDER,
+    File,
+    MASK_CLASS,
+    OBJ_DATA_MASK,
+    PACKED_SECTIONS,
+    Refs,
+    type AnyData,
+    type IArrayData,
+    type IClass,
+    type IClassObjectData,
+    type ICustomObjectData,
+    type IDictData,
+    type IFileData,
+    type IMask,
+    type IPackedFileData,
+    type IRefs,
+    type OtherObjectTypeID,
+    type SharedString,
+    type StringIndex,
+    type StringIndexBnotNumber,
+} from './deserializer-format';
 
 import { ClassNode, CustomClassNode, TraceableDict } from './types';
 import { FORMAT_VERSION, reduceEmptyArray } from './builder';
 import dumpClasses from './create-class-mask';
-
-const {
-    EMPTY_PLACEHOLDER,
-    CUSTOM_OBJ_DATA_CLASS,
-    ARRAY_ITEM_VALUES,
-    CLASS_PROP_TYPE_OFFSET,
-    MASK_CLASS,
-    OBJ_DATA_MASK,
-    DICT_JSON_LAYOUT,
-    PACKED_SECTIONS,
-} = deserialize._macros;
 
 type ParseFunction<T> = (data: IFileData, value: T, classNodes: (ClassNode|CustomClassNode)[]) => void;
 

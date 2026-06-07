@@ -364,6 +364,7 @@ class EngineManager implements IEngine {
             engineRoot: this._info.typescript.path,
             engineDev: join(this._info.typescript.path, 'bin', '.cache', 'dev-cli'),
             writablePath: info.writablePath,
+            editor: true,
             requiredModules: [
                 'cc',
                 'cc/editor/populate-internal-constants',
@@ -386,12 +387,12 @@ class EngineManager implements IEngine {
         const modules = this.getConfig().includeModules || [];
         const { physicsConfig, macroConfig, customLayers, sortingLayers, highQuality, renderPipeline } = this.getConfig();
         const bundles = assetManager.queryAssets({ isBundle: true }).map((item: any) => item.meta?.userData?.bundleName ?? item.name);
-        const builtinAssets = info.serverURL && await this.queryInternalAssetList(this.getInfo().typescript.path);
         const defaultConfig = {
             debugMode: cc.debug.DebugMode.WARN,
             overrideSettings: {
                 engine: {
-                    builtinAssets: builtinAssets || [],
+                    // CLI-side engine init prepares editor/import services; browser runtime loads internal assets.
+                    builtinAssets: info.serverURL ? undefined : [],
                     macros: macroConfig,
                     sortingLayers,
                     customLayers: customLayers.map((layer: any) => {
@@ -417,7 +418,8 @@ class EngineManager implements IEngine {
                 physics: {
                     ...physicsConfig,
                     // 物理引擎如果没有明确设置，默认是开启的，因此需要明确定义为false
-                    enabled: info.serverURL ? true : false,
+                    // Runtime preview renders in browser; CLI-side engine only prepares import/editor services.
+                    enabled: false,
                 },
                 assets: {
                     importBase: info.importBase,

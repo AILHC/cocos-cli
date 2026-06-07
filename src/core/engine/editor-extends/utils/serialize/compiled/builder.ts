@@ -4,7 +4,6 @@
 
 import {
     ValueType,
-    deserialize,
 } from 'cc';
 import * as cc from 'cc';
 import {
@@ -21,26 +20,23 @@ import {
 } from '../parser';
 import dumpClasses from './create-class-mask';
 
-// import deserializer types
-import D = deserialize.Internal;
-type Empty = D.Empty_;
-import DataTypeID = D.DataTypeID_;
-import File = D.File_;
-type ICustomObjectData = D.ICustomObjectData_;
-type IFileData = D.IFileData_;
-type InstanceIndex = D.InstanceIndex_;
-type IRefs = D.IRefs_;
-type ITRSData = D.ITRSData_;
-import Refs = D.Refs_;
 import { Builder, IBuilderOptions } from '../base-builder';
-type SharedString = D.SharedString_;
-type AnyCCClass = D.AnyCCClass_;
-
-const {
-    EMPTY_PLACEHOLDER,
+import {
     CUSTOM_OBJ_DATA_CLASS,
     CUSTOM_OBJ_DATA_CONTENT,
-} = deserialize._macros;
+    DataTypeID,
+    EMPTY_PLACEHOLDER,
+    File,
+    Refs,
+    type AnyCCClass,
+    type Empty,
+    type ICustomObjectData,
+    type IFileData,
+    type InstanceIndex,
+    type IRefs,
+    type ITRSData,
+    type SharedString,
+} from './deserializer-format';
 
 export const FORMAT_VERSION = 1;
 

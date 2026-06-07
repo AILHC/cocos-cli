@@ -24,6 +24,7 @@ async function preload(options: {
      * 需要预加载的模块。
      */
     requiredModules: string[];
+    editor?: boolean;
 }) {
     try {
         if (hasPreload) {
@@ -32,7 +33,7 @@ async function preload(options: {
         hasPreload = true;
 
         // @ts-ignore
-        globalThis.CC_EDITOR = false;
+        globalThis.CC_EDITOR = !!options.editor;
         // @ts-ignore
         globalThis.CC_PREVIEW = false;
         // @ts-ignore

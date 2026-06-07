@@ -5,10 +5,10 @@ import { captureJsonAssetHttpRuntimeUrls } from '@shared/http-url-capture';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const diagnosticSceneUuid = '5d1de01c-5229-4d34-bde3-2c90372f88d9';
 
 describe('runtime preview production asset routes', () => {
   it('serves an engine-captured asset import URL without test-only capturedRuntimeUrls', async () => {
@@ -75,44 +75,64 @@ describe('runtime preview production asset routes', () => {
     }
   });
 
-  it('diagnoses the current real Launcher.startRuntimePreview blocker before claiming startup coverage', async () => {
+  it('starts the real Launcher runtime preview path and serves settings', async () => {
     const paths = getFixturePaths();
-    const editorLoader = join(paths.engineRoot, 'bin/.cache/dev-cli/editor/loader.js');
-    const webLoader = join(paths.engineRoot, 'bin/.cache/dev-cli/web/loader.js');
-
-    expect({
-      editorLoaderExists: existsSync(editorLoader),
-      webLoaderExists: existsSync(webLoader),
-      blocker: existsSync(editorLoader) ? null : 'missing-engine-dev-cli-editor-loader',
-    }).toEqual({
-      editorLoaderExists: false,
-      webLoaderExists: true,
-      blocker: 'missing-engine-dev-cli-editor-loader',
-    });
-
     const repoRoot = join(process.cwd(), '..');
     const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
     const code = `
-      import('./src/core/launcher.ts').then(async (m) => {
-        const Launcher = m.default?.default ?? m.default;
+      import Launcher from './src/core/launcher.ts';
+
+      void (async () => {
         const launcher = new Launcher(process.env.COCOS_CLI_TEST_PROJECT_ROOT);
-        await launcher.startRuntimePreview({
+        const server = await launcher.startRuntimePreview({
           host: '127.0.0.1',
           port: 0,
-          scene: 'diagnostic-scene',
+          scene: '${diagnosticSceneUuid}',
         });
-      }).catch((error) => {
-        console.error(error && (error.stack || error.message || error));
+
+        try {
+          const health = await fetch(server.url + '/__runtime-preview/health');
+          const settingsResponse = await fetch(server.url + '/settings.js');
+          const settingsSource = await settingsResponse.text();
+          const settings = JSON.parse(settingsSource.replace(/^window\\._CCSettings = /, '').replace(/;$/, ''));
+          process.stdout.write('RESULT ' + JSON.stringify({
+            serverUrl: server.url,
+            healthStatus: health.status,
+            settingsStatus: settingsResponse.status,
+            assetsServer: settings.assets?.server,
+            launchScene: settings.launch?.launchScene,
+          }) + '\\n');
+        } finally {
+          await server.close();
+        }
+      })().catch((error) => {
+        process.stderr.write(String(error && (error.stack || error.message || error)) + '\\n');
         process.exit(1);
       });
     `;
 
-    await expect(execFileAsync(process.execPath, [tsxCli, '-e', code], {
+    const { stdout } = await execFileAsync(process.execPath, [tsxCli, '-e', code], {
       cwd: repoRoot,
-      env: process.env,
-      timeout: 30_000,
-    })).rejects.toMatchObject({
-      stderr: expect.stringMatching(/bin[\\\/]\.cache[\\\/]dev-cli[\\\/]editor[\\\/]loader(?:\.js)?|editor[\\\/]loader(?:\.js)?/),
+      env: {
+        ...process.env,
+        COCOS_CLI_TEST_PROJECT_ROOT: paths.projectRoot,
+        COCOS_CLI_TEST_ENGINE_ROOT: paths.engineRoot,
+      },
+      timeout: 120_000,
     });
-  }, 30_000);
+    const resultLine = stdout.trim().split(/\r?\n/).find((line) => line.startsWith('RESULT '));
+    expect(resultLine).toBeTruthy();
+    const result = JSON.parse(resultLine!.slice('RESULT '.length)) as {
+      serverUrl: string;
+      healthStatus: number;
+      settingsStatus: number;
+      assetsServer: string;
+      launchScene: string;
+    };
+
+    expect(result.healthStatus).toBe(200);
+    expect(result.settingsStatus).toBe(200);
+    expect(result.assetsServer).toBe(result.serverUrl);
+    expect(result.launchScene).toBe(diagnosticSceneUuid);
+  }, 120_000);
 });

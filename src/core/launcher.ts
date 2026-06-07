@@ -35,7 +35,7 @@ export default class Launcher {
         return GlobalPaths.enginePath;
     }
 
-    private async init() {
+    private async init(serverURL?: string) {
         if (this._init) {
             return;
         }
@@ -54,19 +54,19 @@ export default class Launcher {
         await Project.open(this.projectPath);
         // 初始化引擎
         const { initEngine } = await import('./engine');
-        await initEngine(this.getEngineRoot(), this.projectPath);
+        await initEngine(this.getEngineRoot(), this.projectPath, serverURL);
         console.log('initEngine success');
     }
 
     /**
      * 导入资源
      */
-    async import() {
+    async import(options: { serverURL?: string } = {}) {
         if (this._import) {
             return;
         }
         this._import = true;
-        await this.init();
+        await this.init(options.serverURL);
         // 在导入资源之前，初始化 scripting 模块，才能正常导入编译脚本
         const { Engine } = await import('./engine');
         await scripting.initialize(this.projectPath, this.getEngineRoot(), Engine.getConfig().includeModules);
@@ -121,12 +121,9 @@ export default class Launcher {
     }
 
     async startRuntimePreview(options: { port?: number; host?: string; scene?: string } = {}) {
-        await this.import();
-        const { init: initBuilder } = await import('./builder');
-        await initBuilder();
-
         const {
             getDefaultProjectProgrammingRoot,
+            PreviewSettingsProvider,
             startRuntimePreviewServer,
         } = await import('../runtime-preview');
         const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF || join(this.projectPath, 'library');
@@ -134,6 +131,33 @@ export default class Launcher {
             ? join(process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF, 'programming')
             : getDefaultProjectProgrammingRoot(this.projectPath);
         const engineRoot = this.getEngineRoot();
+        let serverUrl = '';
+        let preparePreviewSettings: Promise<void> | null = null;
+        const ensurePreviewSettingsReady = () => {
+            if (!preparePreviewSettings) {
+                preparePreviewSettings = (async () => {
+                    const engineServerUrl = serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`;
+                    await this.import({ serverURL: engineServerUrl });
+                    const { init: initBuilder } = await import('./builder');
+                    await initBuilder();
+                })();
+            }
+            return preparePreviewSettings;
+        };
+        const settingsProvider = new PreviewSettingsProvider({
+            loadPreviewSettings: async (buildOptions) => {
+                if (!serverUrl) {
+                    throw new Error('Runtime preview settings requested before server URL was assigned.');
+                }
+                await ensurePreviewSettingsReady();
+                const { getPreviewSettings } = await import('./builder');
+                return getPreviewSettings({
+                    ...(buildOptions ?? {}),
+                    server: serverUrl,
+                    startScene: options.scene,
+                } as never);
+            },
+        });
 
         const server = await startRuntimePreviewServer({
             projectRoot: this.projectPath,
@@ -142,7 +166,10 @@ export default class Launcher {
             projectProgrammingRoot,
             host: options.host,
             port: options.port,
+            scene: options.scene,
+            settingsProvider,
         });
+        serverUrl = server.url;
 
         server.startupLogLines.forEach((line) => console.log(`[runtime-preview] ${line}`));
         console.log(`[runtime-preview] listening ${server.url}`);
