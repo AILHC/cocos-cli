@@ -39,10 +39,11 @@
 
 Task 15 建议提交 checkpoint：
 
-1. `test+fix(runtime-preview): make asset routes production fact backed`：Step 0 + Step 3 + Step 4 的同一验证闭环。
-2. `test(runtime-preview): verify real settings and cli output`：Step 1 + Step 2。
-3. `test(runtime-preview): expand url capture and parser probes`：Step 5 + Step 6。
-4. `test+chore(runtime-preview): cover launcher startup and cleanup`：Step 7 + Step 8。
+1. `test(runtime-preview): verify cli/editor outputs and engine cache preflight`：Step 1 + Step 2，包含 `dev-cli/editor` generated cache 的生成/诊断，不把 generated artifact 缺失当作最终 blocker。
+2. `test+fix(runtime-preview): wire real settings url and scene`：Step 2 的真实 `server.url`、`startScene`、`getPreviewSettings()` 闭环。
+3. `test+fix(runtime-preview): make import and native routes production fact backed`：Step 0 + Step 3 + Step 4 的同一验证闭环，必须覆盖 captured import 与 captured native。
+4. `test(runtime-preview): expand url capture and parser probes`：Step 5 + Step 6。
+5. `test+chore(runtime-preview): cover launcher startup and cleanup`：Step 7 + Step 8。
 
 ### 阶段顺序
 
@@ -59,7 +60,8 @@ Task 15 建议提交 checkpoint：
 - Task 8.5 后：派资深子代理只读 review engine-source harness，重点看 `PREVIEW=true`、`TEST=false`、P6 optional reference 是否被误用。
 - Task 9.75 后：派资深子代理只读 review HTTP URL capture，重点看 captured URLs 是否来自真实 HTTP-base engine runtime，而不是 filesystem-base probe 或手写 URL。
 - Task 12 后：派资深子代理只读 review HTTP contract / route architecture，重点看 route 是否按 `Engine-required`、`Observed/conditional`、`Diagnostic/reference-only` 分层，production startup 是否仍无全量 scan。
-- 任何需要修改 `D:\workspace\engines\cocos\3.8.6` 前：必须暂停，写出 engine patch 事实依据、影响范围和替代方案，并等待用户确认。
+- 对 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\**` 这类 generated cache：可以作为 preflight 运行当前 CLI/engine compiler 生成，但必须记录命令、耗时、输入 engine source revision、输出文件清单和失败原因；禁止手工伪造或复制旧产物。
+- 对 `D:\workspace\engines\cocos\3.8.6` 的 engine source patch：必须暂停，写出 engine source 事实依据、旧 engine 备份分支对照、影响范围和替代方案，并等待用户确认后单独提交。
 
 ### 2026-06-07 Review gate 结果
 
@@ -74,6 +76,14 @@ Task 15 建议提交 checkpoint：
 - Important：`cli-startup.test.ts` 直接调用 `startRuntimePreviewServer()`，没有覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> server` 的真实命令链。
 - Minor：review 当时发现 `browser-smoke.test.ts` 实际是 pre-browser HTTP smoke。2026-06-07 Task 15 Step 8 已改为 `pre-browser-http-smoke.test.ts`。
 - Minor：review 当时发现 `src/runtime-preview/manifest/**` 旧 recursive `walkFiles()` 草稿仍在。2026-06-07 Task 15 Step 8 已删除，避免后续误用。
+
+2026-06-07 二次偏离检查补充：
+
+- Critical：`D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 是 compiler generated cache，不能再作为“不可修改 engine root”的最终 blocker。计划必须先执行 controlled generation/preflight；只有 generation 失败且 engine source 事实证明缺能力时，才进入 engine source patch gate。
+- Critical：native route 不能被固定验证为 404。真实 HTTP-base `resources.load(ImageAsset)` 已捕获 `/assets/resources/native/...`，旧 editor preview server 也有 `/assets/*/native/*`。production resolver 必须找到 native fact source 后服务 captured native request；只能让未捕获且无事实支撑的 native-like URL 返回 404。
+- Critical：`Launcher.startRuntimePreview()` 必须把真实 listen 后的 `server.url` 和 CLI `--scene` 接入 `PreviewSettingsProvider` / `builder.getPreviewSettings()`，否则 `/settings.js` 的 `assets.server`、`importBase/nativeBase`、`launchScene` 可能与 runtime server 脱节。
+- Important：`pre-browser-http-smoke.test.ts` 和 injected `http-contract.test.ts` 只能算 fixture/contract test，不能算真实短链路验证。真实短链路必须覆盖 `Launcher/PreviewCommand -> real getPreviewSettings -> /settings.js -> representative asset/script request`。
+- Important：`normalBuildPipelineExecuted: false` 当前只是硬编码 diagnostic，不能作为“没有跑 normal build pipeline”的证明。要么改名为 intent diagnostic，要么用 source-level spy/stable side-effect check 验证。
 
 结论：Task 8/8.5 的 `PREVIEW=true`、`TEST=false` 方向正确；Task 10 的 `dependScripts -> programming records/chunk` 连接基本有效。但 Task 9、9.5、9.75、11、12、13 必须补验证后才能继续。
 
@@ -1158,9 +1168,12 @@ Expected:
 - Modify: `vitests/suites/runtime-preview/http-contract.test.ts`
 - Create: `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts`
 - Modify/Create: `vitests/shared/*`
+- Modify: `src/runtime-preview/settings/preview-settings-provider.ts`
 - Modify: `src/runtime-preview/server/runtime-preview-routes.ts`
 - Modify: `src/runtime-preview/library/resolve-library-request.ts`
 - Modify: `src/core/launcher.ts`
+- Modify: `docs/dev/runtime-preview-cli-design-20260606.md`
+- Modify: `docs/dev/runtime-preview-architecture-facts-20260606.md`
 
 执行规则：
 
@@ -1168,6 +1181,9 @@ Expected:
 - 提交按上方 Task 15 checkpoint 合并；每个 Step 完成后先运行该 Step 的最小测试集。
 - Step 3、Step 5、Step 7 后必须派资深子代理只读 review。
 - 不能用 `it.todo`、无诊断 `skip` 或 mocked data 让必须验证的主链路假通过。确实无法由当前项目触发的 native/pack/redirect case，必须写 diagnostic skip，记录 source operation、缺失原因和后续触发条件。
+- 不能把 generated engine cache 缺失写成长期 passing blocker。`bin/.cache/dev-cli/editor/**` 必须通过当前 compiler 生成或诊断；禁止手工复制、伪造或把旧产物作为 production 输入。
+- 不能把 synthetic native URL 返回 404 当成 native route 结论。captured native request 应该在 production fact source 完成后返回 200；只有未捕获且无 `settings/bundleConfigs`、AssetDB/library metadata 或 engine runtime fact 支撑的 native-like URL 才应返回 404。
+- fixture/contract tests 必须在测试名或断言说明中标明 fixture 范围；真实短链路验证必须单独覆盖 `Launcher/PreviewCommand -> real getPreviewSettings -> /settings.js -> representative asset/script request`。
 - Task 15 完成前不继续 Task 14 browser integration。
 
 - [x] **Step 0: 复现 Critical 失败**
@@ -1209,12 +1225,21 @@ rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_spa
 
 `settings-generation.test.ts` 必须增加真实/default `PreviewSettingsProvider` 路径验证，覆盖 `getPreviewSettings()` 输出被 provider 消费。mocked `loadPreviewSettings` 只保留用于 timeout/cache 单元测试。
 
-2026-06-07 执行状态：已修复并验证 Windows absolute engine root 下 `Engine.init()` 的 `package.json` 读取；已诊断真实 `Launcher.startRuntimePreview()` / `getPreviewSettings()` E2E 当前阻塞于 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 缺失。诊断测试在该 blocker 消失时必须失败并改为真实 E2E 验证。该 Step 尚未完成；生成或修改 engine root 下 `dev-cli/editor/**` 前必须等待用户确认。
+2026-06-07 执行状态修正：已修复并验证 Windows absolute engine root 下 `Engine.init()` 的 `package.json` 读取；真实 `Launcher.startRuntimePreview()` / `getPreviewSettings()` E2E 当前停在 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 缺失。该文件属于 current engine source 编译出来的 generated cache，不应继续作为“不可动 engine root” blocker。下一步必须先按 current CLI/engine compiler chain 做 controlled generation/preflight，并记录结果。
+
+Controlled generation/preflight 要求：
+
+- 先记录当前 engine root 下 `bin/.cache/dev-cli/web/loader.js` 与 `bin/.cache/dev-cli/editor/loader.js` 状态。
+- 运行当前事实链中的 compiler 命令，例如 CLI `package.json` 的 `compiler:engine` 或 `workflow/compiler-engine.js --force` 对应路径；不得手工复制旧 loader。
+- 生成后记录 `bin/.cache/dev-cli/editor/**` 的关键输出清单、耗时和失败日志。
+- 如果 generation 成功，删除或改写 `missing-engine-dev-cli-editor-loader` 诊断测试，改为真实 `getPreviewSettings()` E2E。
+- 如果 generation 失败，先对照 current engine source 与 engine 备份分支中的 `NODEJS` adapter、PAL、`cc.config.json`、`build-adapter.js`、`preload.ts` / `ccon.ts` 等事实，再判断是否需要 engine source patch gate。
 
 最低覆盖：
 
 - `settings`、`bundleConfigs`、`script2library` 来自真实 CLI preview settings path。
-- 证明 preview settings path 不执行 normal build output copy、plugin build hooks、全量 asset copy 或完整 build pipeline。可以通过 source-level instrumentation、spy、diagnostic hook 或 stable side-effect check 实现。
+- `Launcher.startRuntimePreview({ scene })` 或 CLI `preview --runtime --scene` 生成的 `/settings.js` 必须包含真实 listen 后的 `server.url`，并把 `scene` 接入 `launchScene` / builder `startScene` 语义。
+- 证明 preview settings path 不执行 normal build output copy、plugin build hooks、全量 asset copy 或完整 build pipeline。可以通过 source-level instrumentation、spy、diagnostic hook 或 stable side-effect check 实现；不能只断言硬编码的 `normalBuildPipelineExecuted: false`。
 - 真实输出必须可作为 Task 12 HTTP contract input。
 
 Run:
@@ -1223,19 +1248,24 @@ Run:
 rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\cocos_work_lab_38x'; $env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; $env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-library\cocos_work_lab_38x-editor-library-20260606'; $env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/settings-generation.test.ts"
 ```
 
-- [x] **Step 3: production asset route fact source**
+- [ ] **Step 3: production import/native asset route fact source**
 
-修正 production `preview --runtime` asset route 事实来源。真实 CLI server 不能依赖 test-only injected `capturedRuntimeUrls` 才能服务 asset URL。
+修正 production `preview --runtime` asset route 事实来源。真实 CLI server 不能依赖 test-only injected `capturedRuntimeUrls` 才能服务 asset URL；也不能把 native request 固定当成 404。
+
+2026-06-07 执行状态修正：import route 已有 production fact-backed 方向，但 native route 仍未闭环。真实 HTTP-base probe 已捕获 ImageAsset native request；旧 editor preview server 也服务 `/assets/*/native/*`。因此 Step 3 不能标记完成，必须补 native fact source 后再完成。
 
 实现前必须先写出 route fact source 决策并更新 `docs/dev/runtime-preview-cli-design-20260606.md`：
 
 - request path 是否允许，必须由真实 `settings/bundleConfigs`、AssetDB/library metadata、engine URL transform/captured runtime fact 之一决定。
 - production route 可以在 request time 查询 metadata 或 stat 目标文件；不能在 startup 扫描全量 `library` / `temp/programming`。
 - test-only `capturedRuntimeUrls` 只能用于 probe/contract fixture，不能作为 production `preview --runtime` 唯一 asset route fact source。
+- import route 的目标文件必须从 `bundleConfig.paths`、asset uuid/import payload metadata 或等价 library fact 推导。
+- native route 的目标文件必须从 captured request、`bundleConfig.versions.native` / `nativeBase`、AssetDB `nativeDep` / `meta.files`、library bucket file existence 等事实组合推导；不能通过 extname 或 tail 形状猜测。
 
 禁止：
 
 - 根据 URL 形状直接放行所有 `/assets|remote/<bundle>/import|native/<tail>`。
+- 把 import URL 简单替换成 `/native/` 后断言 404 来代表 native route coverage。
 - startup 全量扫描 `library` 或 `temp/programming` 建立全局 URL/file index。
 
 修复完成后，Step 0 的 failing test 必须变为 passing。
@@ -1258,8 +1288,9 @@ Review gate:
 
 - `/settings.js` 来自真实 provider output。
 - `/assets/<bundle>/config.json` 来自真实 bundle config。
-- captured import/native requests 只来自 HTTP-base engine runtime URL。
-- 未捕获但形态相似的 asset/native/remote URL 返回 404。
+- captured import/native requests 只来自 HTTP-base engine runtime URL，且 captured native request 在 production fact source 支持后返回 200。
+- 未捕获且没有 `settings/bundleConfigs`、AssetDB/library metadata 或 engine runtime fact 支撑的 asset/native/remote URL 返回 404。
+- 禁止用 `capturedImport.url.replace('/import/', '/native/')` 这类 synthetic URL 当作 native coverage；它最多只能作为 negative test，不能代表真实 native route。
 - production startup 不做 full scan。
 
 Run:
@@ -1320,15 +1351,16 @@ rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_spa
 
 2026-06-07 执行状态：
 - 已新增 child-process `tsx` 诊断测试，真实调用 `Launcher.startRuntimePreview({ host, port: 0, scene })`。
-- 当前基线仍阻塞于 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 缺失；该测试在 blocker 消失时必须失败并替换为真实 startup smoke。
-- 因真实 server 尚未启动成功，Step 7 仍未完成；`PreviewCommand -> Launcher.startRuntimePreview()` command-process coverage、真实 `/settings.js`、representative asset、script route 和端口释放仍待 blocker 解除后验证。
-- 生成或修改 engine root 下 `bin/.cache/dev-cli/editor/**` 前必须等待用户确认。
+- 当前基线停在 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 缺失；该状态必须通过 Step 2 的 controlled generation/preflight 解决或诊断，不能继续作为长期 passing blocker。
+- 因真实 server 尚未启动成功，Step 7 仍未完成；`PreviewCommand -> Launcher.startRuntimePreview()` command-process coverage、真实 `/settings.js`、representative asset、script route 和端口释放仍待 generated cache preflight 与 settings wiring 完成后验证。
+- 如果 controlled generation 后仍失败，必须按 engine source patch gate 处理；不能手工复制旧 `editor/loader.js`。
 
 最低覆盖：
 
 - `preview --runtime --host --port --scene` 参数进入 runtime preview path。
 - project root、engine root、library root、programming root 使用 production resolution；测试 env override 只用于 fixture path。
 - `/settings.js`、representative asset URL、script route 在真实 server 上可请求。
+- `/settings.js` 中 `assets.server` / `importBase` / `nativeBase` 与真实 runtime server URL 一致，`scene` 参数进入 launch scene 语义。
 - 端口释放。
 
 Run:
@@ -1367,7 +1399,9 @@ rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_spa
 Expected:
 
 - `vitests` 全量通过。
-- 不再有把必须验证的 runtime loading flow 写成 `todo` 后仍算通过的情况；确实无法触发的 native/pack/redirect 用 diagnostic skip 标明原因。
+- 不再有把必须验证的 runtime loading flow 写成 `todo`、mock-only test 或 generated-cache blocker 后仍算通过的情况。
+- captured native request 在 production fact source 支持后返回 200；确实无法触发的 pack/redirect 用 diagnostic skip 标明 source operation、缺失原因和后续触发条件。
+- `/settings.js` 的 `assets.server`、`importBase/nativeBase`、`launchScene` 与真实 `Launcher/PreviewCommand` 输入一致。
 - production `preview --runtime` 真实启动路径能服务 representative settings、asset、script endpoints。
 
 ## Completion Criteria
@@ -1378,5 +1412,5 @@ Expected:
 - `vitests` exists and does not modify the existing Jest setup.
 - Tests use `COCOS_CLI_TEST_*` environment variables, not hardcoded local paths.
 - Production startup path does not recursively scan `library`、`temp` or build a global URL/file index.
-- On-demand resolver, engine-source probe, real editor/CLI output consistency, filesystem-base `resources.load` parser probe, HTTP-base URL capture probe, script map probe, real settings generation, fact-backed HTTP contract, and real CLI/Launcher startup tests pass before browser smoke.
+- On-demand resolver, engine-source probe, real editor/CLI output consistency, filesystem-base `resources.load` parser probe, HTTP-base URL capture probe, script map probe, real settings generation with server URL/scene wiring, fact-backed import/native HTTP contract, and real CLI/Launcher startup tests pass before browser smoke.
 - Browser smoke is run only after short-link tests pass and a root preview page route exists.
