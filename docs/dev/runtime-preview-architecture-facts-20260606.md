@@ -386,5 +386,5 @@ Frozen editor `temp/programming`：
 - Production startup 只初始化 root paths、server、runtime context、小型 lazy caches；禁止递归扫描 `library`、`temp/programming` 或构建全量 URL/file index。
 - Request-time resolver 只能处理 engine/runtime 已发出的请求：normalize request、查 route fact source、按有限候选 path 检查存在性、返回文件或诊断。
 - `/query-extname/<uuid>` 只回答 import payload extension，不参与 import/native 语义判断。
-- `resources.load` / HTTP contract 失败时，先排查 test harness、host boundary、runtime context、settings、resolver、CLI output shape；不能直接提出 engine patch。
-- 默认不修改 `D:\workspace\engines\cocos\3.8.6`。需要 engine patch 时，必须先证明 current engine source 存在 runtime preview 必需能力缺失或行为错误，并经用户确认。
+- `resources.load` / HTTP contract 失败时，先排查 test harness、host boundary、runtime context、settings、resolver、CLI output shape；确认是 3.8.6 engine source 兼容缺口后，按计划中的 Engine source 适配规则小步修复。
+- 当前阶段允许修改 `D:\workspace\engines\cocos\3.8.6` 适配 runtime preview，不再逐项等待确认。参考顺序为 current engine source -> `E:\own_space\tmp-repos\runtime-preview-reference\engine-backup-current-20260606` -> `E:\own_space\engines\cocos4`，最终必须回到 3.8.6 验证。禁止手工复制/伪造 generated loader 或把 generated cache 当成 source patch。

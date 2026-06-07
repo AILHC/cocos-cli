@@ -61,7 +61,18 @@ Task 15 建议提交 checkpoint：
 - Task 9.75 后：派资深子代理只读 review HTTP URL capture，重点看 captured URLs 是否来自真实 HTTP-base engine runtime，而不是 filesystem-base probe 或手写 URL。
 - Task 12 后：派资深子代理只读 review HTTP contract / route architecture，重点看 route 是否按 `Engine-required`、`Observed/conditional`、`Diagnostic/reference-only` 分层，production startup 是否仍无全量 scan。
 - 对 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\**` 这类 generated cache：可以作为 preflight 运行当前 CLI/engine compiler 生成，但必须记录命令、耗时、输入 engine source revision、输出文件清单和失败原因；禁止手工伪造或复制旧产物。
-- 对 `D:\workspace\engines\cocos\3.8.6` 的 engine source patch：必须暂停，写出 engine source 事实依据、旧 engine 备份分支对照、影响范围和替代方案，并等待用户确认后单独提交。
+- 对 `D:\workspace\engines\cocos\3.8.6` 的 engine source patch：当前已获得用户授权，不再逐项等待确认；按“Engine source 适配判断规则”直接执行小步 patch，并在每个 checkpoint 记录事实依据、参考来源、影响范围和验证结果。
+
+### Engine source 适配判断规则
+
+当前目标允许修改 `D:\workspace\engines\cocos\3.8.6` 源码来适配 runtime preview，但必须遵守：
+
+- 优先适配 3.8.6 current engine source。修改只服务于当前 CLI compiler、真实 `getPreviewSettings()`、runtime preview 加载链路和必要 host boundary。
+- 参考优先级：先查 `E:\own_space\tmp-repos\runtime-preview-reference\engine-backup-current-20260606`；仍缺事实时，再查 `E:\own_space\engines\cocos4`；最终实现必须回到 3.8.6 验证，不能直接照搬 cocos4 行为。
+- 可直接执行的 engine patch 范围：`NODEJS` constant、`cc.config.json` PAL override、`pal/**/nodejs` adapter、`build-adapter.js`、`preload.ts` / `ccon.ts` 等生成 `dev-cli/editor` 和 runtime preview 必需的 3.8.6 兼容改动。
+- 仍然禁止：手工复制或伪造 `bin/.cache/dev-cli/editor/loader.js`；为了测试通过伪造 engine runtime URL；把 generated cache、editor `library` 或 `temp/programming` 当成 source patch 提交；引入 startup full scan。
+- 提交规则：engine source patch 与 CLI runtime-preview patch 尽量分开提交；每个 engine patch checkpoint 至少跑 `npm run compiler:engine` 或能复现当前阻塞点的最小命令。
+- 如遇到大范围 engine 行为改写、跨版本语义无法确认、或会影响非 runtime-preview 构建语义，先写事实和风险说明，再决定是否继续；普通 3.8.6 兼容 patch 不再停成 gate。
 
 ### 2026-06-07 Review gate 结果
 
@@ -79,7 +90,7 @@ Task 15 建议提交 checkpoint：
 
 2026-06-07 二次偏离检查补充：
 
-- Critical：`D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 是 compiler generated cache，不能再作为“不可修改 engine root”的最终 blocker。计划必须先执行 controlled generation/preflight；只有 generation 失败且 engine source 事实证明缺能力时，才进入 engine source patch gate。
+- Critical：`D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 是 compiler generated cache，不能再作为“不可修改 engine root”的最终 blocker。计划必须先执行 controlled generation/preflight；如果 generation 失败且 engine source 事实证明缺能力，按上方 Engine source 适配判断规则直接做小步 engine patch。
 - Critical：native route 不能被固定验证为 404。真实 HTTP-base `resources.load(ImageAsset)` 已捕获 `/assets/resources/native/...`，旧 editor preview server 也有 `/assets/*/native/*`。production resolver 必须找到 native fact source 后服务 captured native request；只能让未捕获且无事实支撑的 native-like URL 返回 404。
 - Critical：`Launcher.startRuntimePreview()` 必须把真实 listen 后的 `server.url` 和 CLI `--scene` 接入 `PreviewSettingsProvider` / `builder.getPreviewSettings()`，否则 `/settings.js` 的 `assets.server`、`importBase/nativeBase`、`launchScene` 可能与 runtime server 脱节。
 - Important：`pre-browser-http-smoke.test.ts` 和 injected `http-contract.test.ts` 只能算 fixture/contract test，不能算真实短链路验证。真实短链路必须覆盖 `Launcher/PreviewCommand -> real getPreviewSettings -> /settings.js -> representative asset/script request`。
@@ -105,6 +116,7 @@ Task 15 建议提交 checkpoint：
 | P1 | 冻结 `temp/programming` | `E:\own_space\engines\cocos-cli\.codex-tmp\reference-temp\cocos_work_lab_38x-editor-programming-20260606` | 验证 preview script/import-map/chunk 行为 |
 | P2 | CLI 备份分支实现 | `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606`、`E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-adapter-to-386-957f835` | 业务意图、server 生命周期、CLI 接入、可复用片段 |
 | P2 | Engine 备份分支实现 | `E:\own_space\tmp-repos\runtime-preview-reference\engine-backup-current-20260606` | `NODEJS` adapter、PAL、`cc.config.json`、`build-adapter.js` 参照 |
+| P3 | Cocos4 engine reference | `E:\own_space\engines\cocos4` | 当 current 3.8.6 与 engine 备份分支事实不足时，用作新版 engine 适配参考；不能直接覆盖 3.8.6 语义 |
 
 ## 明确废弃的旧方向
 
@@ -832,14 +844,14 @@ Expected:
 
 在计划和事实文档中写明：
 
-- 本阶段默认不修改 `D:\workspace\engines\cocos\3.8.6`。
-- 如果 Vitest 引入真实 engine source 或 `resources.load` probe 失败，优先判断是 test harness、host boundary、artifact mapping、CLI runtime context/settings/on-demand resolver 缺口，不能直接提出 engine patch。
-- 只有满足以下条件才允许提出 engine 修改：
+- 当前阶段允许修改 `D:\workspace\engines\cocos\3.8.6`，但必须按本计划开头的 Engine source 适配判断规则执行。
+- 如果 Vitest 引入真实 engine source 或 `resources.load` probe 失败，仍先判断 test harness、host boundary、artifact mapping、CLI runtime context/settings/on-demand resolver 缺口；确认是 3.8.6 engine source 兼容缺口后，不再逐项等待确认，直接做小步 engine patch。
+- 只有满足以下条件才允许执行 engine 修改：
   - current engine source 证明 runtime preview 必需能力缺失或行为错误；
   - 有稳定失败复现；
   - 已排除 CLI/server/runtime context/test host boundary 问题；
-  - 写出 engine patch 的影响范围和替代方案；
-  - 等用户确认后再执行。
+  - 写出 engine patch 的影响范围、参考来源和替代方案；
+  - 每个 checkpoint 有最小验证命令。
 
 - [ ] **Step 5: 关键节点审核**
 
@@ -950,7 +962,7 @@ Expected:
 - The probe uses runtime preview browser semantics, not engine unit-test semantics: `PREVIEW=true` and `TEST=false` intentionally enable current engine `editor-path-replace.ts`.
 - If engine requests `/query-extname/<uuid>`, that request is a source-backed preview behavior. The test/server fixture may answer it from AssetDB/library metadata, but must not use it as a replacement for engine/settings/bundle config/request-path derived import/native resolution.
 - This filesystem-base probe must not export captured URLs to Task 12; filesystem URLs are not preview server HTTP route facts.
-- If a failure suggests changing engine source, stop and apply Task 8.5 Step 4 gate before any engine edit.
+- If a failure suggests changing engine source, apply the Engine source 适配判断规则 in this plan. Ordinary 3.8.6 compatibility patches no longer require an extra confirmation stop.
 
 ### Task 9.75: HTTP-base engine URL capture probe
 
@@ -1233,7 +1245,7 @@ Controlled generation/preflight 要求：
 - 运行当前事实链中的 compiler 命令，例如 CLI `package.json` 的 `compiler:engine` 或 `workflow/compiler-engine.js --force` 对应路径；不得手工复制旧 loader。
 - 生成后记录 `bin/.cache/dev-cli/editor/**` 的关键输出清单、耗时和失败日志。
 - 如果 generation 成功，删除或改写 `missing-engine-dev-cli-editor-loader` 诊断测试，改为真实 `getPreviewSettings()` E2E。
-- 如果 generation 失败，先对照 current engine source 与 engine 备份分支中的 `NODEJS` adapter、PAL、`cc.config.json`、`build-adapter.js`、`preload.ts` / `ccon.ts` 等事实，再判断是否需要 engine source patch gate。
+- 如果 generation 失败，先对照 current engine source 与 engine 备份分支中的 `NODEJS` adapter、PAL、`cc.config.json`、`build-adapter.js`、`preload.ts` / `ccon.ts` 等事实；仍缺事实时再查 `E:\own_space\engines\cocos4`。确认属于 runtime preview 必需的 3.8.6 兼容缺口后，按 Engine source 适配判断规则直接做小步 engine patch。
 
 最低覆盖：
 
@@ -1330,7 +1342,7 @@ Review gate:
 - Plist / AutoAtlas。
 - Spine `.atlas` / `.json`，如果 frozen 项目存在样本。
 
-失败时优先诊断 test harness、host boundary、artifact mapping、settings/on-demand resolver；不能直接提出 engine patch。
+失败时优先诊断 test harness、host boundary、artifact mapping、settings/on-demand resolver。若事实证明是 3.8.6 engine source 兼容缺口，按 Engine source 适配判断规则直接修，不再重复 gate。
 
 2026-06-07 执行状态：
 - 已新增 ImageAsset native dependency、Texture2D / SpriteFrame dependency chain、Plist 源资产转换后的 serialized SpriteAtlas、Spine SkeletonData 的 filesystem-base `resources.load()` probe。
@@ -1353,7 +1365,7 @@ rtk powershell -NoProfile -Command "$env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_spa
 - 已新增 child-process `tsx` 诊断测试，真实调用 `Launcher.startRuntimePreview({ host, port: 0, scene })`。
 - 当前基线停在 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor\loader.js` 缺失；该状态必须通过 Step 2 的 controlled generation/preflight 解决或诊断，不能继续作为长期 passing blocker。
 - 因真实 server 尚未启动成功，Step 7 仍未完成；`PreviewCommand -> Launcher.startRuntimePreview()` command-process coverage、真实 `/settings.js`、representative asset、script route 和端口释放仍待 generated cache preflight 与 settings wiring 完成后验证。
-- 如果 controlled generation 后仍失败，必须按 engine source patch gate 处理；不能手工复制旧 `editor/loader.js`。
+- 如果 controlled generation 后仍失败，按 Engine source 适配判断规则处理；不能手工复制旧 `editor/loader.js`。
 
 最低覆盖：
 
