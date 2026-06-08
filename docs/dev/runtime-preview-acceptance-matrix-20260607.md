@@ -1,0 +1,43 @@
+# Runtime Preview 验收矩阵
+
+记录时间：2026-06-08
+
+## 状态定义
+
+| 状态 | 含义 |
+| --- | --- |
+| `done` | 当前分支已有测试或文档证据，且该验收项在已知范围内闭环。 |
+| `partial` | 已有局部证据，但还不能覆盖完整验收意图。 |
+| `unstable` | 单项或局部链路可通过，但 full-suite 或连续运行存在不稳定。 |
+| `missing` | 当前分支还没有对应测试、实现或验收证据。 |
+| `blocked-by-fact-gap` | 缺少 engine / CLI / artifact 事实，不能继续用猜测推进。 |
+| `deferred` | 当前阶段不参与测试和验收，后续重新纳入前必须更新计划。 |
+
+## 验收矩阵
+
+| 需求意图 | 验收层级 | 通过条件 | 证据文件/测试 | 当前状态 |
+| --- | --- | --- | --- | --- |
+| 独立 `preview --runtime`，不启动 scene RPC/MCP/editor scene service | CLI / Launcher unit integration | `preview --runtime` 进入 `Launcher.startRuntimePreview()`；runtime path 不调用 scene preview 的 `Rpc.startup()`、MCP、`initScene()`、`Scene.Editor.open()`；非 runtime preview 保留原 `startPreview()` 路径；frozen artifacts 角色：`not used`。 | `src/commands/preview.ts`、`src/core/launcher.ts`、`vitests/suites/runtime-preview/launcher-runtime-preview.test.ts` | `partial` |
+| URL 由 engine runtime/settings/bundle config 生成，server 不猜 URL | Engine-source probe + HTTP contract | import/native representative URL 来自真实 engine runtime 或 settings/bundle config；server 只做 request-time fact-backed resolution；禁止 URL tail、extname、full manifest 猜测；frozen `library` 角色：`compatibility baseline`。 | `vitests/suites/runtime-preview/http-url-capture.probe.test.ts`、`vitests/suites/runtime-preview/http-contract.test.ts`、`vitests/suites/runtime-preview/on-demand-resolver.test.ts`、`src/runtime-preview/library/resolve-library-request.ts` | `partial` |
+| `/settings.js` 来自 CLI `getPreviewSettings()` 或等价封装 | Settings provider + Launcher route | `/settings.js` 通过 `PreviewSettingsProvider` lazy 生成，能输出 `window._CCSettings`；真实 Launcher path 可访问 settings；不手写 internal bundle config；frozen artifacts 角色：`not used`，除非后续 comparison 明确使用。 | `src/runtime-preview/settings/preview-settings-provider.ts`、`src/runtime-preview/server/runtime-preview-routes.ts`、`vitests/suites/runtime-preview/settings-generation.test.ts`、`vitests/suites/runtime-preview/launcher-runtime-preview.test.ts` | `unstable` |
+| `library` 使用真实产物事实，不把 frozen editor output 复制进 production | Library resolver + parser probe | 资源解析使用 project / CLI / engine facts；frozen editor `library` 只能作为 `compatibility baseline` 或 `test fixture`；禁止 production 直接依赖 reference copy；当前 JsonAsset、ImageAsset、Texture2D、SpriteFrame、SpriteAtlas、Spine SkeletonData 可解析。 | `docs/dev/runtime-preview-reference-library-20260606.md`、`vitests/suites/runtime-preview/editor-library-resources-load.probe.test.ts`、`vitests/suites/runtime-preview/editor-cli-output-consistency.test.ts` | `partial` |
+| `temp/programming` 使用真实 preview records/chunks，不从 chunk regex 反推业务语义 | Programming resolver + script map test | scripting route 由 import-map、main-record、assembly-record、chunks 和 `dependScripts` 驱动；frozen editor `temp/programming` 角色：`hard input` / `test fixture`；不能只检查 `System.register` 字符串。 | `docs/dev/runtime-preview-reference-temp-programming-20260606.md`、`vitests/suites/runtime-preview/script-runtime-map.test.ts`、`src/runtime-preview/programming/resolve-programming-request.ts` | `partial` |
+| frozen editor `library` / `temp/programming` 在每项测试中的角色明确 | Documentation + test naming | 每个使用 frozen artifact 的测试或文档必须标明 `hard input`、`compatibility baseline`、`test fixture` 或 `not used`；如果后续不使用 frozen output，必须说明降级原因。 | `docs/dev/runtime-preview-reference-library-20260606.md`、`docs/dev/runtime-preview-reference-temp-programming-20260606.md`、本矩阵 | `partial` |
+| CLI AssetDB output 与 editor output 对齐，差异不能靠 server 猜 URL 掩盖 | Output consistency probe | 能生成 CLI output 并与 frozen editor `library` / `temp/programming` 做结构和关键 metadata 对比；差异有来源归因；frozen artifacts 角色：`compatibility baseline`。 | `vitests/suites/runtime-preview/editor-cli-output-consistency.test.ts`、`docs/dev/runtime-preview-architecture-facts-20260606.md` | `partial` |
+| scripting route 覆盖 SystemJS、macro、import-map-global、chunks、project script、`script2library` | Programming HTTP contract | `/scripting/systemjs/*`、`/scripting/userland/macro`、`/scripting/import-map-global`、chunks、project scripts 和 `script2library` 均由 current CLI programming source 或 records 证明；frozen programming 角色：`hard input` / `test fixture`。 | `vitests/suites/runtime-preview/script-runtime-map.test.ts`、`vitests/suites/runtime-preview/http-contract.test.ts` | `partial` |
+| 小项目 extension asset-db fact check，不硬编码 `view-state-group` | Small-project artifact fact + runtime request capture | 小项目 `extensions\ViewStateGroup\package.json` 的 `contributions["asset-db"].mount.path = "./assets"` 被登记为当前输入；若 runtime 实际触发 extension request，则基于 package / AssetDB / frozen metadata / engine request fact 处理；若未触发，记录 `not-triggered-in-small-project`；通用 enable/disable/global config 语义不作为当前门槛。 | `E:\own_space\cocos_work_lab_38x\extensions\ViewStateGroup\package.json`、后续 browser / HTTP capture 证据 | `partial` |
+| import/native/pack/redirect/remote route 均有 fact-backed contract 或未触发证明 | Engine-source probe + HTTP contract | import/native 已有代表性 capture；pack、redirect、remote 必须由 engine source 和 bundle config 事实触发或记录未触发证明；frozen `library` 角色：`compatibility baseline`，不是 URL mapping 权威。 | `vitests/suites/runtime-preview/http-url-capture.probe.test.ts`、`vitests/suites/runtime-preview/http-contract.test.ts`、`docs/dev/runtime-preview-architecture-facts-20260606.md` | `partial` |
+| 启动反馈和日志可见 | CLI startup test + diagnostics | runtime preview 启动输出 project/engine/server roots、listening URL、settings/server 阶段；后续需要 runtime preview log 文件并能关联 engine、AssetDB、builder、settings、server、browser error；frozen artifacts 角色：`not used`。 | `vitests/suites/runtime-preview/cli-startup.test.ts`、`src/core/launcher.ts` | `partial` |
+| 编译慢有指标，不用清 cache 掩盖 | Performance metrics acceptance | 记录 `Build iteration starts`、重复 build in progress、asset changes、`script:collect` / `script:compile` 耗时；不得用清 cache 作为常规验收；frozen programming 角色：`compatibility baseline`。 | 后续 startup diagnostics / small-project acceptance 文档 | `missing` |
+| 短链路优先，不打开浏览器也能尽早验证加载解析 | Vitest full-suite | `suites/runtime-preview` 在完整环境变量下稳定通过；当前已知 full-suite 约 25/26 通过，`settings-generation.test.ts` 曾在 full-suite 下 30s timeout，单文件通过。 | `vitests/suites/runtime-preview/**` | `unstable` |
+| `pre-browser-http-smoke` 只代表 HTTP smoke，不代表 browser integration | HTTP smoke | settings、library representative URL、programming representative route 可通过 HTTP 访问；不声明 canvas/scene/browser runtime 成功；frozen artifacts 角色：按被访问资源分别为 `compatibility baseline` / `test fixture`。 | `vitests/suites/runtime-preview/pre-browser-http-smoke.test.ts` | `partial` |
+| 真实 browser runtime smoke 需要 ready signal 和稳定窗口 | Browser integration | 启动真实 preview server，浏览器监听 `console`、`pageerror`、failed request、HTTP >= 400；等待显式 `window.__RUNTIME_PREVIEW_READY` 后至少稳定观察 5 秒；不能打开瞬间无错即通过。 | 后续 `vitests/suites/runtime-preview/browser-runtime-smoke.test.ts` | `missing` |
+| 小项目 `E:\own_space\cocos_work_lab_38x` 是当前真实 server / browser integration 验收项目 | Small-project integration acceptance | Task 8 覆盖 `Launcher.startRuntimePreview()` / wrapper browser smoke；Task 9 覆盖真实 CLI child process 从小项目启动 `preview --runtime`，收集日志、浏览器证据、ready/stable-window、失败分类；frozen editor artifacts 角色：`compatibility baseline`。 | 后续 `docs/dev/runtime-preview-small-project-acceptance-20260607.md`、后续 browser smoke test | `missing` |
+| P6 / feature-c 大项目暂时不参与当前测试和验收 | Scope control | 当前阶段不得把 `F:\ps_copy\p6\trunk\Project\GameClient\feature-c` 作为执行输入、验收项目或完成门槛；后续重新纳入前必须更新计划和本矩阵。 | `docs/dev/runtime-preview-verification-traceability-plan-20260607.md`、`docs/dev/runtime-preview-intent-boundaries-status-20260607.md` | `deferred` |
+| 允许必要 engine source 适配，但必须和 CLI 行为可溯源 | Engine / CLI traceability | engine patch 必须服务 CLI runtime preview 加载链路、真实 `getPreviewSettings()`、compiler 或 host boundary；每个 engine patch 必须在 traceability ledger 中关联 CLI 文件、测试和验收证据；frozen artifacts 角色：按关联测试声明。 | engine commit `ec7f8d2161 feat(runtime-preview): add nodejs pal adapter`、后续 `docs/dev/runtime-preview-change-traceability-20260607.md` | `partial` |
+
+## 当前结论
+
+当前验收主路径是小项目 `E:\own_space\cocos_work_lab_38x`。P6 / feature-c 只保留为 deferred 背景事实，不参与当前测试和验收。
+
+当前不能声明 runtime preview 完成。原因是 full-suite 仍为 `unstable`，CLI/editor output consistency 仍为 `partial`，browser runtime smoke 和小项目真实 CLI child process 集成验收仍为 `missing`。
