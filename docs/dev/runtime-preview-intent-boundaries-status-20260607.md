@@ -135,10 +135,9 @@
 
 最近验证状态：
 
-- `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后为 25/26 通过。
-- 唯一 full-suite 失败是 `settings-generation.test.ts` 的真实 Engine 初始化用例 30 秒超时。
-- 单独运行 `settings-generation.test.ts` 为 5/5 通过，真实 Engine 初始化约 8.5 秒。
-- 结论：功能链路不是失败，但 full-suite 存在测试隔离或并发超时稳定性问题。
+- `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后已连续两次 26/26 通过。
+- `settings-generation.test.ts` 的真实 Engine 初始化用例单文件约 9.6 秒通过；full-suite 下通过约 11.4 秒。
+- 结论：此前 30 秒超时来自 full-suite 并发真实 engine 初始化的资源竞争；当前通过定向 120 秒 timeout 避免把环境竞争误判为功能失败。
 
 ### 6. 性能边界：禁止启动期全量扫描和 full manifest
 
@@ -174,7 +173,7 @@
 | `PreviewSettingsProvider` | 已实现 | `src/runtime-preview/settings/preview-settings-provider.ts` |
 | lazy settings | 已实现 | `Launcher.startRuntimePreview()` 启动 server 后才在 `/settings.js` 触发 import/builder/settings |
 | `settings.js` route | 已实现 | `runtime-preview-routes.ts` 返回 `window._CCSettings = ...;` |
-| 真实 Launcher settings | 部分验证 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过；full-suite 中 settings 独立用例存在超时不稳定 |
+| 真实 Launcher settings | 部分验证 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过；`settings-generation.test.ts` 在 full-suite 中已通过 |
 | 完整 production settings 代表性 | 未完成 | 仍需证明真实 `getPreviewSettings()` 输出能覆盖 production preview asset HTTP contract |
 
 ### 8. scripting / programming 产物必须由真实 records 驱动
@@ -276,7 +275,7 @@
 | --- | --- | --- | --- |
 | CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过 | startup log、本地日志、小项目真实 CLI child process 集成验收 |
 | runtime server/routes | 部分实现 | `cli-startup.test.ts`、`http-contract.test.ts`、`pre-browser-http-smoke.test.ts` 通过 | scene、plugins、remote、SystemJS/macro、import-map-global 等 route 需按事实补齐 |
-| `PreviewSettingsProvider` | 部分实现 | 单独 `settings-generation.test.ts` 通过 | full-suite 超时不稳定；真实 production settings contract 未闭环 |
+| `PreviewSettingsProvider` | 部分实现 | 单独 `settings-generation.test.ts` 通过，full-suite 连续两次 26/26 通过 | 真实 production settings contract 未闭环 |
 | library resolver | 部分实现 | captured import URL 和 bundle-config-backed import route 通过 | native production mapping、pack、redirect、small-project extension fact、remote |
 | programming resolver | 部分实现 | preview records/chunks、project script `dependScripts` 通过 | internal/extension/plugin/global scripts，SystemJS/macro route |
 | frozen editor resource parser probe | 部分实现 | JsonAsset、ImageAsset、Texture2D、SpriteFrame、SpriteAtlas、Spine SkeletonData 通过 | TTFFont、runtime `.plist` parser、Spine `.atlas` standalone |
