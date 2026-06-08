@@ -40,7 +40,7 @@
 | `runtime-scripting.middleware.ts#/scripting/polyfills/*` | 业务意图保留 | 旧实现服务 `@cocos/build-polyfills` preview bundle，old editor 也有 polyfills route | 保留 route 意图，具体文件来源需从当前 dependency/package 解析 |
 | `/settings.json`、`/remote/*/config.json`、`/remote/*/index.js` | 待源码验证 | old editor 明确有 game-view settings 和 remote bundle route；old CLI bad implementation 只覆盖了 `/remote/internal/*` | 是否支持 game-view/remote bundle 由 engine settings、`assets.server`、`remoteBundles`、bundle config 事实决定 |
 | `engine-capability.ts` | 业务意图保留 | 检查 `bin/.cache/dev-cli/web/import-map.json`、`bundled/index.js`、`bin/adapter/nodejs/*` 等 engine prerequisite | 新实现保留 prerequisite check，但路径列表需与当前 `D:\workspace\engines\cocos\3.8.6` 实际产物验证 |
-| `preview-app/src/main.ts` 手写 `assets.importBase = 'assets/general/import'` / `nativeBase = 'assets/general/native'` | 实现方式废弃 | 覆盖 engine/settings 的 import/native base，和“URL 由 settings + bundle config + HTTP-base runtime fact 决定”冲突 | 不迁移；browser UI 只能消费 settings，不能篡改 asset base |
+| `preview-app/src/main.ts` 中的 `assets/general/import` / `assets/general/native` bootstrap base | 需重新分类 | 该行为来自 Creator 3.8.6 preview-app source，不能再简单归为“旧实现手写错误”；错误的是 CLI server/root template/glue code 借此猜测或覆盖 URL mapping | 迁入官方 preview-app source 时允许保留该 source-owned 行为；route 必须按实际请求事实服务，测试仍禁止 CLI glue 自行覆盖 `assets.importBase` / `assets.nativeBase` |
 | `preview-app/src/main.ts#assetManager.loadWithJson()` 加载 current scene | 业务意图保留 | 最终浏览器 smoke 需要加载当前 scene，但不是短链路验证的第一入口 | 最后集成测试保留场景加载意图；短链路用 engine-source/resources.load/HTTP contract 先验证 |
 | `runtime-preview.middleware.ts#/missing-asset/*` 和 `/preview-error` | 业务意图保留 | 旧实现用于缺失资源诊断和浏览器错误回传，不参与正常加载路径 | 可保留为诊断 route；不能作为资源加载成功的替代验证 |
 

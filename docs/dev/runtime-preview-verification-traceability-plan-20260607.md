@@ -632,7 +632,7 @@ Rules:
 
 Current evidence:
 
-- `docs/dev/runtime-preview-browser-entry-facts-20260607.md` records current CLI root `/` and `/preview-app/*` as `blocked-by-fact-gap`.
+- `docs/dev/runtime-preview-browser-entry-facts-20260607.md` records current CLI root `/` and `/preview-app/*` as current implementation gaps.
 - Current CLI has active `/settings.js`、bundle config/index、library、programming and scripting routes, but no production browser entry page.
 - Old editor source and backup implementation prove historical entry names and business intent only; they are not URL mapping authority.
 
@@ -876,12 +876,52 @@ rtk git commit -m "feat(runtime-preview): add preview app browser entry"
 - Modify or create: `src/runtime-preview/programming/resolve-programming-request.ts`
 - Modify or create: `src/runtime-preview/server/preview-scene-routes.ts`
 - Modify or create: `src/runtime-preview/server/preview-error-routes.ts`
+- Create: `docs/dev/runtime-preview-preview-app-route-inventory-20260608.md`
 - Test: `vitests/suites/runtime-preview/browser-entry-contract.test.ts`
 - Test: `vitests/suites/runtime-preview/preview-app-route-contract.test.ts`
 
-- [ ] **Step 1: 写 route contract test**
+- [ ] **Step 1: 建立 preview-app route inventory**
 
-Create `preview-app-route-contract.test.ts` that uses current small-project fixture and `handleRuntimePreviewRequest()` to verify required preview-app routes:
+After Task 8B migrates preview-app source and static template, inspect current source inputs and record every browser-requested route before writing implementation code:
+
+- `src/runtime-preview/preview-app/src/index.ts`
+- `src/runtime-preview/preview-app/src/main.ts`
+- `src/runtime-preview/preview-app/src/ui.ts`
+- `static/runtime-preview/script.ejs`
+- `static/runtime-preview/toolbar.ejs`
+
+Create `docs/dev/runtime-preview-preview-app-route-inventory-20260608.md` with:
+
+```markdown
+| Route or request source | Source file | Required by production entry | Fact owner | Implementation status |
+| --- | --- | --- | --- | --- |
+```
+
+Classification rules:
+
+- `production-entry-required`: requested by migrated preview-app/template and required for normal preview boot.
+- `source-owned`: behavior owned by official Creator preview-app source, such as `assets/general/import` and `assets/general/native` bootstrap base.
+- `optional-or-deferred`: requested only for optional UI/socket/profile behavior and explicitly safe to no-op or defer.
+- `diagnostic-only`: failure/reporting route that must be logged but cannot prove preview completion by itself.
+
+Expected inventory candidates include, but are not limited to:
+
+- `/settings.js`
+- `/preview-app/index.js`
+- `/scripting/polyfills/bundle.js`
+- `/scripting/engine/bin/.cache/dev-cli/web/import-map.json`
+- `/scripting/engine/bin/.cache/dev-cli/web/bundled/index.js`
+- `/scene-list`
+- `/scene/<uuid>.json`
+- `/missing-asset/<uuid>`
+- `/preview-error`
+- `/socket.io/socket.io.js`
+
+The route inventory is the source for Task 8C tests. Do not add a route only because an old implementation had it; record the exact current preview-app/template request first.
+
+- [ ] **Step 2: 写 route contract test**
+
+Create `preview-app-route-contract.test.ts` that uses current small-project fixture, `handleRuntimePreviewRequest()` and the inventory from Step 1 to verify `production-entry-required` routes. Initial required routes are expected to include:
 
 - `/scripting/polyfills/bundle.js`
 - `/scripting/engine/bin/.cache/dev-cli/web/import-map.json`
@@ -896,7 +936,7 @@ Expected before implementation:
 
 - FAIL for routes not yet served.
 
-- [ ] **Step 2: 实现 scripting engine 和 polyfills routes**
+- [ ] **Step 3: 实现 scripting engine 和 polyfills routes**
 
 Use current CLI / engine generated artifacts as source. If an artifact is missing, fail with diagnostic category instead of returning dummy JS.
 
@@ -906,7 +946,7 @@ Rules:
 - `/scripting/polyfills/*` must come from current dependency or Creator static artifact, not from an empty placeholder.
 - Do not recursively scan engine root at startup.
 
-- [ ] **Step 3: 实现 scene list / scene json routes**
+- [ ] **Step 4: 实现 scene list / scene json routes**
 
 Use AssetDB facts or frozen/current library metadata to find scenes. Do not use P6 / feature-c.
 
@@ -916,7 +956,7 @@ Route semantics:
 - `/scene/<uuid>.json` serves serialized scene JSON from library metadata.
 - If current small project has no scene fact, return explicit empty result and document limitation; do not fabricate scene JSON.
 
-- [ ] **Step 4: 实现 missing asset / preview error / socket handling**
+- [ ] **Step 5: 实现 missing asset / preview error / socket handling**
 
 Route semantics:
 
@@ -924,7 +964,7 @@ Route semantics:
 - `/preview-error` accepts JSON payload and writes to runtime preview log.
 - `/socket.io/socket.io.js` either serves real Socket.IO client when server supports it, or preview-app source must be adapted to tolerate missing socket. If adapted, the source change must be explicit and tested.
 
-- [ ] **Step 5: 验证 preview-app required route suite**
+- [ ] **Step 6: 验证 preview-app required route suite**
 
 Run:
 
@@ -938,7 +978,7 @@ Expected:
 
 Then run full runtime-preview suite.
 
-- [ ] **Step 6: 关键节点 review 和提交**
+- [ ] **Step 7: 关键节点 review 和提交**
 
 Dispatch senior review focused on route fact sources, performance, no startup scans, and no guessed library URL mapping.
 
@@ -1055,7 +1095,19 @@ Test output must record:
 
 - [ ] **Step 6: 提交 browser smoke**
 
-Run:
+Run targeted verification before commit:
+
+```powershell
+rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_space/cocos_work_lab_38x'; `$env:COCOS_CLI_TEST_ENGINE_ROOT='D:/workspace/engines/cocos/3.8.6'; `$env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-library/cocos_work_lab_38x-editor-library-20260606'; `$env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-temp/cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/browser-runtime-smoke.test.ts"
+```
+
+Then run full runtime-preview suite:
+
+```powershell
+rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_space/cocos_work_lab_38x'; `$env:COCOS_CLI_TEST_ENGINE_ROOT='D:/workspace/engines/cocos/3.8.6'; `$env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-library/cocos_work_lab_38x-editor-library-20260606'; `$env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-temp/cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview"
+```
+
+Commit only after both commands pass or the failure is explicitly recorded as a planned diagnostic gap:
 
 ```powershell
 rtk git add vitests src/runtime-preview
@@ -1159,8 +1211,10 @@ Conclusion categories:
 Run:
 
 ```powershell
+rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_space/cocos_work_lab_38x'; `$env:COCOS_CLI_TEST_ENGINE_ROOT='D:/workspace/engines/cocos/3.8.6'; `$env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-library/cocos_work_lab_38x-editor-library-20260606'; `$env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-temp/cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/small-project-cli-integration.test.ts"
+rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_space/cocos_work_lab_38x'; `$env:COCOS_CLI_TEST_ENGINE_ROOT='D:/workspace/engines/cocos/3.8.6'; `$env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-library/cocos_work_lab_38x-editor-library-20260606'; `$env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-temp/cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview"
 rtk git add docs/dev/runtime-preview-small-project-acceptance-20260607.md vitests/shared/runtime-preview-cli-process.ts vitests/suites/runtime-preview/small-project-cli-integration.test.ts
-rtk git commit -m "docs(runtime-preview): record small project acceptance results"
+rtk git commit -m "test(runtime-preview): add small project cli integration acceptance"
 ```
 
 ## 10. 最终完成标准

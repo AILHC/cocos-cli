@@ -182,13 +182,14 @@ Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-inf
 
 - 当前 CLI runtime preview route handler 没有 root `/` production page，也没有 `/preview-app/*` route；`/` 与 `/preview-app/index.js` 当前均返回 `404 No runtime preview route handled`。
 - 当前 active browser-consumable routes 是 `/settings.js`、bundle config/index、library request-time routes、programming/scripting routes 和 `/plugins/*`。
+- Creator 3.8.6 `preview-app` 源码和备份分支中的 CLI adapted static template 已证明 production browser entry 的输入来源；当前 404 是 implementation gap，不是事实缺口。
 - 旧 editor server 的 root `/` 与 `/preview-app/*` 只能证明历史 entry 名称、render data 和业务意图；不能作为当前 URL mapping、library resolver 或 ready signal 的权威。
 - 备份分支的 `runtime-preview-template.ts`、`preview-app-resolver.ts` 和 browser contract tests 只能作为 business-intent reference；不能直接复制其中 route/base mapping。
-- 当前 production source 没有 `window.__RUNTIME_PREVIEW_READY` contract。Task 8B 不能用 network idle、固定 sleep 或打开瞬间无错误替代 ready signal。
+- 当前 production source 没有 `window.__RUNTIME_PREVIEW_READY` contract。Task 8D browser smoke 不能用 network idle、固定 sleep 或打开瞬间无错误替代 ready signal。
 
 实现约束：
 
-- Root preview page / preview-app 只能消费 `/settings.js` 和 current runtime facts，不能重写 `assets.importBase`、`assets.nativeBase`、`assets.server`、bundle config、internal route、pack route 或 captured runtime URL。
+- Root page / CLI template glue 只能消费 `/settings.js` 和 current runtime facts，不能重写 `assets.importBase`、`assets.nativeBase`、`assets.server`、bundle config、internal route、pack route 或 captured runtime URL。官方 Creator preview-app source 中的 `assets/general/import` / `assets/general/native` browser preview bootstrap base 可以保留，但 server 必须按该请求事实服务资源，不能据此发明 URL mapping。
 - 如果先实现 diagnostic browser route，其 route 名必须显式，例如 `/__runtime-preview/browser-smoke`，验收状态只能是 `partial`，不能作为 production root preview completion。
 
 ### P6 engine-source Vitest 参考方案
