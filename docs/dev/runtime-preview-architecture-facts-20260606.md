@@ -332,7 +332,7 @@ Frozen editor `temp/programming`：
 - `/assets/<bundle>/index.js` / `/remote/<bundle>/index.js` 按 engine `downloadBundle()` 事实返回 dummy bundle script；该 route 只在对应 bundle config 存在时返回 200。
 - `/query-extname/<uuid>` 只检查 library bucket 中是否存在 `<uuid>.cconb` 或 `<uuid>.ccon`，并返回 import payload extension replacement；普通 `.json` 返回空字符串。该 route 不参与 import/native 判断。
 - `/scripting/x/*` 通过 `resolveProgrammingRequest()` 按需读取 `temp/programming` 文件。
-- 当前 HTTP contract 覆盖 serialized JsonAsset import URL；native dependency、pack URL、redirect bundle URL 尚未由 HTTP-base probe 捕获，不能声明已验证。
+- 当前 HTTP contract 覆盖 serialized JsonAsset import URL；native dependency 已通过 HTTP-base `ImageAsset` capture 和 production route contract 验证；pack URL、redirect bundle URL 尚未由 HTTP-base probe 捕获，不能声明已验证。
 
 2026-06-06 Task 13 runtime preview startup 结果：
 - `src/runtime-preview/server/runtime-preview-server.ts` 提供 `startRuntimePreviewServer()`，负责 HTTP server lifecycle、health route、runtime route dispatch 和 close。
@@ -352,7 +352,7 @@ Frozen editor `temp/programming`：
 - Critical：production `preview --runtime` 不会给 route context 传入 `capturedRuntimeUrls`；而 `resolveLibraryRequest()` 没有 `allowedRequestPaths` 时拒绝所有 asset import/native request。因此 injected HTTP contract 通过不等于真实 CLI server 能服务 representative asset URL。
 - Task 9 gap：`editor-cli-output-consistency.test.ts` 还没有真实验证 CLI AssetDB output，只验证 active/frozen editor library，并把 `cli-output-not-generated-yet` 当作通过状态。
 - Task 9.5 gap 已推进：filesystem-base `resources.load` parser probe 覆盖 JsonAsset、ImageAsset、Texture2D、SpriteFrame、Plist 源资产转换后的 serialized SpriteAtlas、Spine SkeletonData；TTFFont、runtime `.plist` parser 与 Spine `.atlas` standalone 按 frozen facts 记录 diagnostic gap。
-- Task 9.75 gap：HTTP-base capture 只覆盖 `query-extname` 和一个 JsonAsset import URL；native dependency、pack、redirect bundle URL 尚未捕获。
+- Task 9.75 gap 更新：HTTP-base capture 已覆盖 `query-extname`、JsonAsset import URL 和 ImageAsset native URL；pack、redirect bundle URL 尚未捕获。
 - Task 11 gap：`settings-generation.test.ts` 全部使用 mocked `loadPreviewSettings`；真实 `getPreviewSettings()` E2E 和 normal build boundary 尚未验证。
 - Task 12 gap：`http-contract.test.ts` 使用手写 injected `settings/bundleConfigs/script2library`，没有消费真实 Task 11 output。
 - Task 13 gap：`cli-startup.test.ts` 直接调用 `startRuntimePreviewServer()`，没有覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> server` 的真实命令链。
@@ -364,7 +364,7 @@ Frozen editor `temp/programming`：
 - 当测试传入 `capturedRuntimeUrls` 时，resolver 仍执行严格 allow list；未捕获但形态相似的 native/remote URL 继续返回 404。
 - captured mode 不再为了 asset route 调 `PreviewSettingsProvider.getPreviewSettings()`；`http-contract.test.ts` 已覆盖 captured asset URL 在 settings generation 会失败时仍可按 captured fact 服务。
 - 已验证：`launcher-runtime-preview.test.ts`、`http-contract.test.ts`、`on-demand-resolver.test.ts` 和完整 `npm --prefix vitests test -- --passWithNoTests` 通过。
-- 未完成：真实 `Launcher.startRuntimePreview()` 成功启动 / CLI command process、真实 `getPreviewSettings()` E2E、native/pack/redirect HTTP-base capture 仍按 Task 15 后续步骤处理。`resources.load` parser probe 已覆盖当前 frozen facts 可触发的主链路，TTFFont、runtime `.plist` parser 与 Spine `.atlas` standalone 作为 diagnostic gap 保留。
+- 未完成：真实 CLI command process、真实 `getPreviewSettings()` E2E、pack/redirect HTTP-base capture 仍按后续步骤处理；`Launcher.startRuntimePreview()` 已有测试覆盖，native production route 已由真实 ImageAsset capture 验证。`resources.load` parser probe 已覆盖当前 frozen facts 可触发的主链路，TTFFont、runtime `.plist` parser 与 Spine `.atlas` standalone 作为 diagnostic gap 保留。
 
 2026-06-07 Task 15 Step 1/2 诊断结果：
 - `src/core/engine/index.ts` 在 Windows absolute path 下使用 `import(join(enginePath, 'package.json'))` 会失败；已改为 `fs-extra.readJSON(join(enginePath, 'package.json'))`，避免 ESM/source runner 与 compiled CommonJS 的行为差异。`settings-generation.test.ts` 通过真实 `tsx` child process 验证 `Engine.init(D:\workspace\engines\cocos\3.8.6)` 能读取真实 package version。
