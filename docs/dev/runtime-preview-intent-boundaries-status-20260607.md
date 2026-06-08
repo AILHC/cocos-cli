@@ -137,7 +137,7 @@
 
 - `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后已连续两次 26/26 通过。
 - `settings-generation.test.ts` 的真实 Engine 初始化用例单文件约 9.6 秒通过；full-suite 下通过约 11.4 秒。
-- 结论：此前 30 秒超时来自 full-suite 并发真实 engine 初始化的资源竞争；当前通过定向 120 秒 timeout 避免把环境竞争误判为功能失败。
+- 结论：此前 30 秒超时符合 full-suite 并发真实 engine 初始化资源竞争的表现；当前通过定向 120 秒 timeout 避免把环境耗时误判为功能失败。
 
 ### 6. 性能边界：禁止启动期全量扫描和 full manifest
 
@@ -299,7 +299,7 @@
 
 ## 后续执行顺序建议
 
-1. 修复 `vitests` full-suite 超时不稳定，让 `suites/runtime-preview` 在完整环境变量下稳定全绿。
+1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前已在完整环境变量下连续两次 26/26 通过。
 2. 做真实 CLI AssetDB output consistency：定位 `library/cli` 与 editor `library` 差异，优先修生成链而不是 server 猜路径。
 3. 补 production native URL mapping：从 HTTP-base native capture 和 AssetDB/nativeDep metadata 推导 request-time resolver。
 4. 补 pack / redirect capture：找到或构造由 engine source 和 bundle config 事实驱动的 sample，不手写近似 URL。
