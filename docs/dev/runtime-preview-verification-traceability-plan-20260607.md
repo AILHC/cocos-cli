@@ -374,8 +374,14 @@ Expected:
 Current-scope rule:
 
 - 如果小项目 runtime loading 实际触发 `ViewStateGroup` extension library/script/metadata request，必须基于小项目 package、当前 CLI AssetDB source、frozen metadata 和 engine/runtime 请求事实补齐 request-time mapping。
-- 如果小项目 browser smoke 和 HTTP capture 未触发 extension asset-db request，必须在验收矩阵中记录 `not-triggered-in-small-project` 证据，不能把 generic extension mount 作为当前阶段失败条件。
+- 如果当前 representative HTTP capture 未触发 extension asset-db request，必须在验收矩阵中记录 `not-triggered-in-current-http-capture` 证据；真实 browser/small-project runtime 未触发只能由后续 browser smoke / integration 证据证明，不能提前推广。
 - disabled extension skip、project/global package enable config、`mount.enable` 的完整组合语义 deferred 到后续 extension 专项计划；除非小项目当前事实直接触发这些条件，否则不进入本阶段完成标准。
+
+Current evidence:
+
+- `editor-cli-output-consistency.test.ts` verifies `extensions/ViewStateGroup/package.json` mount input, frozen `.view-state-group-*` metadata, and CLI `library/cli-extensions/view-state-group` output.
+- `http-url-capture.probe.test.ts` verifies representative HTTP-base resource capture currently does not trigger `view-state-group` / `cli-extensions` runtime URLs; this is `not-triggered-in-current-http-capture`, not full browser/runtime proof.
+- Browser/small-project runtime trigger remains unverified; do not claim generic extension resolver support from this evidence.
 
 Forbidden:
 

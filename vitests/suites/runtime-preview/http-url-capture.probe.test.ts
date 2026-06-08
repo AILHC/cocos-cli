@@ -129,6 +129,14 @@ describe('HTTP-base engine URL capture probe', () => {
     ]);
   });
 
+  it('documents that representative HTTP-base resource capture does not trigger the small-project extension asset-db domain', async () => {
+    const capturedRuntimeUrls = await captureRepresentativeHttpRuntimeUrls();
+
+    expect(capturedRuntimeUrls.length).toBeGreaterThan(0);
+    expect(capturedRuntimeUrls.some((entry) => entry.url.includes('view-state-group'))).toBe(false);
+    expect(capturedRuntimeUrls.some((entry) => entry.url.includes('cli-extensions'))).toBe(false);
+  });
+
   it('records non-authoritative small-project cached bundle config diagnostics when present', async () => {
     const paths = getFixturePaths();
     const diagnostics = await inspectSmallProjectCachedBundleConfigDiagnostics(paths.projectRoot);
