@@ -8,6 +8,8 @@ import { getFixturePaths } from '@shared/fixture-paths';
 
 const execFileAsync = promisify(execFile);
 const diagnosticSceneUuid = '5d1de01c-5229-4d34-bde3-2c90372f88d9';
+// Real Engine.init competes with other engine-source probes in the full runtime-preview suite.
+const realEngineInitTimeoutMs = 120_000;
 
 describe('runtime preview settings provider', () => {
   it('delegates to CLI preview settings output and preserves settings, bundle configs, and script map', async () => {
@@ -93,13 +95,13 @@ describe('runtime preview settings provider', () => {
         ...process.env,
         COCOS_CLI_TEST_ENGINE_ROOT: paths.engineRoot,
       },
-      timeout: 30_000,
+      timeout: realEngineInitTimeoutMs,
     });
     const info = JSON.parse(stdout.trim()) as { version: string; typescript: { path: string } };
 
     expect(info.typescript.path).toBe(paths.engineRoot);
     expect(info.version).toBe(packageJson.version);
-  });
+  }, realEngineInitTimeoutMs);
 
   it('forwards runtime server and scene build options to CLI preview settings generation', async () => {
     const buildOptions = {
