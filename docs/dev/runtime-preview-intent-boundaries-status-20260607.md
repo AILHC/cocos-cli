@@ -49,22 +49,24 @@
 | 不启动 scene RPC/MCP | 已实现于当前 runtime path | `Launcher.startRuntimePreview()` 没有调用 scene preview 的 `Rpc.startup()` |
 | 原 preview 保留 | 已实现 | `startPreview()` 仍保留原流程 |
 
-### 2. 从“小项目能跑”推进到“大项目可日常开发”
+### 2. 当前阶段以小项目真实验收为主，大项目暂缓
 
 需求意图：
 
-- 旧实现阶段的目标不是只跑通小项目，而是支撑 P6 / feature-c 大项目日常开发。
-- 大项目场景下必须处理 extension asset-db、script import map、编译慢、错误可见性、启动日志和 native-only 静态依赖边界。
-- 小项目先作为稳定验证入口；小项目稳定后再回到 P6 / feature-c。
+- 当前测试和集成验收主要使用小项目 `E:\own_space\cocos_work_lab_38x`。
+- 小项目不仅用于短链路 Vitest，也要用于真实 preview server、真实 CLI child process、浏览器日志监听和稳定窗口验收。
+- P6 / feature-c 大项目暂时不参与当前测试和验收，不作为当前完成门槛。
+- 旧实现阶段曾面向 P6 / feature-c 暴露 extension asset-db、script import map、编译慢、错误可见性、启动日志和 native-only 静态依赖边界；这些仍是后续 deferred 事实来源，但不能混入当前验收条件。
 
 当前状态：
 
 | 项 | 状态 | 当前事实 |
 | --- | --- | --- |
 | 小项目短链路验证 | 部分实现 | `vitests/suites/runtime-preview/**` 已覆盖 frozen library、programming、HTTP contract、pre-browser smoke |
-| P6 / feature-c 验证 | 未完成 | 当前分支尚未重新执行大项目 runtime preview 验证 |
-| extension asset-db 大项目语义 | 待重新纳入 | 备份分支曾实现 resolver 和 start order；当前主线还没有把 extension mount 加入新的 request-time resolver 闭环 |
-| native-only 静态依赖边界 | 需求保留 | 当前主线未把 CLI fake native module 作为方案；错误定位仍需后续在大项目验证中补齐 |
+| 小项目真实集成验收 | 未完成 | 当前还没有完成真实 CLI child process + browser runtime smoke + 稳定窗口验收 |
+| P6 / feature-c 验证 | deferred | 当前阶段不参与测试和验收；后续重新纳入前必须更新计划和验收矩阵 |
+| extension asset-db 语义 | 待重新纳入 | 备份分支曾实现 resolver 和 start order；当前主线还没有把 extension mount 加入新的 request-time resolver 闭环 |
+| native-only 静态依赖边界 | deferred | 当前主线未把 CLI fake native module 作为方案；大项目相关错误定位后续再进入验收范围 |
 
 ### 3. URL 不能猜，必须由事实决定
 
@@ -194,7 +196,7 @@
 | internal / extension / plugin/global scripts | 未覆盖 | 当前测试未覆盖 `db://internal`、extension mount、plugin/global scripts 或完整 `script2library` |
 | `/scripting/systemjs/*`、`/scripting/userland/macro` | 部分支持 | 当前 resolver 支持 `/scripting/x/*`；SystemJS/macro route 仍需按当前产物路径补齐或验证 |
 
-### 9. extension asset-db 是大项目能力，不是硬编码特例
+### 9. extension asset-db 不能硬编码，当前先用小项目事实闭环
 
 需求意图：
 
@@ -212,7 +214,7 @@
 | 需求意图 | 保留 | 备份分支文档和测试已明确该需求 |
 | 当前主线实现 | 未完成 | 当前 runtime-preview request-time resolver 尚未把 extension mount 纳入 production contract |
 | 当前测试 | 未覆盖 | 当前 `vitests` 未覆盖 extension mount URL / metadata / script linkage |
-| 后续处理 | 必须重新设计 | 应基于当前 CLI AssetDB source 与 frozen `.view-state-group-*` metadata，而不是迁移旧 resolver-first 代码 |
+| 后续处理 | 必须重新设计 | 当前阶段先用小项目事实闭环 runtime preview；extension mount 重新纳入时，应基于当前 CLI AssetDB source 与 frozen metadata，而不是迁移旧 resolver-first 代码 |
 
 ### 10. 编译慢和启动反馈
 
@@ -246,7 +248,7 @@
 | 项 | 状态 | 当前事实 |
 | --- | --- | --- |
 | fake native module | 未采用 | 当前主线没有把 fake native module 作为 runtime preview 方案 |
-| 错误可见性 | 未完成 | 当前还没有回到 P6 / feature-c 复现并增强该类错误诊断 |
+| 错误可见性 | 未完成 | 当前应先在小项目真实 browser smoke 中建立错误分类和日志证据；P6 / feature-c native-only 边界 deferred |
 
 ### 12. 允许必要 engine source 适配
 
@@ -269,7 +271,7 @@
 
 | 模块 | 当前状态 | 已验证 | 主要缺口 |
 | --- | --- | --- | --- |
-| CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过 | startup log、本地日志、P6 大项目验证 |
+| CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过 | startup log、本地日志、小项目真实 CLI child process 集成验收 |
 | runtime server/routes | 部分实现 | `cli-startup.test.ts`、`http-contract.test.ts`、`pre-browser-http-smoke.test.ts` 通过 | scene、plugins、remote、SystemJS/macro、import-map-global 等 route 需按事实补齐 |
 | `PreviewSettingsProvider` | 部分实现 | 单独 `settings-generation.test.ts` 通过 | full-suite 超时不稳定；真实 production settings contract 未闭环 |
 | library resolver | 部分实现 | captured import URL 和 bundle-config-backed import route 通过 | native production mapping、pack、redirect、extension mount、remote |
@@ -303,7 +305,7 @@
 6. 补 scripting route：SystemJS、macro、import-map-global、plugins/script2library 按 current CLI programming source 验证。
 7. 补 startup diagnostics：console stage、runtime preview log、packer/Cocos 原始日志关联。
 8. 小项目 HTTP smoke 稳定后，再进入浏览器集成测试。
-9. 小项目浏览器通过后，再回到 P6 / feature-c，处理 native-only 静态依赖和大项目性能指标。
+9. 小项目浏览器通过后，先完成小项目真实 CLI child process 集成验收和结论文档；P6 / feature-c 后续是否纳入，需要重新更新计划。
 
 ## 当前结论
 
@@ -311,4 +313,4 @@
 
 已确认的正确方向是：engine runtime 生成 URL，server 做 fact-backed request-time resolution；settings 由 CLI `getPreviewSettings()` 或等价封装提供；programming route 由真实 preview records/chunks 驱动；冻结 editor 产物只作为 reference。
 
-当前最大的未闭环点是：真实 CLI AssetDB output 与 editor output 对齐、production native/pack/redirect/extension mapping、完整 scripting route、本地日志/启动反馈、大项目验证和最终浏览器集成。
+当前最大的未闭环点是：真实 CLI AssetDB output 与 editor output 对齐、production native/pack/redirect/extension mapping、完整 scripting route、本地日志/启动反馈、小项目真实 CLI child process 验收和最终浏览器集成。
