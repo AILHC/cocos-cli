@@ -328,7 +328,7 @@ rtk git commit -m "test(runtime-preview): classify cli assetdb output consistenc
 - Test: `vitests/suites/runtime-preview/http-contract.test.ts`
 - Test: `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts`
 
-- [ ] **Step 1: native production mapping**
+- [x] **Step 1: native production mapping**
 
 Use HTTP-base captured ImageAsset native URL as input.
 
@@ -337,6 +337,12 @@ Expected:
 - In test-only captured mode, captured native URL resolves.
 - In production mode, native request resolves only when bundle config / AssetDB metadata proves native dependency.
 - Unproven native tail returns 404.
+
+Current evidence:
+
+- `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts` covers a real engine-captured `ImageAsset` native URL without `capturedRuntimeUrls`.
+- `src/runtime-preview/library/resolve-library-request.ts` only authorizes native requests when the bundle config maps the UUID to `cc.ImageAsset`.
+- An existing but unconfigured native PNG returns 404.
 
 - [ ] **Step 2: pack capture**
 
