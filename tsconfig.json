@@ -32,6 +32,7 @@
     "exclude": [
         "dist",
         "node_modules",
+        "src/runtime-preview/preview-app/**",
         "**/test/**",
         "**/*.test.ts",
         "tests/**",

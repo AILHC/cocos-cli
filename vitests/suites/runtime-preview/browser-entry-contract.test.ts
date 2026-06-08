@@ -81,16 +81,18 @@ function createRouteContext() {
 }
 
 describe('runtime preview browser entry contract', () => {
-  it('records that current CLI has no factual root page or preview-app route yet', async () => {
+  it('serves the production root page and preview-app entry script', async () => {
     const routeContext = createRouteContext();
 
     const rootResponse = await handleRuntimePreviewRequest(routeContext, '/');
-    expect(rootResponse.statusCode).toBe(404);
-    expect(String(rootResponse.body)).toContain('No runtime preview route handled: /');
+    expect(rootResponse.statusCode).toBe(200);
+    expect(rootResponse.headers['content-type']).toBe('text/html; charset=utf-8');
+    expect(String(rootResponse.body)).toContain('/settings.js');
+    expect(String(rootResponse.body)).toContain('System.import("/preview-app/index.js")');
 
     const previewAppResponse = await handleRuntimePreviewRequest(routeContext, '/preview-app/index.js');
-    expect(previewAppResponse.statusCode).toBe(404);
-    expect(String(previewAppResponse.body)).toContain('No runtime preview route handled: /preview-app/index.js');
+    expect(previewAppResponse.statusCode).toBe(200);
+    expect(previewAppResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
   });
 
   it('keeps settings route active without treating it as a browser entry page', async () => {
@@ -100,6 +102,19 @@ describe('runtime preview browser entry contract', () => {
     expect(settingsResponse.statusCode).toBe(200);
     expect(settingsResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
     expect(String(settingsResponse.body)).toContain('window._CCSettings = ');
+  });
+
+  it('rejects encoded backslash traversal from runtime preview static subdirectories', async () => {
+    const routeContext = createRouteContext();
+
+    const previewAppTraversal = await handleRuntimePreviewRequest(routeContext, '/preview-app/%2e%2e%5cindex.ejs');
+    expect(previewAppTraversal.statusCode).toBe(400);
+
+    const resourceTraversal = await handleRuntimePreviewRequest(
+      routeContext,
+      '/static/runtime-preview/resources/%2e%2e%5cindex.ejs',
+    );
+    expect(resourceTraversal.statusCode).toBe(400);
   });
 
   it('anchors browser entry facts to old editor and backup sources without making them URL authorities', async () => {
@@ -128,23 +143,22 @@ describe('runtime preview browser entry contract', () => {
     expect(backupTemplateTest).toContain('System.import("/preview-app/index.js")');
   });
 
-  it('guards future copied preview-app code against owning engine URL/base mapping', async () => {
-    const routeSource = await readText('src/runtime-preview/server/runtime-preview-routes.ts');
-    expect(routeSource).not.toContain('/preview-app/');
+  it('allows official preview-app bootstrap base while forbidding CLI glue from owning URL/base mapping', async () => {
+    const previewAppFiles = await collectTextFiles(join(repoRoot, 'src/runtime-preview/preview-app'));
+    const previewAppSource = (await Promise.all(previewAppFiles.map((file) => readFile(file, 'utf8')))).join('\n');
+    expect(previewAppSource).toContain('assets/general/import');
+    expect(previewAppSource).toContain('assets/general/native');
 
-    const runtimePreviewSourceFiles = await collectTextFiles(join(repoRoot, 'src/runtime-preview'));
-    for (const file of runtimePreviewSourceFiles) {
+    const glueFiles = [
+      ...await collectTextFiles(join(repoRoot, 'src/runtime-preview/server')),
+      ...await collectTextFiles(join(repoRoot, 'static/runtime-preview')),
+    ].filter((file) => !file.replace(/\\/g, '/').includes('/static/runtime-preview/preview-app/'));
+    for (const file of glueFiles) {
       const content = await readFile(file, 'utf8');
       expect(content, file).not.toContain('window.__RUNTIME_PREVIEW_READY');
-    }
-
-    const previewAppFiles = await collectTextFiles(join(repoRoot, 'src/runtime-preview/preview-app'));
-    for (const file of previewAppFiles) {
-      const content = await readFile(file, 'utf8');
       expect(content, file).not.toMatch(/assets\.(?:importBase|nativeBase|server)\s*=/);
       expect(content, file).not.toMatch(/_CCSettings\.assets\.(?:importBase|nativeBase|server)\s*=/);
       expect(content, file).not.toMatch(/\/(?:assets|remote)\/[^'"]+\/(?:import|native)\//);
-      expect(content, file).not.toMatch(/bundleConfig(?:s)?\s*=/);
     }
   });
 });

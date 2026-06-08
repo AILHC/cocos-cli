@@ -2,14 +2,14 @@
 
 记录时间：2026-06-08
 
-本文只冻结 browser entry 事实，不设计新的 URL mapping。当前结论是：Creator 3.8.6 `preview-app` 源码和备份分支中的 CLI adapted static template 已经证明 production browser entry 的输入来源；当前 CLI 分支的 `/` 和 `/preview-app/*` 仍返回 404，是实现缺口，不是事实缺口。真实 browser smoke 仍不能声明完成，因为 production entry、required routes、ready signal 和稳定观察窗口尚未闭环。
+本文只冻结 browser entry 事实，不设计新的 URL mapping。当前结论是：Creator 3.8.6 `preview-app` 源码和备份分支中的 CLI adapted static template 已经接入当前 CLI，root `/` 和 `/preview-app/*` 已成为 production browser entry。真实 browser smoke 仍不能声明完成，因为 preview-app required routes、ready signal 和稳定观察窗口尚未闭环。
 
 ## Fact Ledger
 
 | Entry / route | Fact source | What it proves | What it does not prove | Status |
 | --- | --- | --- | --- | --- |
-| 当前 CLI root `/` | `src/runtime-preview/server/runtime-preview-routes.ts`、`vitests/suites/runtime-preview/browser-entry-contract.test.ts` | 当前 route handler 对 `/` 返回 `404 No runtime preview route handled`。当前分支还没有 production root preview page。 | 不证明 root page 不需要实现；只证明当前实现尚未接入 production entry。 | `implementation-gap` |
-| 当前 CLI `/preview-app/*` | `src/runtime-preview/server/runtime-preview-routes.ts`、`vitests/suites/runtime-preview/browser-entry-contract.test.ts` | 当前 route handler 对 `/preview-app/index.js` 返回 `404`。当前分支还没有 preview-app dist route。 | 不证明 preview-app 方向错误；只证明当前实现尚未接入 preview-app build output / route。 | `implementation-gap` |
+| 当前 CLI root `/` | `src/runtime-preview/server/runtime-preview-routes.ts`、`src/runtime-preview/server/preview-entry-template.ts`、`static/runtime-preview/index.ejs`、`static/runtime-preview/script.ejs`、`vitests/suites/runtime-preview/browser-entry-contract.test.ts` | 当前 route handler 对 `/` 返回 production root HTML；页面加载 `/settings.js` 并通过 `System.import("/preview-app/index.js")` 启动 preview-app。 | 不证明 preview-app 后续 required routes、scene load、ready signal 或 browser smoke 已完成。 | `active-production-entry` |
+| 当前 CLI `/preview-app/*` | `src/runtime-preview/server/runtime-preview-routes.ts`、`src/runtime-preview/server/preview-entry-template.ts`、`static/runtime-preview/preview-app/*.js`、`vitests/suites/runtime-preview/browser-entry-contract.test.ts` | 当前 route handler 对 `/preview-app/index.js` 返回构建脚本生成的 preview-app JavaScript。 | 不证明 preview-app 请求的 `/scene-list`、`/scene/<uuid>.json`、`/socket.io/socket.io.js` 或 `assets/general/import/native` 资源服务已完成。 | `active-production-entry` |
 | Creator 3.8.6 preview-app source + CLI adaptation | `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\src\runtime-preview\preview-app\**`、备份分支 `docs/dev/runtime-preview-integration-alignment.md`、`docs/dev/runtime-preview-execution-plan.md` | `preview-app` 是 runtime preview 的 production browser entry 源码输入；当前实现应迁入源码并由 build script 生成 `static/runtime-preview/preview-app/*.js`。 | 不证明备份分支的所有 route/base mapping 正确；编译后的 JS 只能作为 build output/reference，不能手改后当源码。 | `production-entry-input` |
 | CLI adapted static template / resources | `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\static\runtime-preview\script.ejs`、`toolbar.ejs`、`resources\**` | 备份分支 static template 证明 root page 的 browser boot shape，包括加载 `/settings.js` 和 `System.import("/preview-app/index.js")`。 | 不证明其中每个 URL route 都已经被当前 CLI 实现；route 清单必须在迁入 template/source 后按实际请求逐项确认。 | `production-entry-input` |
 | 当前 CLI `/settings.js` | `src/runtime-preview/server/runtime-preview-routes.ts`、`src/runtime-preview/settings/preview-settings-provider.ts` | `/settings.js` 是当前 runtime preview 的已实现 settings entry，内容来自 `PreviewSettingsProvider.getPreviewSettings()` 并输出 `window._CCSettings = ...;`。 | 不证明 browser page 已经存在；不证明 scene/resource runtime 已经完成加载。 | `active-route` |
@@ -51,8 +51,8 @@ Root page / CLI template glue must not:
 | `test-injection` | Browser test injects it only after verifying required HTTP/runtime facts. | Supports early browser host/network validation only; matrix status stays `partial`。 |
 | `diagnostic-harness` | Dedicated diagnostic route sets it for a bounded route subset. | Supports diagnostic smoke only; cannot be documented as root preview. |
 
-当前状态是 `missing-contract`。因此 Task 8D 真实 browser smoke 必须等 Task 8B 接入 production root `/` 和 `/preview-app/*`、Task 8C 按 preview-app/template 实际请求确认 required routes 后再继续。
+当前状态是 `missing-contract`。因此 Task 8D 真实 browser smoke 必须等 Task 8C 按 preview-app/template 实际请求确认 required routes 后再继续。
 
 ## Current Decision
 
-当前不直接实现 browser smoke。下一步不是二选一，也不是新造 diagnostic page；必须先按 Task 8B 接入 Creator 3.8.6 preview-app 源码、CLI adapted static template、root `/` 和 `/preview-app/*` production entry。diagnostic route 如果后续需要，只能作为独立诊断入口，不能替代 production preview。
+当前不直接实现 browser smoke。下一步不是二选一，也不是新造 diagnostic page；必须先按 Task 8C 建立 preview-app/template route inventory，并按事实补齐 required routes。diagnostic route 如果后续需要，只能作为独立诊断入口，不能替代 production preview。

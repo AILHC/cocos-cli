@@ -13,6 +13,10 @@ import {
     textResponse,
     type RuntimePreviewHttpResponse,
 } from './serve-on-demand-file';
+import {
+    renderRuntimePreviewEntry,
+    resolveRuntimePreviewStaticFile,
+} from './preview-entry-template';
 
 export interface RuntimePreviewRouteContext {
     runtimeContext: RuntimePreviewContext;
@@ -23,7 +27,7 @@ export interface RuntimePreviewRouteContext {
 
 function decodePathname(requestPath: string): string | null {
     try {
-        return decodeURIComponent(requestPath.split('?')[0].replace(/\\/g, '/'));
+        return decodeURIComponent(requestPath.split('?')[0]).replace(/\\/g, '/');
     } catch {
         return null;
     }
@@ -160,6 +164,19 @@ export async function handleRuntimePreviewRequest(
     const pathname = decodePathname(requestPath);
     if (!pathname || pathname.split('/').includes('..')) {
         return textResponse(400, `Invalid runtime preview request: ${requestPath}`);
+    }
+
+    if (pathname === '/') {
+        return textResponse(
+            200,
+            await renderRuntimePreviewEntry(context.runtimeContext, requestPath),
+            'text/html; charset=utf-8',
+        );
+    }
+
+    const runtimePreviewStaticFile = await resolveRuntimePreviewStaticFile(pathname);
+    if (runtimePreviewStaticFile) {
+        return serveOnDemandFile(runtimePreviewStaticFile);
     }
 
     if (pathname === '/settings.js') {

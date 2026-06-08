@@ -1,0 +1,226 @@
+<script>
+    try {
+        // 在启动加载之前先初始化显示错误遮罩的相关代码，才能更好的提示后续启动过程中可能出现的错误
+        // 3.6.0 之前的预览模板只有 error-main
+        const errorMain = document.querySelector('#error .error-main');
+        const errorStack = document.querySelector('#error .error-stack');
+        const errorWrap = document.querySelector('#error');
+        function transToErrorInfo(error) {
+            const errorInfo = {
+                message: '',
+                stack: '',
+            };
+            if (error instanceof ErrorEvent) {
+                errorInfo.message = error.error.message;
+                errorInfo.stack = error.error.stack;
+            }
+            else if (error instanceof PromiseRejectionEvent) {
+                errorInfo.message = error.reason;
+            }
+            else if (error instanceof Event && error.target && error.target.src) {
+                errorInfo.message = `Get ${error.target.src} failed!`;
+            } else {
+                errorInfo.message = error.message;
+                errorInfo.stack = error.stack;
+            }
+            return errorInfo;
+        }
+        function showError(errorInfo, message) {
+            if (!errorWrap) {
+                return;
+            }
+            message = message || '[Browser Preview]' + errorInfo.message + (errorInfo.stack ? '/n' + errorInfo.stack : '');
+            if (errorStack) {
+                errorMain.innerText = errorInfo.message;
+                errorInfo.stack && (errorStack.innerText = errorInfo.stack);
+            }
+            else {
+                // 兼容 3.6.0 之前的预览模板
+                errorMain.innerText = message;
+            }
+            errorWrap.style.display = 'block';
+            return {
+                errorInfo,
+                message,
+            };
+        }
+        function reportPreviewError(errorInfo) {
+            try {
+                var payload = JSON.stringify(errorInfo);
+                if (navigator.sendBeacon) {
+                    var blob = new Blob([payload], { type: 'application/json' });
+                    navigator.sendBeacon('/preview-error', blob);
+                    return;
+                }
+                fetch('/preview-error', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: payload,
+                    keepalive: true,
+                }).catch(function () {});
+            }
+            catch (error) {
+                console.error(error);
+            }
+        }
+        window.__errorTools = {
+            transToErrorInfo,
+            showError,
+            reportPreviewError,
+        }
+        function installDiagnosisRoutine() {
+            const errorHandle = function(error) {
+                if (error.message && error.message.includes('debug-evaluate')) {
+                    return;
+                }
+                console.error(error);
+                const errorInfo = transToErrorInfo(error);
+                reportPreviewError(errorInfo);
+                showError(errorInfo);
+                // 注意，在返回 true 的时候，异常才不会继续向上抛出error;
+                return true;
+            };
+            // 全局捕获错误
+            window.addEventListener(
+                'error',
+                errorHandle,
+                true,
+            );
+            window.addEventListener(
+                'unhandledrejection',
+                (error) => {
+                    console.error(error);
+                    const errorInfo = transToErrorInfo(error);
+                    reportPreviewError(errorInfo);
+                    showError(errorInfo);
+                },
+                true,
+            );
+        }
+        installDiagnosisRoutine();
+    }
+    catch (error) {
+        console.error(error);
+    }
+</script>
+<!-- v-console Support.(Optional) -->
+<% if(enableDebugger) { %>
+    <script src="/node_modules/vconsole/dist/vconsole.min.js"></script>
+    <script>
+        window.VConsole && (window.vConsole = new VConsole());
+    </script>
+<% } %>
+
+<!-- Polyfills bundle. -->
+<script src="/scripting/polyfills/bundle.js"></script>
+
+<!-- Import map that map the engine feature unit modules. -->
+<script src="/scripting/engine/bin/.cache/dev-cli/web/import-map.json" type="systemjs-importmap"></script>
+
+<!-- Import map that map the entry of project module(s). -->
+<script src="<%=packImportMapURL%>" type="systemjs-importmap"></script>
+
+<!-- Import map that map 'cc', 'cc/env'. -->
+<script src="/scripting/import-map-global" type="systemjs-importmap"></script>
+
+<!-- SystemJS support. -->
+<script src="/scripting/systemjs/system.js"></script>
+
+<!-- Setup the detailed resolution. -->
+<script>
+    System.setResolutionDetailMapCallback(function() {
+        var url = new URL('<%=packResolutionDetailMapURL%>', window.location);
+        return fetch(url).then(function (response) {
+            return response.json();
+        }).then(function (json) {
+            return { json, url: url.href };
+        });
+    });
+</script>
+
+<script src="/scripting/engine/bin/.cache/dev-cli/web/bundled/index.js"></script>
+
+<!-- Manifest file. -->
+<script name="setting" src="<%=settingsJs%>"></script>
+
+<script>
+    (function registerPrerequisiteImports() {
+        var settings = window._CCSettings || {};
+        var assets = settings.assets || {};
+        var bundles = assets.projectBundles || [];
+        bundles.forEach(function(bundle) {
+            System.register(
+                "virtual:///prerequisite-imports/" + bundle,
+                [window.location.origin + "/assets/" + bundle + "/index.js"],
+                function () {
+                    return {
+                        setters: [function () {}],
+                        execute: function () {},
+                    };
+                },
+            );
+        });
+    })();
+
+    function installSceneSelector() {
+        var selector = document.querySelector('#scene-select');
+        if (!selector) {
+            return;
+        }
+        var sceneListUrl = new URL('/scene-list', window.location);
+        var currentUrl = new URL(window.location.href);
+        var currentScene = currentUrl.searchParams.get('scene');
+        if (currentScene) {
+            sceneListUrl.searchParams.set('scene', currentScene);
+        }
+        fetch(sceneListUrl.href).then(function(response) {
+            return response.json();
+        }).then(function(data) {
+            var scenes = data.scenes || [];
+            selector.innerHTML = '';
+            if (!scenes.length) {
+                var emptyOption = document.createElement('option');
+                emptyOption.value = '';
+                emptyOption.textContent = 'No scenes';
+                selector.appendChild(emptyOption);
+                selector.disabled = true;
+                return;
+            }
+            scenes.forEach(function(scene) {
+                var option = document.createElement('option');
+                option.value = scene.uuid;
+                option.textContent = scene.url + (scene.bundle ? ' [' + scene.bundle + ']' : '');
+                option.title = scene.name || scene.url;
+                selector.appendChild(option);
+            });
+            selector.value = data.currentScene || '';
+            selector.disabled = false;
+        }).catch(function(error) {
+            console.error(error);
+        });
+        selector.addEventListener('change', function() {
+            if (!selector.value) {
+                return;
+            }
+            var nextUrl = new URL(window.location.href);
+            if (nextUrl.searchParams.get('scene') === selector.value) {
+                return;
+            }
+            nextUrl.searchParams.set('scene', selector.value);
+            window.location.href = nextUrl.href;
+        });
+    }
+
+    window.onload = function() {
+        installSceneSelector();
+        System.import("/preview-app/index.js").then(function (mod) {
+            return mod.bootstrap({
+                engineBaseUrl: '/scripting/engine',
+                settings: window._CCSettings,
+                devices: <%-JSON.stringify(devices)%>,
+            });
+        }).catch(function(err) {
+            console.error(err);
+        });
+    };
+</script>

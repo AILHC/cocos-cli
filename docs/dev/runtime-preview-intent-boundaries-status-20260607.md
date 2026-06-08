@@ -302,7 +302,7 @@
 1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前最近证据为 Task 8A 后 `12 files / 40 tests passed`。
 2. 继续真实 CLI AssetDB output consistency：定位 `library/cli`、engine `editor/library` 与 frozen editor `library` / `temp/programming` 差异，优先修生成链而不是 server 猜路径。
 3. 补 pack / redirect / extension asset route facts：pack、redirect 必须来自 engine/source bundle config、CLI output 或真实 generated artifact；小项目 extension runtime trigger 需要证明触发或记录 `not-triggered-in-small-project`。
-4. 先接入 Creator 3.8.6 `preview-app` 源码、CLI adapted static template、root `/` 和 `/preview-app/*` production entry；当前 404 是 implementation gap，不是事实缺口。
+4. Creator 3.8.6 `preview-app` 源码、CLI adapted static template、root `/` 和 `/preview-app/*` production entry 已接入；该步骤后不能再把 browser entry 当成事实缺口。
 5. 按迁入后的 preview-app/template 实际请求建立 route inventory，再补 required routes；随后实现 browser smoke harness，监听 console/pageerror/network，并等待 ready 后稳定窗口。
 6. 小项目浏览器通过后，完成真实 CLI child process 集成验收脚本、测试和结论文档；P6 / feature-c 后续是否纳入，需要重新更新计划和验收矩阵。
 7. 通用 extension asset-db enable/disable/global config 语义作为 deferred 专项，不进入当前小项目验收门槛。
@@ -313,4 +313,4 @@
 
 已确认的正确方向是：engine runtime 生成 URL，server 做 fact-backed request-time resolution；settings 由 CLI `getPreviewSettings()` 或等价封装提供；programming route 由真实 preview records/chunks 驱动；冻结 editor 产物只作为 reference。
 
-当前最大的未闭环点是：真实 CLI AssetDB output 与 editor output 差异结论、pack/redirect/extension runtime trigger facts、root preview page / preview-app entry implementation、preview-app required route inventory、小项目真实 CLI child process 验收和最终浏览器集成。
+当前最大的未闭环点是：真实 CLI AssetDB output 与 editor output 差异结论、pack/redirect/extension runtime trigger facts、preview-app required route inventory、小项目真实 CLI child process 验收和最终浏览器集成。
