@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { join } from 'node:path';
 import { createRuntimePreviewContext, type RuntimePreviewContext } from '../context/runtime-preview-context';
 import { createRuntimePreviewLogger, type RuntimePreviewLogger } from '../logging/runtime-preview-logger';
@@ -50,6 +50,38 @@ function listen(server: Server, port: number, host: string): Promise<number> {
 function close(server: Server): Promise<void> {
     return new Promise((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
+    });
+}
+
+const maxPreviewErrorBodyBytes = 64 * 1024;
+
+function readRequestBody(request: IncomingMessage): Promise<string> {
+    return new Promise((resolveBody, rejectBody) => {
+        const chunks: Buffer[] = [];
+        let totalBytes = 0;
+        let bodyTooLarge = false;
+        request.on('data', (chunk: Buffer) => {
+            if (bodyTooLarge) {
+                return;
+            }
+
+            totalBytes += chunk.length;
+            if (totalBytes > maxPreviewErrorBodyBytes) {
+                bodyTooLarge = true;
+                return;
+            }
+            chunks.push(chunk);
+        });
+        request.on('end', () => {
+            if (bodyTooLarge) {
+                const error = new Error('Runtime preview request body is too large.');
+                error.name = 'RuntimePreviewRequestBodyTooLarge';
+                rejectBody(error);
+                return;
+            }
+            resolveBody(Buffer.concat(chunks).toString('utf8'));
+        });
+        request.on('error', rejectBody);
     });
 }
 
@@ -113,11 +145,16 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 return;
             }
 
+            const requestBody = request.method === 'POST' && pathname === '/preview-error'
+                ? await readRequestBody(request)
+                : undefined;
             const routeResponse = await handleRuntimePreviewRequest({
                 runtimeContext: context,
                 settingsProvider: getSettingsProvider(),
                 capturedRuntimeUrls: options.capturedRuntimeUrls,
                 logger,
+                method: request.method,
+                body: requestBody,
             }, request.url ?? '/');
             response.writeHead(routeResponse.statusCode, routeResponse.headers);
             response.end(routeResponse.body);
@@ -125,6 +162,11 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
             const message = error instanceof Error ? error.message : String(error);
             if (pathname === '/settings.js') {
                 console.error(`[runtime-preview] settings:generation:error ${message}`);
+            }
+            if (error instanceof Error && error.name === 'RuntimePreviewRequestBodyTooLarge') {
+                response.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' });
+                response.end(message);
+                return;
             }
             response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
             response.end(message);
