@@ -8,7 +8,7 @@ import { getFixturePaths } from '@shared/fixture-paths';
 
 const execFileAsync = promisify(execFile);
 const diagnosticSceneUuid = '5d1de01c-5229-4d34-bde3-2c90372f88d9';
-// Real Engine.init competes with other engine-source probes in the full runtime-preview suite.
+// Real Engine.init can take longer when other engine-source probes run in the full suite.
 const realEngineInitTimeoutMs = 120_000;
 
 describe('runtime preview settings provider', () => {
