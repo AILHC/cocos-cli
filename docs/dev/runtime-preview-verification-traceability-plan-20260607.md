@@ -94,7 +94,7 @@
 
 当前已知状态至少应包含并保持同步：
 
-- `suites/runtime-preview` full-suite 当前为 `done`；最近证据为 Task 7 后 `11 files / 35 tests passed`。此前 `settings-generation.test.ts` 30s timeout 只保留为历史风险，不再作为当前状态。
+- `suites/runtime-preview` full-suite 当前为 `done`；最近证据为 Task 4 后 `11 files / 36 tests passed`。此前 `settings-generation.test.ts` / real Launcher `/settings.js` 30s timeout 只保留为历史风险，不再作为当前状态。
 - `pre-browser-http-smoke.test.ts` 为 `partial`，说明 HTTP smoke 已覆盖但不代表 browser integration。
 - browser runtime smoke 为 `missing`。
 - 小项目真实 browser integration 验收为 `missing`。
@@ -197,7 +197,7 @@ rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_sp
 Current evidence:
 
 - 该问题已复现并归类为真实 engine init 在 full-suite 下的耗时/并发风险，不是功能断言失败。
-- Task 7 后 full-suite 证据为 `npm --prefix vitests test -- suites/runtime-preview` 通过，`11 files / 35 tests passed`。
+- Task 4 后 full-suite 证据为 `npm --prefix vitests test -- suites/runtime-preview` 通过，`11 files / 36 tests passed`。
 
 - [x] **Step 2: 判断是功能失败还是并发/timeout 问题**
 
@@ -231,7 +231,7 @@ Run the same full-suite command from Step 1.
 
 Expected:
 
-- 当前最近证据为 `11 files / 35 tests passed`；以 full-suite pass、无 skipped real-engine test、无 unexpected timeout 为准。新增测试后不要用旧文件数/用例数判定失败。
+- 当前最近证据为 `11 files / 36 tests passed`；以 full-suite pass、无 skipped real-engine test、无 unexpected timeout 为准。新增测试后不要用旧文件数/用例数判定失败。
 
 - [x] **Step 5: 提交稳定性修复**
 
@@ -259,7 +259,7 @@ Expected:
 - Test: `vitests/suites/runtime-preview/editor-cli-output-consistency.test.ts`
 - Docs: `docs/dev/runtime-preview-acceptance-matrix-20260607.md`
 
-- [ ] **Step 1: 运行当前 consistency 测试**
+- [x] **Step 1: 运行当前 consistency 测试**
 
 Run:
 
@@ -271,7 +271,12 @@ Expected:
 
 - Test passes as diagnostic, but matrix status remains `partial` or `blocked-by-fact-gap` if CLI output or engine internal library output is incomplete.
 
-- [ ] **Step 2: 写 CLI generation diagnostic**
+Current evidence:
+
+- `npm --prefix vitests test -- suites/runtime-preview/editor-cli-output-consistency.test.ts` passed, 4 tests.
+- Diagnostic category remains `source-backed-split-library-layout`.
+
+- [x] **Step 2: 写 CLI generation diagnostic**
 
 Add or update test to classify:
 
@@ -290,7 +295,12 @@ Expected:
 - Test must not treat missing CLI output or missing engine internal library output as success.
 - Missing fields must produce explicit diagnostic category.
 
-- [ ] **Step 3: 修生成链或标明阻塞**
+Current evidence:
+
+- Test verifies current `library/cli` project metadata, engine `editor/library` internal metadata, representative project files, representative internal files, `temp/cli/programming/packer-driver/targets/preview/import-map.json`, and extension output.
+- Test anchors this split layout to current output roots and `@cocos/asset-db` record naming behavior by instantiating `AssetDB.prepareStart()`.
+
+- [x] **Step 3: 修生成链或标明阻塞**
 
 If failure is due to skipping `Engine.initEngine()`:
 
@@ -302,7 +312,13 @@ If output shape differs from editor:
 - Trace to AssetDB source and engine runtime consumption.
 - Decide whether CLI output should change or server should handle both source-backed split layout and frozen editor reference layout in tests.
 
-- [ ] **Step 4: 提交 output consistency 进展**
+Current decision:
+
+- Do not change CLI generation solely to mimic frozen editor `info1.0.0` metadata names. Current `@cocos/asset-db` writes `.info.json` files, and `src/core/assets/asset-config.ts` explicitly uses `library/cli`, engine `editor/library`, and `library/cli-extensions/*`.
+- Runtime preview tests and resolver facts must handle current source-backed split layout plus frozen editor reference layout explicitly; server must not compensate by guessing URL tails or copying frozen output into production.
+- Real Launcher `/settings.js` once reproduced the 30s default timeout during full-suite resource contention; `Launcher.startRuntimePreview()` now accepts `settingsTimeoutMs`, and the real Launcher test passes `120_000`. Production default remains `PreviewSettingsProvider`'s 30s unless explicitly overridden.
+
+- [x] **Step 4: 提交 output consistency 进展**
 
 Commit only when one of these is true:
 
@@ -555,7 +571,7 @@ Current evidence:
 Verification:
 
 - `npm --prefix vitests test -- suites/runtime-preview/cli-startup.test.ts suites/runtime-preview/launcher-runtime-preview.test.ts`: 2 files / 5 tests passed.
-- `npm --prefix vitests test -- suites/runtime-preview`: 11 files / 35 tests passed.
+- Task 7 时 `npm --prefix vitests test -- suites/runtime-preview`: 11 files / 35 tests passed. 当前 Task 4 后最新 full-suite 基线为 11 files / 36 tests passed.
 
 - [x] **Step 4: 提交 diagnostics**
 

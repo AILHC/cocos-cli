@@ -1,6 +1,9 @@
 import { existsSync, readdirSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 
@@ -110,6 +113,10 @@ function collectVersionCodeDiffs(
     const expected = expectedData[uuid]?.versionCode;
     return actual === expected ? [] : [{ uuid, expected, actual }];
   });
+}
+
+function getCliRepoRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 }
 
 interface CliOutputDiagnostics {
@@ -247,6 +254,43 @@ describe('frozen editor output and CLI AssetDB output consistency', () => {
         actual: 3,
       }],
     );
+  });
+
+  it('anchors source-backed split layout to current asset-db record naming behavior', async () => {
+    const cliRoot = getCliRepoRoot();
+    const requireFromTest = createRequire(import.meta.url);
+    const { AssetDB } = requireFromTest(join(cliRoot, 'node_modules/@cocos/asset-db')) as {
+      AssetDB: new (options: Record<string, unknown>) => {
+        prepareStart: () => Promise<void>;
+        stop: () => Promise<void>;
+        infoManager: { file: string };
+        dataManager: { file: string };
+        dependencyManager: { file: string };
+      };
+    };
+    const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-assetdb-'));
+    const targetRoot = join(tempRoot, 'assets');
+    const libraryRoot = join(tempRoot, 'library');
+    const database = new AssetDB({
+      name: 'assets',
+      target: targetRoot,
+      library: libraryRoot,
+      temp: join(tempRoot, 'temp'),
+      level: 0,
+    });
+
+    try {
+      await mkdir(targetRoot, { recursive: true });
+      await mkdir(libraryRoot, { recursive: true });
+      await database.prepareStart();
+
+      expect(database.infoManager.file).toBe(join(libraryRoot, '.assets-info.json'));
+      expect(database.dataManager.file).toBe(join(libraryRoot, '.assets-data.json'));
+      expect(database.dependencyManager.file).toBe(join(libraryRoot, '.assets-dependency.json'));
+    } finally {
+      await database.stop();
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it('records small-project extension asset-db output facts without treating them as runtime trigger', async () => {

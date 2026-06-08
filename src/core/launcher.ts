@@ -139,7 +139,7 @@ export default class Launcher {
         spawn(browserPath, [getServerUrl()], { stdio: 'ignore', detached: true });
     }
 
-    async startRuntimePreview(options: { port?: number; host?: string; scene?: string } = {}) {
+    async startRuntimePreview(options: { port?: number; host?: string; scene?: string; settingsTimeoutMs?: number } = {}) {
         const {
             getDefaultProjectProgrammingRoot,
             PreviewSettingsProvider,
@@ -185,6 +185,7 @@ export default class Launcher {
             return preparePreviewSettings;
         };
         const settingsProvider = new PreviewSettingsProvider({
+            timeoutMs: options.settingsTimeoutMs,
             loadPreviewSettings: async (buildOptions) => {
                 if (!serverUrl) {
                     throw new Error('Runtime preview settings requested before server URL was assigned.');

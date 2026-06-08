@@ -135,9 +135,9 @@
 
 最近验证状态：
 
-- `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后已连续通过；Task 7 后最近证据为 `11 files / 35 tests passed`。
+- `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后通过；Task 4 后最近证据为 `11 files / 36 tests passed`。
 - `settings-generation.test.ts` 的真实 Engine 初始化用例单文件约 9.6 秒通过；full-suite 下通过约 11.4 秒。
-- 结论：此前 30 秒超时符合 full-suite 并发真实 engine 初始化资源竞争的表现；当前通过定向 120 秒 timeout 避免把环境耗时误判为功能失败。
+- 结论：此前 30 秒超时符合 full-suite 并发真实 engine/settings 初始化资源竞争的表现；当前真实 Engine init probe 和 real Launcher test 通过定向 120 秒 timeout 避免把环境耗时误判为功能失败。生产默认 timeout 仍由 `PreviewSettingsProvider` 保持 30 秒，除非调用方显式传入 `settingsTimeoutMs`。
 
 ### 6. 性能边界：禁止启动期全量扫描和 full manifest
 
@@ -275,7 +275,7 @@
 | --- | --- | --- | --- |
 | CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过；startup console 和本地日志已覆盖 | 小项目真实 CLI child process 集成验收 |
 | runtime server/routes | 部分实现 | `cli-startup.test.ts`、`http-contract.test.ts`、`pre-browser-http-smoke.test.ts` 通过；SystemJS/macro/import-map-global、plugins/script2library 已补齐 | scene/root preview entry、remote、pack/redirect、小项目 extension runtime trigger |
-| `PreviewSettingsProvider` | 部分实现 | `settings-generation.test.ts` 通过，full-suite 最近证据为 `11 files / 35 tests passed` | 真实 browser/small-project production settings contract 未闭环 |
+| `PreviewSettingsProvider` | 部分实现 | `settings-generation.test.ts` 通过，full-suite 最近证据为 `11 files / 36 tests passed`；real Launcher test 显式传入 `settingsTimeoutMs: 120_000` | 真实 browser/small-project production settings contract 未闭环 |
 | library resolver | 部分实现 | captured import URL、bundle-config-backed import route、fact-backed native production route 通过 | pack、redirect、small-project extension runtime trigger fact、remote |
 | programming resolver | 部分实现 | preview records/chunks、project script `dependScripts`、SystemJS、macro、import-map-global、plugins/script2library 通过 | extension mount runtime trigger、完整 browser/integration 事实 |
 | frozen editor resource parser probe | 部分实现 | JsonAsset、ImageAsset、Texture2D、SpriteFrame、SpriteAtlas、Spine SkeletonData 通过 | TTFFont、runtime `.plist` parser、Spine `.atlas` standalone |
@@ -299,7 +299,7 @@
 
 ## 后续执行顺序建议
 
-1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前最近证据为 `11 files / 35 tests passed`。
+1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前最近证据为 `11 files / 36 tests passed`。
 2. 继续真实 CLI AssetDB output consistency：定位 `library/cli`、engine `editor/library` 与 frozen editor `library` / `temp/programming` 差异，优先修生成链而不是 server 猜路径。
 3. 补 pack / redirect / extension asset route facts：pack、redirect 必须来自 engine/source bundle config、CLI output 或真实 generated artifact；小项目 extension runtime trigger 需要证明触发或记录 `not-triggered-in-small-project`。
 4. 先做 browser entry fact ledger：确认 root preview page / preview-app entry 的事实来源和 `window.__RUNTIME_PREVIEW_READY` 归属；没有事实入口时，browser smoke 保持 `blocked-by-fact-gap`。
