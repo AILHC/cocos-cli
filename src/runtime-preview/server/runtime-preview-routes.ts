@@ -17,12 +17,15 @@ import {
     renderRuntimePreviewEntry,
     resolveRuntimePreviewStaticFile,
 } from './preview-entry-template';
+import { handlePreviewAppRequiredRoute } from './preview-app-required-routes';
 
 export interface RuntimePreviewRouteContext {
     runtimeContext: RuntimePreviewContext;
     settingsProvider: PreviewSettingsProvider;
     capturedRuntimeUrls?: Array<{ url: string }>;
     logger?: RuntimePreviewLogger;
+    method?: string;
+    body?: string;
 }
 
 function decodePathname(requestPath: string): string | null {
@@ -177,6 +180,15 @@ export async function handleRuntimePreviewRequest(
     const runtimePreviewStaticFile = await resolveRuntimePreviewStaticFile(pathname);
     if (runtimePreviewStaticFile) {
         return serveOnDemandFile(runtimePreviewStaticFile);
+    }
+
+    const previewAppRequiredRoute = await handlePreviewAppRequiredRoute(context.runtimeContext, pathname, {
+        method: context.method,
+        body: context.body,
+        logger: context.logger,
+    });
+    if (previewAppRequiredRoute) {
+        return previewAppRequiredRoute;
     }
 
     if (pathname === '/settings.js') {

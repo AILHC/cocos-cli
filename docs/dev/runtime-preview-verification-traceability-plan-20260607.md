@@ -890,7 +890,7 @@ Completed:
 - Test: `vitests/suites/runtime-preview/browser-entry-contract.test.ts`
 - Test: `vitests/suites/runtime-preview/preview-app-route-contract.test.ts`
 
-- [ ] **Step 1: 建立 preview-app route inventory**
+- [x] **Step 1: 建立 preview-app route inventory**
 
 After Task 8B migrates preview-app source and static template, inspect current source inputs and record every browser-requested route before writing implementation code:
 
@@ -929,7 +929,12 @@ Expected inventory candidates include, but are not limited to:
 
 The route inventory is the source for Task 8C tests. Do not add a route only because an old implementation had it; record the exact current preview-app/template request first.
 
-- [ ] **Step 2: 写 route contract test**
+Current evidence:
+
+- `docs/dev/runtime-preview-preview-app-route-inventory-20260608.md` records routes requested by migrated `preview-app` source and `static/runtime-preview` template.
+- The inventory separates production-entry-required, source-owned, diagnostic-only, optional/deferred, and browser-smoke-only evidence.
+
+- [x] **Step 2: 写 route contract test**
 
 Create `preview-app-route-contract.test.ts` that uses current small-project fixture, `handleRuntimePreviewRequest()` and the inventory from Step 1 to verify `production-entry-required` routes. Initial required routes are expected to include:
 
@@ -946,7 +951,12 @@ Expected before implementation:
 
 - FAIL for routes not yet served.
 
-- [ ] **Step 3: 实现 scripting engine 和 polyfills routes**
+Current evidence:
+
+- `vitests/suites/runtime-preview/preview-app-route-contract.test.ts` was added and initially failed for missing `/scripting/polyfills/bundle.js` and `/scene-list`.
+- The test now covers scripting prerequisite routes, scene-list/scene-json, production `project/library` to current CLI `library/cli` scene output, missing-asset fallback, preview-error POST logging, oversized preview-error payload 413 on the real HTTP server, Socket.IO client file, traversal rejection, and non-preview engine root file rejection.
+
+- [x] **Step 3: 实现 scripting engine 和 polyfills routes**
 
 Use current CLI / engine generated artifacts as source. If an artifact is missing, fail with diagnostic category instead of returning dummy JS.
 
@@ -956,7 +966,13 @@ Rules:
 - `/scripting/polyfills/*` must come from current dependency or Creator static artifact, not from an empty placeholder.
 - Do not recursively scan engine root at startup.
 
-- [ ] **Step 4: 实现 scene list / scene json routes**
+Current evidence:
+
+- `src/runtime-preview/server/preview-app-required-routes.ts` serves `/scripting/engine/bin/.cache/dev-cli/web/*` from `engineRoot` by request-time root-contained file resolution.
+- `/scripting/polyfills/*` resolves from installed `@cocos/build-polyfills` first, with `@editor/build-polyfills` fallback.
+- No startup scan is introduced.
+
+- [x] **Step 4: 实现 scene list / scene json routes**
 
 Use AssetDB facts or frozen/current library metadata to find scenes. Do not use P6 / feature-c.
 
@@ -966,7 +982,13 @@ Route semantics:
 - `/scene/<uuid>.json` serves serialized scene JSON from library metadata.
 - If current small project has no scene fact, return explicit empty result and document limitation; do not fabricate scene JSON.
 
-- [ ] **Step 5: 实现 missing asset / preview error / socket handling**
+Current evidence:
+
+- Current small project has scene facts in `library/cli/.assets-data.json` and frozen editor `.assets-data.json`.
+- `/scene-list` reads scene records from project library metadata on demand. When production passes `project/library`, `project/library/cli` is preferred first so the route follows current CLI AssetDB output; explicit frozen editor reference roots still stay valid for reference tests.
+- `/scene/<uuid>.json` only serves `<library-root>/<uuid-prefix>/<uuid>.json` when the same metadata proves that uuid is a `.scene`.
+
+- [x] **Step 5: 实现 missing asset / preview error / socket handling**
 
 Route semantics:
 
@@ -974,7 +996,13 @@ Route semantics:
 - `/preview-error` accepts JSON payload and writes to runtime preview log.
 - `/socket.io/socket.io.js` either serves real Socket.IO client when server supports it, or preview-app source must be adapted to tolerate missing socket. If adapted, the source change must be explicit and tested.
 
-- [ ] **Step 6: 验证 preview-app required route suite**
+Current evidence:
+
+- `/missing-asset/<uuid>` returns the explicit CLI fallback object. It is diagnostic-only and not preview success evidence.
+- `runtime-preview-server.ts` passes POST method/body into the route handler; `/preview-error` writes POST payloads to `RuntimePreviewLogger`.
+- `/socket.io/socket.io.js` serves the real Socket.IO client file from installed dependencies. Live socket event behavior remains browser/integration verification scope.
+
+- [x] **Step 6: 验证 preview-app required route suite**
 
 Run:
 
@@ -988,9 +1016,19 @@ Expected:
 
 Then run full runtime-preview suite.
 
-- [ ] **Step 7: 关键节点 review 和提交**
+Current evidence:
+
+- Targeted suite passed on 2026-06-08: `vitests/suites/runtime-preview/preview-app-route-contract.test.ts`, 8 tests.
+- Full suite passed on 2026-06-08: `npm --prefix vitests test -- suites/runtime-preview`, 13 files / 49 tests.
+
+- [x] **Step 7: 关键节点 review 和提交**
 
 Dispatch senior review focused on route fact sources, performance, no startup scans, and no guessed library URL mapping.
+
+Current evidence:
+
+- Senior subagent review found and confirmed fixes for: engine route overexposure, CLI AssetDB scene source proof, preview-error POST body limit and stable 413 behavior.
+- Final review result: no Critical / Important; Task 8C can be committed.
 
 Commit:
 
