@@ -256,6 +256,7 @@ Frozen editor `library`：
 - Native-like files：`230`。
 - Non-JSON files：`236`。
 - Metadata 包含 `.assets-data.json`、`.assets-dependency.json`、`.assets-info1.0.0.json`、`.internal-data.json`、`.internal-dependency.json`、`.internal-info1.0.0.json`、`.view-state-group-data.json`、`.view-state-group-info1.0.0.json`。
+- 小项目 extension fact：`extensions/ViewStateGroup/package.json` 声明 `contributions["asset-db"].mount.path = "./assets"`；editor frozen library 和 active project library 均有 `.view-state-group-data.json` / `.view-state-group-info1.0.0.json`；CLI output 位于 `library/cli-extensions/view-state-group`，使用 `.view-state-group-info.json`；当前 representative HTTP-base resource capture 未触发 `view-state-group` / `cli-extensions` URL。
 - 扩展名分布显示 `.json`、`.png`、`.atlas`、`.bin`、`.jpg`、no extension、`.ttf`、`.plist`、`.zip`、`.cconb`、`.mp4` 均存在。
 - 已确认样例覆盖 serialized JSON、Texture/Image native-like、TTF native-like、Spine/atlas native-like、Binary native-like。
 

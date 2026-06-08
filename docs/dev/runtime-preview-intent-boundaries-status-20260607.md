@@ -65,7 +65,7 @@
 | 小项目短链路验证 | 部分实现 | `vitests/suites/runtime-preview/**` 已覆盖 frozen library、programming、HTTP contract、pre-browser smoke |
 | 小项目真实集成验收 | 未完成 | 当前还没有完成真实 CLI child process + browser runtime smoke + 稳定窗口验收 |
 | P6 / feature-c 验证 | deferred | 当前阶段不参与测试和验收；后续重新纳入前必须更新计划和验收矩阵 |
-| extension asset-db 语义 | 待重新纳入 | 备份分支曾实现 resolver 和 start order；当前主线还没有把 extension mount 加入新的 request-time resolver 闭环 |
+| extension asset-db 语义 | 部分验证 | 小项目 `ViewStateGroup` package、frozen metadata、CLI `library/cli-extensions/view-state-group` output 已验证；representative HTTP-base resource capture 未触发 extension request，真实 browser/runtime trigger 仍未闭环 |
 | native-only 静态依赖边界 | deferred | 当前主线未把 CLI fake native module 作为方案；大项目相关错误定位后续再进入验收范围 |
 
 ### 3. URL 不能猜，必须由事实决定
@@ -213,9 +213,9 @@
 | 项 | 状态 | 当前事实 |
 | --- | --- | --- |
 | 需求意图 | 保留 | 备份分支文档和测试已明确该需求 |
-| 当前主线实现 | 未完成 | 当前 runtime-preview request-time resolver 尚未把 extension mount 纳入 production contract |
-| 当前测试 | 未覆盖 | 当前 `vitests` 未覆盖 extension mount URL / metadata / script linkage |
-| 小项目事实 | 已确认输入存在 | `E:\own_space\cocos_work_lab_38x\extensions\ViewStateGroup\package.json` 声明 `contributions["asset-db"].mount.path = "./assets"` |
+| 当前主线实现 | 部分验证 | 只登记小项目 package/output/capture 事实；runtime-preview request-time resolver 尚未把 extension mount 纳入 production contract |
+| 当前测试 | 部分覆盖 | `editor-cli-output-consistency.test.ts` 覆盖 package、frozen metadata、CLI extension output；`http-url-capture.probe.test.ts` 证明 representative HTTP-base resource capture 未触发 extension request |
+| 小项目事实 | 已确认输入和 output 存在 | `E:\own_space\cocos_work_lab_38x\extensions\ViewStateGroup\package.json` 声明 `contributions["asset-db"].mount.path = "./assets"`；CLI output 位于 `library/cli-extensions/view-state-group` |
 | 后续处理 | 分阶段 | 当前阶段只处理小项目 runtime 实际触发的 extension request 或记录 `not-triggered-in-small-project`；通用 enable/disable/global config 语义 deferred，重新纳入时必须基于当前 CLI AssetDB source 与 frozen metadata，而不是迁移旧 resolver-first 代码 |
 
 ### 10. 编译慢和启动反馈
@@ -299,7 +299,7 @@
 
 ## 后续执行顺序建议
 
-1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前已在完整环境变量下 28/28 通过。
+1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前已在完整环境变量下 30/30 通过。
 2. 做真实 CLI AssetDB output consistency：定位 `library/cli` 与 editor `library` 差异，优先修生成链而不是 server 猜路径。
 3. 补 pack / redirect / extension asset route facts：pack、redirect 必须来自 engine/source bundle config 触发事实；小项目 extension runtime trigger 需要证明触发或记录 `not-triggered-in-small-project`。
 4. 补 pack / redirect capture：找到或构造由 engine source 和 bundle config 事实驱动的 sample，不手写近似 URL。

@@ -248,4 +248,52 @@ describe('frozen editor output and CLI AssetDB output consistency', () => {
       }],
     );
   });
+
+  it('records small-project extension asset-db output facts without treating them as runtime trigger', async () => {
+    const paths = getFixturePaths();
+    const extensionPackageJson = await readJson<{
+      name?: string;
+      contributions?: {
+        'asset-db'?: {
+          mount?: {
+            path?: string;
+            readonly?: boolean;
+          };
+        };
+      };
+    }>(join(paths.projectRoot, 'extensions', 'ViewStateGroup', 'package.json'));
+
+    expect(extensionPackageJson.name).toBe('view-state-group');
+    expect(extensionPackageJson.contributions?.['asset-db']?.mount).toEqual({
+      path: './assets',
+      readonly: true,
+    });
+
+    const activeProjectExtensionData = await readJson<Record<string, AssetDataEntry>>(
+      join(paths.projectRoot, 'library', '.view-state-group-data.json'),
+    );
+    const referenceExtensionData = await readJson<Record<string, AssetDataEntry>>(
+      join(paths.editorLibraryRef, '.view-state-group-data.json'),
+    );
+    const cliExtensionLibraryRoot = join(paths.projectRoot, 'library', 'cli-extensions', 'view-state-group');
+    const cliExtensionData = await readJson<Record<string, AssetDataEntry>>(
+      join(cliExtensionLibraryRoot, '.view-state-group-data.json'),
+    );
+
+    expect(existsSync(join(paths.editorLibraryRef, '.view-state-group-info1.0.0.json'))).toBe(true);
+    expect(existsSync(join(cliExtensionLibraryRoot, '.view-state-group-info.json'))).toBe(true);
+    expect(Object.keys(activeProjectExtensionData).sort()).toEqual(Object.keys(referenceExtensionData).sort());
+    expect(Object.keys(cliExtensionData).sort()).toEqual(Object.keys(referenceExtensionData).sort());
+    const representativeExtensionUuids = [
+      '68d4c31e-4ce2-4f01-8df9-f4b3385cdf5b',
+      'fa669b29-ffd6-45a3-a288-ad2d3c86320b',
+    ];
+    for (const uuid of representativeExtensionUuids) {
+      expect(referenceExtensionData[uuid], `reference extension ${uuid}`).toBeDefined();
+      expect(cliExtensionData[uuid], `cli extension ${uuid}`).toBeDefined();
+    }
+    expect(pickLoadRelevantDataEntries(cliExtensionData, representativeExtensionUuids)).toEqual(
+      pickLoadRelevantDataEntries(referenceExtensionData, representativeExtensionUuids),
+    );
+  });
 });
