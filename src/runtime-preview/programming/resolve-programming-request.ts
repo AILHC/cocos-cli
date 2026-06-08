@@ -5,6 +5,8 @@ import type { RuntimePreviewContext } from '../context/runtime-preview-context';
 import type { ResolvedRuntimePreviewFile } from '../library/resolve-library-request';
 
 const scriptingPrefix = '/scripting/x/';
+const scriptingSystemJsPrefix = '/scripting/systemjs/';
+const scriptingUserMacroPath = '/scripting/userland/macro';
 const previewRecordsBase = 'packer-driver/targets/preview';
 
 export interface PreviewImportMap {
@@ -61,9 +63,33 @@ interface AssetDataRecord {
     };
 }
 
-function toProgrammingRelativePath(requestPath: string): string | null {
+interface ProgrammingRouteTarget {
+    relativePath: string;
+    preferCliRoot: boolean;
+}
+
+function toProgrammingRouteTarget(requestPath: string): ProgrammingRouteTarget | null {
     const normalized = requestPath.replace(/\\/g, '/');
     if (!normalized.startsWith(scriptingPrefix)) {
+        if (normalized.startsWith(scriptingSystemJsPrefix)) {
+            const relativePath = normalized.slice(scriptingSystemJsPrefix.length);
+            if (!relativePath || relativePath.split('/').includes('..')) {
+                return null;
+            }
+
+            return {
+                relativePath: `preview/systemjs/${relativePath}`,
+                preferCliRoot: true,
+            };
+        }
+
+        if (normalized === scriptingUserMacroPath) {
+            return {
+                relativePath: 'custom-macro.js',
+                preferCliRoot: true,
+            };
+        }
+
         return null;
     }
 
@@ -72,29 +98,48 @@ function toProgrammingRelativePath(requestPath: string): string | null {
         return null;
     }
 
-    return relativePath;
+    return {
+        relativePath,
+        preferCliRoot: false,
+    };
+}
+
+export function createRuntimePreviewGlobalImportMap(): PreviewImportMap {
+    return {
+        imports: {
+            cc: 'q-bundled:///virtual/cc.js',
+            'cc/env': 'cc/editor/populate-internal-constants',
+            'cce.env': 'cc/editor/populate-internal-constants',
+            'cc/userland/macro': './userland/macro',
+        },
+    };
 }
 
 export async function resolveProgrammingRequest(
     context: RuntimePreviewContext,
     requestPath: string,
 ): Promise<ResolvedRuntimePreviewFile | null> {
-    const relativePath = toProgrammingRelativePath(requestPath);
-    if (!relativePath) {
+    const target = toProgrammingRouteTarget(requestPath);
+    if (!target) {
         return null;
     }
 
-    const absolutePath = resolve(context.projectProgrammingRoot, relativePath);
-    try {
-        const fileStat = await stat(absolutePath);
-        if (!fileStat.isFile()) {
-            return null;
+    const roots = target.preferCliRoot
+        ? [context.cliProgrammingRoot, context.projectProgrammingRoot].filter((value): value is string => Boolean(value))
+        : [context.projectProgrammingRoot];
+    for (const root of roots) {
+        const absolutePath = resolve(root, target.relativePath);
+        try {
+            const fileStat = await stat(absolutePath);
+            if (fileStat.isFile()) {
+                return { absolutePath };
+            }
+        } catch {
+            // Try the next fact-backed programming root candidate.
         }
-    } catch {
-        return null;
     }
 
-    return { absolutePath };
+    return null;
 }
 
 async function readProgrammingJson<T>(context: RuntimePreviewContext, relativePath: string): Promise<T> {

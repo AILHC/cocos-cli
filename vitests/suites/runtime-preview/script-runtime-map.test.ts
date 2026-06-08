@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-preview-context';
+import { getDefaultProjectProgrammingRoot } from '@runtime-preview/server/runtime-preview-server';
 import {
+  createRuntimePreviewGlobalImportMap,
   findDependScriptModuleLinks,
   loadPreviewProgrammingRecords,
   resolveProgrammingRequest,
@@ -77,5 +79,66 @@ describe('runtime preview script import map and dependScripts linkage', () => {
       expect(link.chunkImport).toMatch(new RegExp(`/${link.chunkId}\\.js$`));
       expect(existsSync(link.chunkAbsolutePath), link.chunkRequestPath).toBe(true);
     }
+  });
+
+  it('resolves source-backed SystemJS and user macro scripting routes without directory scans', async () => {
+    const paths = getFixturePaths();
+    const context = createRuntimePreviewContext({
+      projectRoot: paths.projectRoot,
+      engineRoot: paths.engineRoot,
+      projectLibraryRoot: paths.editorLibraryRef,
+      projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+    });
+
+    const systemJsFile = await resolveProgrammingRequest(context, '/scripting/systemjs/system.js');
+    expect(systemJsFile?.absolutePath).toBe(join(paths.editorProgrammingRef, 'programming', 'preview', 'systemjs', 'system.js'));
+    expect(existsSync(systemJsFile!.absolutePath)).toBe(true);
+
+    const macroFile = await resolveProgrammingRequest(context, '/scripting/userland/macro');
+    expect(macroFile?.absolutePath).toBe(join(paths.editorProgrammingRef, 'programming', 'custom-macro.js'));
+    expect(existsSync(macroFile!.absolutePath)).toBe(true);
+
+    await expect(resolveProgrammingRequest(context, '/scripting/systemjs/../custom-macro.js')).resolves.toBeNull();
+  });
+
+  it('prefers current CLI ProgrammingFacet output root for SystemJS and macro routes', async () => {
+    const paths = getFixturePaths();
+    const cliProgrammingRoot = join(paths.projectRoot, 'temp', 'cli', 'programming');
+    const context = createRuntimePreviewContext({
+      projectRoot: paths.projectRoot,
+      engineRoot: paths.engineRoot,
+      projectLibraryRoot: paths.editorLibraryRef,
+      projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+      cliProgrammingRoot,
+    });
+
+    expect(getDefaultProjectProgrammingRoot(paths.projectRoot)).toBe(cliProgrammingRoot);
+
+    const systemJsFile = await resolveProgrammingRequest(context, '/scripting/systemjs/system.js');
+    expect(systemJsFile?.absolutePath).toBe(join(cliProgrammingRoot, 'preview', 'systemjs', 'system.js'));
+    expect(existsSync(systemJsFile!.absolutePath)).toBe(true);
+
+    const macroFile = await resolveProgrammingRequest(context, '/scripting/userland/macro');
+    expect(macroFile?.absolutePath).toBe(join(cliProgrammingRoot, 'custom-macro.js'));
+    expect(existsSync(macroFile!.absolutePath)).toBe(true);
+  });
+
+  it('uses the current CLI ProgrammingFacet static import map contract for global scripting imports', () => {
+    const importMap = createRuntimePreviewGlobalImportMap();
+
+    expect(importMap.imports?.cc).toBe('q-bundled:///virtual/cc.js');
+    expect(importMap.imports?.['cc/env']).toBe('cc/editor/populate-internal-constants');
+    expect(importMap.imports?.['cce.env']).toBe(importMap.imports?.['cc/env']);
+    expect(importMap.imports?.['cc/userland/macro']).toBe('./userland/macro');
+    expect(importMap.imports?.cc).not.toBe('cce:/internal/x/cc');
+  });
+
+  it('keeps global scripting imports traceable to current CLI ProgrammingFacet source', async () => {
+    const facetSource = await readFile(join(process.cwd(), '..', 'src', 'core', 'scripting', 'programming', 'Facet.ts'), 'utf8');
+
+    expect(facetSource).toContain("imports['cc'] = 'q-bundled:///virtual/cc.js'");
+    expect(facetSource).toContain("imports['cc/env'] = 'cc/editor/populate-internal-constants'");
+    expect(facetSource).toContain("imports['cce.env'] = imports['cc/env']");
+    expect(facetSource).toContain("imports['cc/userland/macro'] = './userland/macro'");
   });
 });

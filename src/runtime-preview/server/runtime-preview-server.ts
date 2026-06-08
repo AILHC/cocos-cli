@@ -9,6 +9,7 @@ export interface RuntimePreviewServerOptions {
     engineRoot: string;
     projectLibraryRoot: string;
     projectProgrammingRoot: string;
+    cliProgrammingRoot?: string;
     internalLibraryRoot?: string;
     host?: string;
     port?: number;
@@ -56,6 +57,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         engineRoot: options.engineRoot,
         projectLibraryRoot: options.projectLibraryRoot,
         projectProgrammingRoot: options.projectProgrammingRoot,
+        cliProgrammingRoot: options.cliProgrammingRoot,
         internalLibraryRoot: options.internalLibraryRoot,
     });
     let serverUrl = '';
@@ -80,6 +82,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         `engineRoot=${context.engineRoot}`,
         `projectLibraryRoot=${context.projectLibraryRoot}`,
         `projectProgrammingRoot=${context.projectProgrammingRoot}`,
+        `cliProgrammingRoot=${context.cliProgrammingRoot ?? ''}`,
         `internalLibraryRoot=${context.internalLibraryRoot ?? ''}`,
     ];
 
@@ -94,6 +97,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                     engineRoot: context.engineRoot,
                     projectLibraryRoot: context.projectLibraryRoot,
                     projectProgrammingRoot: context.projectProgrammingRoot,
+                    cliProgrammingRoot: context.cliProgrammingRoot,
                 }));
                 return;
             }
@@ -126,5 +130,5 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
 }
 
 export function getDefaultProjectProgrammingRoot(projectRoot: string): string {
-    return join(projectRoot, 'temp', 'programming');
+    return join(projectRoot, 'temp', 'cli', 'programming');
 }
