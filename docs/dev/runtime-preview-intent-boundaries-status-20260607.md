@@ -111,7 +111,7 @@
 | editor `library` 冻结 | 已完成 | `.codex-tmp/reference-library/cocos_work_lab_38x-editor-library-20260606` |
 | editor `temp/programming` 冻结 | 已完成 | `.codex-tmp/reference-temp/cocos_work_lab_38x-editor-programming-20260606` |
 | reference 文档 | 已完成 | `runtime-preview-reference-library-20260606.md`、`runtime-preview-reference-temp-programming-20260606.md` |
-| CLI output 对齐 | 未完成 | 当前文档记录为 `cli-output-incomplete-after-failed-generation`，不能声明 CLI/editor output 一致 |
+| CLI output 对齐 | 未完成 | 当前测试分类为 `incomplete-cli-library-output`，不能声明 CLI/editor output 一致 |
 
 ### 5. 短链路反馈优先，浏览器是最后集成测试
 
@@ -279,7 +279,7 @@
 | library resolver | 部分实现 | captured import URL 和 bundle-config-backed import route 通过 | native production mapping、pack、redirect、small-project extension fact、remote |
 | programming resolver | 部分实现 | preview records/chunks、project script `dependScripts` 通过 | internal/extension/plugin/global scripts，SystemJS/macro route |
 | frozen editor resource parser probe | 部分实现 | JsonAsset、ImageAsset、Texture2D、SpriteFrame、SpriteAtlas、Spine SkeletonData 通过 | TTFFont、runtime `.plist` parser、Spine `.atlas` standalone |
-| CLI/editor output consistency | 未完成 | editor output shape 已验证 | CLI output generation 失败后不完整，不能声明一致 |
+| CLI/editor output consistency | 未完成 | editor output shape 已验证；CLI output diagnostic category 为 `incomplete-cli-library-output` | CLI output 缺失部分 metadata、TTF 子目录文件和 binary native-like 文件，不能声明一致 |
 | browser integration | 未开始 | 无 | 必须等短链路 gap 收敛 |
 
 ## 不应再混入计划的错误实现
