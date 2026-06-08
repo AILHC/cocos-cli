@@ -200,6 +200,8 @@
 
 需求意图：
 
+- 当前阶段先围绕小项目 `ViewStateGroup` extension asset-db 输入闭环：要么处理 runtime 实际触发的 request，要么记录 `not-triggered-in-small-project` 证据。
+- 后续完整 extension asset-db 语义包括：
 - 支持项目 `extensions/*/package.json` 中的 `contributions["asset-db"].mount`。
 - 支持 disabled extension 跳过。
 - 支持 project/global package enable 配置。
@@ -214,7 +216,8 @@
 | 需求意图 | 保留 | 备份分支文档和测试已明确该需求 |
 | 当前主线实现 | 未完成 | 当前 runtime-preview request-time resolver 尚未把 extension mount 纳入 production contract |
 | 当前测试 | 未覆盖 | 当前 `vitests` 未覆盖 extension mount URL / metadata / script linkage |
-| 后续处理 | 必须重新设计 | 当前阶段先用小项目事实闭环 runtime preview；extension mount 重新纳入时，应基于当前 CLI AssetDB source 与 frozen metadata，而不是迁移旧 resolver-first 代码 |
+| 小项目事实 | 已确认输入存在 | `E:\own_space\cocos_work_lab_38x\extensions\ViewStateGroup\package.json` 声明 `contributions["asset-db"].mount.path = "./assets"` |
+| 后续处理 | 分阶段 | 当前阶段只处理小项目 runtime 实际触发的 extension request 或记录 `not-triggered-in-small-project`；通用 enable/disable/global config 语义 deferred，重新纳入时必须基于当前 CLI AssetDB source 与 frozen metadata，而不是迁移旧 resolver-first 代码 |
 
 ### 10. 编译慢和启动反馈
 
@@ -274,7 +277,7 @@
 | CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过 | startup log、本地日志、小项目真实 CLI child process 集成验收 |
 | runtime server/routes | 部分实现 | `cli-startup.test.ts`、`http-contract.test.ts`、`pre-browser-http-smoke.test.ts` 通过 | scene、plugins、remote、SystemJS/macro、import-map-global 等 route 需按事实补齐 |
 | `PreviewSettingsProvider` | 部分实现 | 单独 `settings-generation.test.ts` 通过 | full-suite 超时不稳定；真实 production settings contract 未闭环 |
-| library resolver | 部分实现 | captured import URL 和 bundle-config-backed import route 通过 | native production mapping、pack、redirect、extension mount、remote |
+| library resolver | 部分实现 | captured import URL 和 bundle-config-backed import route 通过 | native production mapping、pack、redirect、small-project extension fact、remote |
 | programming resolver | 部分实现 | preview records/chunks、project script `dependScripts` 通过 | internal/extension/plugin/global scripts，SystemJS/macro route |
 | frozen editor resource parser probe | 部分实现 | JsonAsset、ImageAsset、Texture2D、SpriteFrame、SpriteAtlas、Spine SkeletonData 通过 | TTFFont、runtime `.plist` parser、Spine `.atlas` standalone |
 | CLI/editor output consistency | 未完成 | editor output shape 已验证 | CLI output generation 失败后不完整，不能声明一致 |
@@ -301,11 +304,12 @@
 2. 做真实 CLI AssetDB output consistency：定位 `library/cli` 与 editor `library` 差异，优先修生成链而不是 server 猜路径。
 3. 补 production native URL mapping：从 HTTP-base native capture 和 AssetDB/nativeDep metadata 推导 request-time resolver。
 4. 补 pack / redirect capture：找到或构造由 engine source 和 bundle config 事实驱动的 sample，不手写近似 URL。
-5. 补 extension asset-db：基于当前 CLI AssetDB source 与 frozen `.view-state-group-*` metadata 重新实现，不迁移旧 resolver-first 代码。
+5. 小项目 extension fact check：如果小项目 runtime 实际触发 `ViewStateGroup` extension request，则基于 package/AssetDB/frozen metadata 补 request-time contract；如果未触发，则记录 `not-triggered-in-small-project`，不把通用 extension 语义作为当前门槛。
 6. 补 scripting route：SystemJS、macro、import-map-global、plugins/script2library 按 current CLI programming source 验证。
 7. 补 startup diagnostics：console stage、runtime preview log、packer/Cocos 原始日志关联。
 8. 小项目 HTTP smoke 稳定后，再进入浏览器集成测试。
 9. 小项目浏览器通过后，先完成小项目真实 CLI child process 集成验收和结论文档；P6 / feature-c 后续是否纳入，需要重新更新计划。
+10. 通用 extension asset-db enable/disable/global config 语义作为 deferred 专项，不进入当前小项目验收门槛。
 
 ## 当前结论
 
