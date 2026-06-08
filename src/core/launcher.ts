@@ -130,6 +130,7 @@ export default class Launcher {
         const projectProgrammingRoot = process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF
             ? join(process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF, 'programming')
             : getDefaultProjectProgrammingRoot(this.projectPath);
+        const cliProgrammingRoot = getDefaultProjectProgrammingRoot(this.projectPath);
         const engineRoot = this.getEngineRoot();
         let serverUrl = '';
         let preparePreviewSettings: Promise<void> | null = null;
@@ -164,6 +165,7 @@ export default class Launcher {
             engineRoot,
             projectLibraryRoot,
             projectProgrammingRoot,
+            cliProgrammingRoot,
             host: options.host,
             port: options.port,
             scene: options.scene,

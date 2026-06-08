@@ -14,7 +14,20 @@ describe('runtime preview HTTP route contract', () => {
       engineRoot: paths.engineRoot,
       projectLibraryRoot: paths.editorLibraryRef,
       projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+      cliProgrammingRoot: join(paths.projectRoot, 'temp', 'cli', 'programming'),
     });
+    const scriptLibraryPath = join(
+      paths.projectRoot,
+      'temp',
+      'cli',
+      'programming',
+      'packer-driver',
+      'targets',
+      'editor',
+      'chunks',
+      '6c',
+      '6cfa67594146f0e4f3017b0b9475bd63ad05873b.js',
+    );
     const settingsProvider = new PreviewSettingsProvider({
       loadPreviewSettings: async () => ({
         settings: {
@@ -26,7 +39,7 @@ describe('runtime preview HTTP route contract', () => {
           },
         },
         script2library: {
-          'test_cases/test_active_event_proccer/test_active_event_proccer.js': '6c/6cfa67594146f0e4f3017b0b9475bd63ad05873b.js',
+          'test_cases/test_active_event_proccer/test_active_event_proccer.js': scriptLibraryPath,
         },
         bundleConfigs: [
           {
@@ -94,6 +107,74 @@ describe('runtime preview HTTP route contract', () => {
     );
     expect(scriptResponse.statusCode).toBe(200);
     expect(JSON.parse(String(scriptResponse.body)).imports).toBeTruthy();
+
+    const systemJsResponse = await handleRuntimePreviewRequest(routeContext, '/scripting/systemjs/system.js');
+    expect(systemJsResponse.statusCode).toBe(200);
+    expect(systemJsResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
+    expect(String(systemJsResponse.body)).toContain('System');
+
+    const macroResponse = await handleRuntimePreviewRequest(routeContext, '/scripting/userland/macro');
+    expect(macroResponse.statusCode).toBe(200);
+    expect(macroResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
+
+    const importMapGlobalResponse = await handleRuntimePreviewRequest(routeContext, '/scripting/import-map-global');
+    expect(importMapGlobalResponse.statusCode).toBe(200);
+    expect(importMapGlobalResponse.headers['content-type']).toBe('application/json; charset=utf-8');
+    const globalImportMap = JSON.parse(String(importMapGlobalResponse.body));
+    expect(globalImportMap.imports.cc).toBe('q-bundled:///virtual/cc.js');
+    expect(globalImportMap.imports['cc/env']).toBe('cc/editor/populate-internal-constants');
+    expect(globalImportMap.imports['cc/userland/macro']).toBe('./userland/macro');
+
+    const pluginResponse = await handleRuntimePreviewRequest(
+      routeContext,
+      '/plugins/test_cases/test_active_event_proccer/test_active_event_proccer.js',
+    );
+    expect(pluginResponse.statusCode).toBe(200);
+    expect(pluginResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
+    expect(String(pluginResponse.body)).toContain('System.register');
+
+    const relativePluginSettingsProvider = new PreviewSettingsProvider({
+      loadPreviewSettings: async () => ({
+        settings: { assets: {} },
+        script2library: {
+          'test_cases/test_active_event_proccer/test_active_event_proccer.js': '6c/6cfa67594146f0e4f3017b0b9475bd63ad05873b.js',
+        },
+        bundleConfigs: [],
+      }),
+    });
+    const relativePluginResponse = await handleRuntimePreviewRequest(
+      { runtimeContext, settingsProvider: relativePluginSettingsProvider },
+      '/plugins/test_cases/test_active_event_proccer/test_active_event_proccer.js',
+    );
+    expect(relativePluginResponse.statusCode).toBe(200);
+    expect(String(relativePluginResponse.body)).toContain('System.register');
+
+    const nonJavaScriptPluginSettingsProvider = new PreviewSettingsProvider({
+      loadPreviewSettings: async () => ({
+        settings: { assets: {} },
+        script2library: {
+          'bad-script.js': join(
+            paths.projectRoot,
+            'temp',
+            'cli',
+            'programming',
+            'packer-driver',
+            'targets',
+            'preview',
+            'import-map.json',
+          ),
+        },
+        bundleConfigs: [],
+      }),
+    });
+    const nonJavaScriptPluginResponse = await handleRuntimePreviewRequest(
+      { runtimeContext, settingsProvider: nonJavaScriptPluginSettingsProvider },
+      '/plugins/bad-script.js',
+    );
+    expect(nonJavaScriptPluginResponse.statusCode).toBe(404);
+
+    const missingPluginResponse = await handleRuntimePreviewRequest(routeContext, '/plugins/missing-script.js');
+    expect(missingPluginResponse.statusCode).toBe(404);
 
     const missingResponse = await handleRuntimePreviewRequest(routeContext, '/not-a-runtime-route');
     expect(missingResponse.statusCode).toBe(404);

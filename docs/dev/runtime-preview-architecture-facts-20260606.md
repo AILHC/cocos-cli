@@ -124,7 +124,7 @@
 - `BuildTask#getPreviewSettings()` 只运行 `dataTasks` 和 `settingTasks`；`data-task/asset_bundle` 在 `options.preview` 下执行 `bundleManager.initAsset()` 后直接 return，不运行 `bundleManager.bundleDataTask()`。
 - `TaskBase#runPluginTask()` 在 `options.preview` 下直接 return；因此 preview settings 链不执行正常 build/plugin hooks，不能把正常 build hook 修改后的产物直接当成 preview settings 输入。
 - `initBundleShareAssets()` 在 `options.preview` 下直接 return。因此 preview `bundleConfigs` 不能被当作完整 build artifact contract：`packs`、shared asset `redirect`、group/bin 产物和完整 import/native copy 关系可能需要由 runtime context、AssetDB library、engine runtime 事实补齐或显式验证。
-- `script2library` 的 key 来自源码原样行为 `removeDbHeader(asset.url).replace(/.ts$/, '.js')`，value 来自 `asset.library + '.js'`；这是 CLI 源码中的 script route/library 映射事实，不应被重新解释成通用 extension 替换规则。
+- `script2library` 的 key 来自源码原样行为 `removeDbHeader(asset.url).replace(/.ts$/, '.js')`，value 来自 `asset.library + '.js'`；这是 CLI 源码中的 script route/library 映射事实，不应被重新解释成通用 extension 替换规则。`/plugins/*` 只能通过 `PreviewSettingsProvider.scriptRuntimeMap.script2library` 请求时解析，不能在 startup 扫描 `library` 或 `temp/programming` 建索引。
 - builder bundle config 类型 `IBundleConfig` 包含 `importBase`、`nativeBase`、`name`、`deps`、`uuids`、`paths`、`scenes`、`packs`、`versions`、`redirect`、`debug`、`types`、`encrypted`、`isZip`、`zipVersion`、`extensionMap`、`hasPreloadScript`、`dependencyRelationships`。
 - bundle build 的 `copyAssetFile()` 是正常 build 输出资源时使用的规则，不是 preview settings 自身会生成的产物。它仍提供重要事实：正常 build 复制 asset 文件时从 `asset.library` 和 `meta.files` 出发，`.json` 被排除在 native copy 外，非 json native source 使用 `asset.library + extname` 或 `join(asset.library, extname)`；相对路径通过 `getLibraryDir(source)` 保留 font 等特殊资源路径。
 
@@ -146,10 +146,10 @@ RuntimePreview data sources 包括：
 - `projectProgrammingRoot/packer-driver/targets/preview/main-record.json`。
 - `projectProgrammingRoot/packer-driver/targets/preview/assembly-record.json`。
 - `projectProgrammingRoot/packer-driver/targets/preview/chunks/**`。
-- `cliProgrammingRoot/preview/systemjs/system.js` 或 current CLI scripting source 确认的等价 output，来自 CLI `ProgrammingFacet#_buildSystemJs()`。
-- `projectProgrammingRoot/custom-macro.js` 或等价 `cc/userland/macro` 来源；`ProgrammingFacet` 的 static import map 声明 `cc/userland/macro -> ./userland/macro`。
+- `cliProgrammingRoot/preview/systemjs/system.js` 或 current CLI scripting source 确认的等价 output，来自 CLI `ProgrammingFacet#_buildSystemJs()`；production 默认 root 是 `<project>/temp/cli/programming`。
+- `cliProgrammingRoot/custom-macro.js` 或等价 `cc/userland/macro` 来源；`ProgrammingFacet` 的 static import map 声明 `cc/userland/macro -> ./userland/macro`；frozen `temp/programming` 仅作为 fixture fallback。
 
-`projectProgrammingRoot` 的 production contract 是 project 的 `temp/programming` 目录；测试环境变量 `COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF` 指向冻结 `temp` reference 根，创建 `RuntimePreviewContext` 时必须显式传入其下的 `programming` 目录。
+Production 默认 programming root 是 `cliProgrammingRoot=<project>/temp/cli/programming`，与当前 CLI `ProgrammingFacet` source-defined output 对齐。`projectProgrammingRoot` 可作为 frozen/editor fixture 或 fallback；测试环境变量 `COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF` 指向冻结 `temp` reference 根，创建 `RuntimePreviewContext` 时必须显式传入其下的 `programming` 目录。
 
 RuntimePreviewContext startup state 只能包括：
 - `projectRoot`
@@ -222,11 +222,11 @@ Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-inf
 | `/assets/*/native/*` | 与 import route 相同映射策略 | 同上；native URL 是否成立由 engine/bundle config/asset nativeDep 决定 |
 | `/remote/*/import/*` | 与 assets import route 相同映射策略 | 同上，并需保留 remote bundle 基础路径语义 |
 | `/remote/*/native/*` | 与 assets native route 相同映射策略 | 同上 |
-| `/plugins/*` | 使用 `script2library` 查找脚本 library 文件；若未缓存则重新 `generate-settings` | 使用 programming resolver / script runtime map / `script2library` 等价映射提供脚本产物 |
-| `/scripting/import-map-global` | `Facet.getGlobalImportMap()` 返回静态 import map，包含 `cc`、`cc/env`、`cce.env`、`cc/userland/macro` | 使用 CLI/engine source 与冻结 `temp/programming` 事实生成或服务等价 import map |
+| `/plugins/*` | 使用 `script2library` 查找脚本 library 文件；若未缓存则重新 `generate-settings` | 通过 `PreviewSettingsProvider.scriptRuntimeMap.script2library` 请求时解析真实 compiled script 文件；只服务 known programming/library roots 下的 `.js` 文件，relative path 仅尝试固定 candidate roots，不做递归扫描 |
+| `/scripting/import-map-global` | `Facet.getGlobalImportMap()` 返回静态 import map，包含 `cc`、`cc/env`、`cce.env`、`cc/userland/macro` | 使用当前 CLI `ProgrammingFacet` static import map contract：`cc -> q-bundled:///virtual/cc.js`、`cc/env`、`cce.env`、`cc/userland/macro -> ./userland/macro` |
 | `/scripting/x/*` | `Facet.loadPackResource()` 通过 `QuickPackLoader.loadAny()` 返回 json 或 chunk 文件 | 使用 preview target `import-map.json`、records、chunks 建立 programming index，不能用 chunk regex 推业务语义 |
-| `/scripting/systemjs/*` | 从 `temp/programming/preview/systemjs/system.js` 服务 SystemJS | 使用冻结 `temp/programming` 与 CLI scripting 事实定位 |
-| `/scripting/userland/macro` | 服务 `<project>/temp/programming/custom-macro.js` | 从 project temp programming 定位，缺失时给明确诊断 |
+| `/scripting/systemjs/*` | 从 current CLI `temp/cli/programming/preview/systemjs/system.js` 服务 SystemJS，frozen `temp/programming` 仅作为 fixture/fallback | 使用 CLI `ProgrammingFacet#systemJsHomeDir` 与冻结 `temp/programming` 事实定位 |
+| `/scripting/userland/macro` | 服务 current CLI `temp/cli/programming/custom-macro.js`，frozen `temp/programming/custom-macro.js` 仅作为 fixture/fallback | 从 `cc/userland/macro -> ./userland/macro` 和 programming roots 定位，缺失时给明确诊断 |
 | `/scripting/engine/*` | 从 `ProgrammingFacet.engineRoot` 服务 engine 文件，缺 `.js` 时补后缀重试 | 使用 engine root/build/cache 事实，不猜测无证路径 |
 | `/missing-asset/*` | 调 `asset-db/query-missing-asset-info` 返回 missing asset 信息 | 可作为诊断 route，但不应参与正常加载路径 |
 | `/query-extname/*` | 查询 asset info，若存在 `.cconb` 返回 `.cconb` | current engine `editor-path-replace.ts` 在 `PREVIEW && !TEST` 下会请求该 route；新实现应按 AssetDB/library 事实返回 import payload extension，但不能用它替代 import/native 映射 |

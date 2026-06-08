@@ -109,8 +109,8 @@ flowchart LR
 
 负责 preview scripting 产物。root 命名必须区分 production output 与 reference output：
 
-- `projectProgrammingRoot`：project 的 `temp/programming`。
-- `cliProgrammingRoot`：CLI 可能生成的 `temp/cli/programming` 或等价 output。
+- `projectProgrammingRoot`：frozen/editor fixture 或兼容 fallback，可指向 project/editor 的 `temp/programming`。
+- `cliProgrammingRoot`：production 默认 programming root，指向 `<project>/temp/cli/programming` 或 current CLI `ProgrammingFacet` source-defined equivalent output。
 - `editorProgrammingRef`：冻结 editor reference，只用于测试对照。
 
 `editorProgrammingRef` 当前指向冻结 `temp` reference 根；测试构造 `RuntimePreviewContext` 时必须传入 `editorProgrammingRef/programming` 作为 `projectProgrammingRoot`，不能让 production resolver 自动补一层 `programming`。
@@ -121,7 +121,7 @@ flowchart LR
 - `main-record.json`
 - `assembly-record.json`
 - `chunks/**`
-- `cliProgrammingRoot/preview/systemjs/system.js` 或经 CLI scripting source 确认的等价 SystemJS output
+- `cliProgrammingRoot/preview/systemjs/system.js` 或经 CLI scripting source 确认的等价 SystemJS output；production 默认使用 `<project>/temp/cli/programming`
 - `custom-macro.js`
 - `script2library` 指向的 project script library file
 
@@ -161,8 +161,8 @@ flowchart LR
 | Route | 主事实来源 | 次级参考 | 启用条件 |
 | --- | --- | --- | --- |
 | `/settings.json` | CLI `getPreviewSettings()` | old editor game-view settings | captured request 或明确 CLI/browser 需要 JSON settings |
-| `/plugins/*` | CLI `script2library` | old editor `script2library` | captured script request 或 project script runtime 明确需要 |
-| `/scripting/import-map-global` | CLI/engine scripting import map facts | old editor `Facet.getGlobalImportMap()` | captured scripting bootstrap request |
+| `/plugins/*` | CLI `script2library` | old editor `script2library` | 当前实现通过 `PreviewSettingsProvider.scriptRuntimeMap.script2library` 请求时解析真实 compiled script；只服务 known programming/library roots 下的 `.js` 文件；unknown script 404；不做 startup 扫描 |
+| `/scripting/import-map-global` | CLI/engine scripting import map facts | old editor `Facet.getGlobalImportMap()` | 当前实现返回 current CLI `ProgrammingFacet` static import map contract：`cc`、`cc/env`、`cce.env`、`cc/userland/macro` |
 | `/scripting/engine/*` | engine source/build/cache fact | old editor route | captured request 且路径由 engine source/build fact 确认 |
 | `/scene/*.json` | AssetDB scene info / library serialized JSON | old editor scene route | serve real scene JSON |
 

@@ -418,7 +418,7 @@ Use only the commit messages that match actual completed work.
 - Test: `vitests/suites/runtime-preview/script-runtime-map.test.ts`
 - Test: `vitests/suites/runtime-preview/http-contract.test.ts`
 
-- [ ] **Step 1: SystemJS route**
+- [x] **Step 1: SystemJS route**
 
 Verify current CLI programming output path for SystemJS:
 
@@ -430,7 +430,7 @@ Expected:
 
 - `/scripting/systemjs/system.js` serves real file.
 
-- [ ] **Step 2: macro route**
+- [x] **Step 2: macro route**
 
 Verify `cc/userland/macro` target from current static import map.
 
@@ -438,7 +438,7 @@ Expected:
 
 - `/scripting/userland/macro` serves `custom-macro.js` or returns clear diagnostic if missing.
 
-- [ ] **Step 3: import-map-global route**
+- [x] **Step 3: import-map-global route**
 
 Use current CLI/engine scripting fact, not hardcoded old editor content.
 
@@ -446,7 +446,7 @@ Expected:
 
 - `/scripting/import-map-global` returns import map containing required `cc`, `cc/env`, `cc/userland/macro` entries when current source proves them.
 
-- [ ] **Step 4: plugins/script2library route**
+- [x] **Step 4: plugins/script2library route**
 
 Use `PreviewSettingsProvider.scriptRuntimeMap.script2library`.
 
@@ -455,7 +455,14 @@ Expected:
 - `/plugins/*` request maps to real compiled script library file.
 - Test includes a negative case where unknown plugin/script returns 404.
 
-- [ ] **Step 5: 提交 scripting routes**
+Current evidence:
+
+- `resolveProgrammingRequest()` serves `/scripting/systemjs/system.js` from current CLI `temp/cli/programming/preview/systemjs/system.js` when available, with frozen/current `projectProgrammingRoot` fallback for fixture compatibility.
+- `resolveProgrammingRequest()` serves `/scripting/userland/macro` from current CLI `temp/cli/programming/custom-macro.js` when available, with frozen/current `projectProgrammingRoot` fallback for fixture compatibility.
+- `/scripting/import-map-global` returns the current CLI `ProgrammingFacet` static import map contract: `cc -> q-bundled:///virtual/cc.js`, `cc/env`, `cce.env`, `cc/userland/macro -> ./userland/macro`.
+- `/plugins/*` resolves through `PreviewSettingsProvider.scriptRuntimeMap.script2library`; only `.js` compiled script files under known programming/library roots are served. Relative paths only try fixed known programming/library candidate roots. No recursive scan or startup preload is introduced.
+
+- [x] **Step 5: 提交 scripting routes**
 
 Run:
 
@@ -463,6 +470,12 @@ Run:
 rtk git add src/runtime-preview vitests/suites/runtime-preview
 rtk git commit -m "feat(runtime-preview): serve fact-backed scripting routes"
 ```
+
+Completed verification:
+
+- `npm --prefix vitests test -- suites/runtime-preview/script-runtime-map.test.ts suites/runtime-preview/http-contract.test.ts`: 2 files / 7 tests passed.
+- `npm --prefix vitests test -- suites/runtime-preview`: 11 files / 34 tests passed.
+- Senior subagent review: code approved after fixing `cliProgrammingRoot` precedence and `/plugins/*` path boundary; residual docs root conflict fixed before commit.
 
 ## 7. Startup diagnostics and logs
 
