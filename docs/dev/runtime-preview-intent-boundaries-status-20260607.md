@@ -92,7 +92,7 @@
 | --- | --- | --- |
 | HTTP-base runtime URL capture | 部分实现并验证 | `http-url-capture.probe.test.ts` 捕获真实 engine 生成的 JsonAsset import URL 和 ImageAsset native URL |
 | resolver-first/path guessing 删除 | 已实现于当前主线 | 旧 `manifest/**` 和 full-index 方向已删除；当前 `resolveLibraryRequest()` 需要 captured URL 或 bundle config fact |
-| pack / redirect URL | 未捕获 | 当前 synthesized bundle config 没有触发 `packs` 和 `redirect` |
+| pack / redirect URL | 未捕获 | 当前 synthesized bundle config 没有触发 `packs` 和 `redirect`；小项目 `temp/writablePath/gamecaches` 只作为非权威 diagnostic，若出现非空 pack/redirect 必须升级为 fact-backed capture 任务 |
 | remote bundle URL | 待验证 | route regex 支持 `/remote`，但当前事实链没有完成 remote captured request |
 
 ### 4. 冻结 editor `library` 和 `temp/programming` 作为参考产物
@@ -299,7 +299,7 @@
 
 ## 后续执行顺序建议
 
-1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前已在完整环境变量下 27/27 通过。
+1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前已在完整环境变量下 28/28 通过。
 2. 做真实 CLI AssetDB output consistency：定位 `library/cli` 与 editor `library` 差异，优先修生成链而不是 server 猜路径。
 3. 补 pack / redirect / extension asset route facts：pack、redirect 必须来自 engine/source bundle config 触发事实；小项目 extension runtime trigger 需要证明触发或记录 `not-triggered-in-small-project`。
 4. 补 pack / redirect capture：找到或构造由 engine source 和 bundle config 事实驱动的 sample，不手写近似 URL。
