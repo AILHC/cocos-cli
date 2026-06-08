@@ -183,6 +183,7 @@ export async function handleRuntimePreviewRequest(
     }
 
     const previewAppRequiredRoute = await handlePreviewAppRequiredRoute(context.runtimeContext, pathname, {
+        requestPath,
         method: context.method,
         body: context.body,
         logger: context.logger,

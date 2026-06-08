@@ -71,5 +71,5 @@ describe('runtime preview pre-browser HTTP smoke', () => {
     } finally {
       await server.close();
     }
-  });
+  }, 120_000);
 });

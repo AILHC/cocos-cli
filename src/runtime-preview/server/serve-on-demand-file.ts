@@ -15,6 +15,12 @@ function guessContentType(filePath: string): string {
     if (normalized.endsWith('.js')) {
         return 'application/javascript; charset=utf-8';
     }
+    if (normalized.endsWith('.wasm')) {
+        return 'application/wasm';
+    }
+    if (normalized.endsWith('.ttf')) {
+        return 'font/ttf';
+    }
     if (normalized.endsWith('.ccon') || normalized.endsWith('.cconb')) {
         return 'application/json; charset=utf-8';
     }

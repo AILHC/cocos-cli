@@ -72,6 +72,11 @@ function getSceneQuery(requestPath: string): string {
     return scene ? `?scene=${encodeURIComponent(scene)}` : '';
 }
 
+function shouldShowFps(requestPath: string): boolean {
+    const requestUrl = new URL(requestPath, 'http://runtime-preview.local');
+    return requestUrl.searchParams.get('debug') !== 'false';
+}
+
 export async function renderRuntimePreviewEntry(context: RuntimePreviewContext, requestPath: string): Promise<string> {
     const devices = await loadRuntimePreviewDevices();
     const html = await ejs.renderFile(join(runtimePreviewStaticRoot, 'index.ejs'), {
@@ -86,7 +91,7 @@ export async function renderRuntimePreviewEntry(context: RuntimePreviewContext, 
         devices,
         config: {
             device: 'Default',
-            showFps: true,
+            showFps: shouldShowFps(requestPath),
             rotate: false,
             debugMode: 'INFO',
             fps: 60,

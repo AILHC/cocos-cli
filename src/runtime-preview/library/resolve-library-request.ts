@@ -81,21 +81,23 @@ function getUuidFromImportTail(tail: string): string | null {
 }
 
 function getUuidFromNativeTail(tail: string): string | null {
-    const fileName = tail.split('/').pop();
+    const segments = tail.split('/');
+    const fileName = segments.at(-1);
     if (!fileName) {
         return null;
     }
 
     const match = /^([0-9a-fA-F-]{32,36})\.(?:png|jpg|jpeg)$/i.exec(fileName);
-    return match?.[1] ?? null;
-}
-
-function getBundleConfigAssetType(bundleConfig: Record<string, any>, uuid: string): string | null {
-    const pathEntry = bundleConfig.paths?.[uuid];
-    if (!Array.isArray(pathEntry) || typeof pathEntry[1] !== 'string') {
-        return null;
+    if (match?.[1]) {
+        return match[1];
     }
-    return pathEntry[1];
+
+    const uuidSegment = segments.find((segment) => /^[0-9a-fA-F-]{32,36}$/.test(segment));
+    if (uuidSegment) {
+        return uuidSegment;
+    }
+
+    return null;
 }
 
 function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<Record<string, any>>): boolean {
@@ -103,13 +105,25 @@ function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<
         return false;
     }
 
-    const bundleConfig = bundleConfigs.find((config) => config.name === route.bundleName);
+    const routeUuid = route.artifactKind === 'import'
+        ? getUuidFromImportTail(route.tail)
+        : getUuidFromNativeTail(route.tail);
+    const previewAppGeneralBundleConfig = route.bundleName === 'general'
+        ? bundleConfigs.find((config) => Boolean(
+            ['resources', 'internal'].includes(config.name)
+            && routeUuid
+            && config.paths
+            && Object.prototype.hasOwnProperty.call(config.paths, routeUuid),
+        ))
+        : undefined;
+    const bundleConfig = bundleConfigs.find((config) => config.name === route.bundleName)
+        ?? previewAppGeneralBundleConfig;
     if (!bundleConfig) {
         return false;
     }
 
     if (route.artifactKind === 'import') {
-        if (typeof bundleConfig.importBase === 'string' && bundleConfig.importBase !== 'import') {
+        if (typeof bundleConfig.importBase === 'string' && !['', 'import'].includes(bundleConfig.importBase)) {
             return false;
         }
 
@@ -122,7 +136,7 @@ function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<
     }
 
     if (route.artifactKind === 'native') {
-        if (typeof bundleConfig.nativeBase === 'string' && bundleConfig.nativeBase !== 'native') {
+        if (typeof bundleConfig.nativeBase === 'string' && !['', 'native'].includes(bundleConfig.nativeBase)) {
             return false;
         }
 
@@ -131,7 +145,7 @@ function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<
             return false;
         }
 
-        return getBundleConfigAssetType(bundleConfig, uuid) === 'cc.ImageAsset';
+        return Boolean(bundleConfig.paths && Object.prototype.hasOwnProperty.call(bundleConfig.paths, uuid));
     }
 
     return false;

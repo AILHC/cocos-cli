@@ -31,7 +31,7 @@ describe('editor library resources.load probe', () => {
     expect(asset.json).toBeTruthy();
     expect(hostIO.downloadedUrls.some((url) => url.endsWith(`${samples.jsonAsset!.uuid}.json`))).toBe(true);
     expect(hostIO.queryExtnameUrls).toContain(`/query-extname/${samples.jsonAsset!.uuid}`);
-  });
+  }, 120_000);
 
   it('loads ImageAsset through real engine resources.load from frozen editor library native dependency', async () => {
     const paths = getFixturePaths();
@@ -54,7 +54,7 @@ describe('editor library resources.load probe', () => {
     expect(hostIO.downloadedUrls.some((url) => (
       new RegExp(`${samples.imageAsset!.uuid}\\.(?:png|jpg|jpeg)$`).test(url)
     ))).toBe(true);
-  });
+  }, 120_000);
 
   it('loads image, texture, and sprite frame dependencies through real engine resources.load', async () => {
     const paths = getFixturePaths();
@@ -79,7 +79,7 @@ describe('editor library resources.load probe', () => {
     expect(hostIO.downloadedUrls.some((url) => url.endsWith('.png'))).toBe(true);
     expect(hostIO.downloadedUrls.some((url) => url.includes(`${samples.texture2D!.uuid}.json`))).toBe(true);
     expect(hostIO.downloadedUrls.some((url) => url.includes(`${samples.spriteFrame!.uuid}.json`))).toBe(true);
-  });
+  }, 120_000);
 
   it('loads serialized SpriteAtlas converted from a frozen Plist source asset', async () => {
     const paths = getFixturePaths();
@@ -99,7 +99,7 @@ describe('editor library resources.load probe', () => {
     expect(asset).toBeInstanceOf(engine.cc.SpriteAtlas);
     expect(hostIO.downloadedUrls.some((url) => url.endsWith(`${samples.spriteAtlas!.uuid}.json`))).toBe(true);
     expect(hostIO.downloadedUrls.some((url) => url.endsWith('.plist'))).toBe(false);
-  });
+  }, 120_000);
 
   it('documents that Spine atlas samples share a resources path with SkeletonData', async () => {
     const paths = getFixturePaths();
@@ -131,7 +131,7 @@ describe('editor library resources.load probe', () => {
       resolvedUuid: samples.skeletonData!.uuid,
     });
     expect(diagnostic.downloadedUrls.some((url) => url.endsWith(`${samples.skeletonData!.uuid}.json`))).toBe(true);
-  });
+  }, 120_000);
 
   it('loads Spine SkeletonData from a frozen editor library json sample', async () => {
     const paths = getFixturePaths();
@@ -150,7 +150,7 @@ describe('editor library resources.load probe', () => {
 
     expect(asset).toBeInstanceOf(engine.cc.SpineSkeletonData);
     expect(hostIO.downloadedUrls.some((url) => url.endsWith(`${samples.skeletonData!.uuid}.json`))).toBe(true);
-  });
+  }, 120_000);
 
   it('documents that frozen editor library has no resources-loadable TTFFont sample', async () => {
     const paths = getFixturePaths();

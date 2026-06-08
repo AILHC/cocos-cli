@@ -1046,7 +1046,7 @@ rtk git commit -m "feat(runtime-preview): serve preview app required routes"
 - Reuse: production root `/` and `/preview-app/*` from Task 8B
 - Reuse: preview-app required routes from Task 8C
 
-- [ ] **Step 1: 明确 browser smoke 前置条件**
+- [x] **Step 1: 明确 browser smoke 前置条件**
 
 Browser smoke can run only after:
 
@@ -1065,7 +1065,7 @@ Root preview page / preview-app rules:
 - CLI server/template glue must not invent or overwrite URL mapping.
 - Browser smoke opens production root `/`, not a diagnostic route.
 
-- [ ] **Step 2: 启动真实 preview server**
+- [x] **Step 2: 启动真实 preview server**
 
 Test should start actual runtime preview server path, not only `handleRuntimePreviewRequest()`.
 
@@ -1083,7 +1083,7 @@ Expected:
 - test records PID or server handle.
 - test performs graceful shutdown and asserts port release.
 
-- [ ] **Step 3: 打开浏览器并监听运行期**
+- [x] **Step 3: 打开浏览器并监听运行期**
 
 Use Playwright or equivalent browser automation.
 
@@ -1104,7 +1104,7 @@ Wait policy:
 - Network idle or arbitrary sleep is not a ready signal.
 - Minimum stable window: 5 seconds after the explicit ready signal, unless a stronger engine-ready signal is implemented.
 
-- [ ] **Step 4: 定义失败条件**
+- [x] **Step 4: 定义失败条件**
 
 Fail on:
 
@@ -1127,7 +1127,7 @@ Failure taxonomy:
 - `fail-project-boundary`: project-side native-only static import or unsupported project dependency.
 - `fail-timeout`: ready signal or stable window not reached.
 
-- [ ] **Step 5: 定义通过证据**
+- [x] **Step 5: 定义通过证据**
 
 Test output must record:
 
@@ -1141,7 +1141,7 @@ Test output must record:
 - failure taxonomy category if failed
 - console/pageerror/network evidence file path if failed
 
-- [ ] **Step 6: 提交 browser smoke**
+- [x] **Step 6: 提交 browser smoke**
 
 Run targeted verification before commit:
 
@@ -1161,6 +1161,24 @@ Commit only after both commands pass or the failure is explicitly recorded as a 
 rtk git add vitests src/runtime-preview
 rtk git commit -m "test(runtime-preview): add browser runtime smoke"
 ```
+
+Completion evidence (2026-06-08):
+
+- 已实现 `vitests/shared/browser-runtime-smoke.ts`，使用 Chromium DevTools Protocol，不新增 browser automation 依赖。
+- 已实现 `vitests/suites/runtime-preview/browser-runtime-smoke.test.ts`；测试打开 production root `/`，等待 `window.__RUNTIME_PREVIEW_READY`，再观察 5 秒稳定窗口。
+- ready signal 由 preview-app source 在 `cc.game.init()` 和代表性 `cc.resources.load()` marker 完成后设置。当前 smoke 使用 resource marker，不覆盖 scene load；scene-load 验收仍归 Task 9 / 后续 integration scope。
+- smoke 使用 `debug=false` 和 `runtimePreviewRenderType=webgl`，用于聚焦 runtime preview loading，避开 profiler UI 和 WebGPU host variability。测试不再绕过 socket import；`/socket.io/socket.io.js` 由 server 提供显式 no-op ESM socket client，因为独立 CLI runtime preview 没有 editor reload socket service。
+- browser smoke 使用 Chrome dynamic DevTools port（`--remote-debugging-port=0`），server 对 `port: 0` 避开 Fetch-forbidden random ports，使 full suite 并发运行时不依赖固定 debug port，也不触发本地 `fetch()` bad-port failure。
+- browser smoke 发现并补齐了这些 fact-backed route 支持：
+  - `/engine_external/?url=external:*` 映射到 `engineRoot/native/external/*`。
+  - `/assets/general/import/*` 和 `/assets/general/native/*` 通过 tail uuid 对照 bundle config 解析，匹配 preview-app `assets/general/*` 行为和旧 preview server wildcard route shape。
+  - internal builtin assets 使用 `engineRoot/editor/library`、`.internal-data.json` 和 `cc.config.json` dependent assets。
+  - `virtual:///prerequisite-imports/*` registration 覆盖 `projectBundles` 和 `remoteBundles`。
+- review 后已收窄 library route authorization：已知 UUID 只能通过真实 bundle name，或已证明的 preview-app `general` alias 到 `resources/internal`；未证明 bundle name 返回 404。
+- browser smoke 会写 JSON evidence file，记录 server URL、log path、startup/ready/total elapsed time、request/error count、loaded resource marker；失败时记录 failure taxonomy 和 evidence file path。测试同时断言 server shutdown 后端口释放。
+- Verification passed:
+  - `npm --prefix vitests test -- suites/runtime-preview/browser-runtime-smoke.test.ts`: 1 test passed.
+  - `npm --prefix vitests test -- suites/runtime-preview`: 14 files / 56 tests passed.
 
 ## 9. 小项目真实集成验收
 

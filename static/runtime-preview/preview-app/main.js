@@ -36,10 +36,11 @@ System.register([], function (exports_1, context_1) {
             if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
         }
     };
+    var LEGACY_RENDER_MODE_WEBGL;
     var __moduleName = context_1 && context_1.id;
     function main(ui, options) {
         return __awaiter(this, void 0, void 0, function () {
-            var cc, debugMode, option, launchScene;
+            var cc, debugMode, option, launchScene, readyResources;
             var _this = this;
             var _a;
             return __generator(this, function (_b) {
@@ -54,6 +55,7 @@ System.register([], function (exports_1, context_1) {
                         };
                         launchScene = options.settings.launch.launchScene;
                         Object.assign(option.overrideSettings, options.settings);
+                        applyRuntimePreviewBrowserOverrides(option.overrideSettings);
                         option.overrideSettings.profiling = option.overrideSettings.profiling || {};
                         option.overrideSettings.profiling.showFPS = ui.showFps;
                         option.overrideSettings.screen = option.overrideSettings.screen || {};
@@ -71,6 +73,9 @@ System.register([], function (exports_1, context_1) {
                     case 2:
                         // 等待引擎启动
                         _b.sent();
+                        return [4 /*yield*/, loadRuntimePreviewReadyResources(cc)];
+                    case 3:
+                        readyResources = _b.sent();
                         cc.assetManager.onAssetMissing(function (parentAsset, owner, propName, uuid) { return __awaiter(_this, void 0, void 0, function () {
                             var assetPathOrUuid, errorInfo, info, error_1;
                             return __generator(this, function (_a) {
@@ -120,6 +125,12 @@ System.register([], function (exports_1, context_1) {
                                             if (!launchScene) {
                                                 ui.hideSplash();
                                                 ui.hintEmptyScene();
+                                                setRuntimePreviewReady({
+                                                    scene: '',
+                                                    resources: readyResources,
+                                                    timestamp: Date.now(),
+                                                    limitation: readyResources.length > 0 ? undefined : 'resource-marker-not-requested',
+                                                });
                                                 return [2 /*return*/];
                                             }
                                             return [4 /*yield*/, getCurrentScene(launchScene)];
@@ -146,18 +157,23 @@ System.register([], function (exports_1, context_1) {
                                                 scene._name = sceneAsset._name;
                                                 cc.director.runSceneImmediate(scene, function () {
                                                     cc.game.resume();
+                                                    setRuntimePreviewReady({
+                                                        scene: launchScene || '',
+                                                        resources: readyResources,
+                                                        timestamp: Date.now(),
+                                                    });
                                                 });
                                             });
                                             return [2 /*return*/];
                                     }
                                 });
                             }); })];
-                    case 3:
+                    case 4:
                         _b.sent();
                         return [4 /*yield*/, new Promise(function (resolve) {
                                 setTimeout(resolve, 100);
                             })];
-                    case 4:
+                    case 5:
                         _b.sent();
                         return [2 /*return*/];
                 }
@@ -165,6 +181,60 @@ System.register([], function (exports_1, context_1) {
         });
     }
     exports_1("main", main);
+    function loadRuntimePreviewReadyResources(cc) {
+        return __awaiter(this, void 0, void 0, function () {
+            var request;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        request = getRuntimePreviewReadyResourceRequest(cc);
+                        if (!request) {
+                            return [2 /*return*/, []];
+                        }
+                        return [4 /*yield*/, new Promise(function (resolve, reject) {
+                                cc.resources.load(request.path, request.ctor, function (error, asset) {
+                                    if (error) {
+                                        reject(error);
+                                        return;
+                                    }
+                                    resolve({
+                                        path: request.path,
+                                        type: request.type,
+                                        uuid: asset === null || asset === void 0 ? void 0 : asset.uuid,
+                                    });
+                                });
+                            })];
+                    case 1: return [2 /*return*/, [_a.sent()]];
+                }
+            });
+        });
+    }
+    function getRuntimePreviewReadyResourceRequest(cc) {
+        var params = new URLSearchParams(window.location.search);
+        var path = params.get('runtimePreviewReadyResource');
+        var type = params.get('runtimePreviewReadyType') || 'JsonAsset';
+        if (!path) {
+            return null;
+        }
+        var ctor = cc[type];
+        if (typeof ctor !== 'function') {
+            throw new Error("Unsupported runtime preview ready resource type: ".concat(type));
+        }
+        return { path: path, type: type, ctor: ctor };
+    }
+    function applyRuntimePreviewBrowserOverrides(overrideSettings) {
+        var params = new URLSearchParams(window.location.search);
+        var renderType = params.get('runtimePreviewRenderType');
+        if (renderType === 'webgl') {
+            overrideSettings.rendering = overrideSettings.rendering || {};
+            // Matches engine gfx/device-manager.ts LegacyRenderMode.WEBGL.
+            overrideSettings.rendering.renderMode = LEGACY_RENDER_MODE_WEBGL;
+        }
+    }
+    function setRuntimePreviewReady(state) {
+        window.__RUNTIME_PREVIEW_READY = state;
+        window.dispatchEvent(new CustomEvent('runtime-preview-ready', { detail: state }));
+    }
     /**
      * Check if current scene is empty.
      */
@@ -215,6 +285,7 @@ System.register([], function (exports_1, context_1) {
     return {
         setters: [],
         execute: function () {
+            LEGACY_RENDER_MODE_WEBGL = 2;
         }
     };
 });
