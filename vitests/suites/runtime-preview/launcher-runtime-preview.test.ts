@@ -168,6 +168,24 @@ describe('runtime preview production asset routes', () => {
           const settingsResponse = await fetch(server.url + '/settings.js');
           const settingsSource = await settingsResponse.text();
           const settings = JSON.parse(settingsSource.replace(/^window\\._CCSettings = /, '').replace(/;$/, ''));
+          const previewSettings = await server.settingsProvider.getPreviewSettings();
+          const bundleConfigSummaries = [];
+          for (const providerConfig of previewSettings.bundleConfigs) {
+            const bundleName = providerConfig.name;
+            if (typeof bundleName !== 'string' || !bundleName) {
+              continue;
+            }
+            const configResponse = await fetch(server.url + '/assets/' + bundleName + '/config.json');
+            const config = configResponse.status === 200 ? await configResponse.json() : null;
+            bundleConfigSummaries.push({
+              name: bundleName,
+              status: configResponse.status,
+              providerPackCount: providerConfig.packs ? Object.keys(providerConfig.packs).length : 0,
+              routePackCount: config?.packs ? Object.keys(config.packs).length : 0,
+              providerRedirectCount: Array.isArray(providerConfig.redirect) ? providerConfig.redirect.length : 0,
+              routeRedirectCount: Array.isArray(config?.redirect) ? config.redirect.length : 0,
+            });
+          }
           process.stdout.write('RESULT ' + JSON.stringify({
             serverUrl: server.url,
             healthStatus: health.status,
@@ -175,6 +193,7 @@ describe('runtime preview production asset routes', () => {
             assetsServer: settings.assets?.server,
             launchScene: settings.launch?.launchScene,
             logFilePath: server.logFilePath,
+            bundleConfigSummaries,
           }) + '\\n');
         } finally {
           await server.close();
@@ -210,12 +229,32 @@ describe('runtime preview production asset routes', () => {
       assetsServer: string;
       launchScene: string;
       logFilePath: string;
+      bundleConfigSummaries: Array<{
+        name: string;
+        status: number;
+        providerPackCount: number;
+        routePackCount: number;
+        providerRedirectCount: number;
+        routeRedirectCount: number;
+      }>;
     };
 
     expect(result.healthStatus).toBe(200);
     expect(result.settingsStatus).toBe(200);
     expect(result.assetsServer).toBe(result.serverUrl);
     expect(result.launchScene).toBe(diagnosticSceneUuid);
+    expect(result.bundleConfigSummaries.length).toBeGreaterThan(0);
+    expect(result.bundleConfigSummaries.every((summary) => summary.status === 200)).toBe(true);
+    expect(result.bundleConfigSummaries.map((summary) => summary.routePackCount)).toEqual(
+      result.bundleConfigSummaries.map((summary) => summary.providerPackCount),
+    );
+    expect(result.bundleConfigSummaries.map((summary) => summary.routeRedirectCount)).toEqual(
+      result.bundleConfigSummaries.map((summary) => summary.providerRedirectCount),
+    );
+    expect(
+      result.bundleConfigSummaries.filter((summary) => summary.providerPackCount > 0 || summary.providerRedirectCount > 0),
+      'current real CLI preview bundle configs have no pack/redirect entries; any non-empty entry must become a fact-backed route implementation task',
+    ).toEqual([]);
     const logSource = await readFile(result.logFilePath, 'utf8');
     expect(logSource).toContain('server:listening');
     expect(logSource).toContain('engine:init:start');

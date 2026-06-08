@@ -359,7 +359,7 @@ Current evidence:
 - `src/runtime-preview/library/resolve-library-request.ts` only authorizes native requests when the bundle config maps the UUID to `cc.ImageAsset`.
 - An existing but unconfigured native PNG returns 404.
 
-- [ ] **Step 2: pack capture**
+- [x] **Step 2: pack not-triggered evidence recorded for current small project**
 
 Find or construct a fact-backed bundle config/sample that triggers engine `packManager.load()`.
 
@@ -374,12 +374,18 @@ Forbidden:
 - Do not hand-write a bundle config only to force a green test.
 - Do not treat frozen editor output as the authority for production pack URL mapping.
 
-Expected:
+Expected when a pack trigger exists:
 
 - Captured request has `routeCategory = pack`.
 - Resolver maps pack URL by bundle config `packs` fact.
 
-- [ ] **Step 3: redirect capture**
+Current evidence:
+
+- Current synthesized resources bundle config has no `config.packs` entries.
+- Real Launcher small-project provider `bundleConfigs` are enumerated completely; each served `/assets/<bundle>/config.json` route matches the provider pack summary, and no provider config currently has non-empty `packs`.
+- Therefore current stage records `not-triggered-in-current-small-project`; no pack resolver implementation is added without a fact-backed pack URL.
+
+- [x] **Step 3: redirect not-triggered evidence recorded for current small project**
 
 Find or construct a fact-backed `redirect` sample.
 
@@ -393,11 +399,17 @@ Forbidden:
 - Do not manually invent redirect URL shape from old editor preview server or backup implementation.
 - Do not use URL tail matching as redirect proof.
 
-Expected:
+Expected when a redirect trigger exists:
 
 - Engine `url-transformer.parse()` redirects to another bundle config.
 - Captured URL proves redirected bundle path.
 - Resolver uses bundle config redirect fact.
+
+Current evidence:
+
+- Current synthesized resources bundle config has empty `redirect`.
+- Real Launcher small-project provider `bundleConfigs` are enumerated completely; each served `/assets/<bundle>/config.json` route matches the provider redirect summary, and no provider config currently has non-empty `redirect`.
+- Therefore current stage records `not-triggered-in-current-small-project`; no redirect resolver implementation is added without a fact-backed redirected URL.
 
 - [ ] **Step 4: 小项目 extension asset-db fact check**
 

@@ -88,6 +88,7 @@
 - `resources.load` probe 分为 filesystem-base 和 HTTP-base：filesystem-base 只验证 engine downloader/parser 与产物兼容；HTTP-base 使用 `serverURL/settings/bundleConfigs` 捕获 preview server route contract 所需 runtime URLs。
 - 后续 runtime context / resolver 必须同时覆盖 per-asset import URL、pack import URL、nativeDep URL、redirect bundle 关系和 bundle version。
 - `/query-extname/<uuid>` 是 current engine preview 分支的事实，但它的职责是 import payload 扩展名替换（例如 `.cconb`），不是 import/native 目录或文件类型猜测的依据。
+- 2026-06-08 Task 5 补充：当前 synthesized resources bundle config、`temp/writablePath/gamecaches` 中可读的小项目 cached configs、以及 real Launcher provider 全量 `bundleConfigs` 均未暴露非空 `packs` 或 `redirect`；real Launcher test 还校验了每个 provider bundle config 经 `/assets/<bundle>/config.json` route 返回的 pack/redirect 摘要一致。当前阶段只能记录 `not-triggered-in-current-small-project`，不能实现或测试手写 pack/redirect URL。
 
 待验证：
 

@@ -26,6 +26,7 @@ export interface StartedRuntimePreviewServer {
     port: number;
     url: string;
     context: RuntimePreviewContext;
+    settingsProvider: PreviewSettingsProvider;
     startupLogLines: string[];
     logFilePath: string;
     logger: RuntimePreviewLogger;
@@ -142,6 +143,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         port,
         url,
         context,
+        settingsProvider: getSettingsProvider(),
         startupLogLines,
         logFilePath: logger.logFilePath,
         logger,
