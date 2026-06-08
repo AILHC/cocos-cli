@@ -36,6 +36,7 @@ async function readMetadataShape(root: string): Promise<Record<string, string[]>
 }
 
 interface CliOutputDiagnostics {
+  category: 'complete' | 'missing-cli-output-roots' | 'missing-cli-programming-import-map' | 'incomplete-cli-library-output';
   libraryRootExists: boolean;
   programmingRootExists: boolean;
   missingMetadataFiles: string[];
@@ -44,12 +45,26 @@ interface CliOutputDiagnostics {
 }
 
 function inspectCliOutput(libraryRoot: string, programmingRoot: string): CliOutputDiagnostics {
+  const libraryRootExists = existsSync(libraryRoot);
+  const programmingRootExists = existsSync(programmingRoot);
+  const missingMetadataFiles = metadataFiles.filter((fileName) => !existsSync(join(libraryRoot, fileName)));
+  const missingRepresentativeFiles = representativeLibraryFiles.filter((relativePath) => !existsSync(join(libraryRoot, relativePath)));
+  const hasPreviewImportMap = existsSync(join(programmingRoot, 'packer-driver/targets/preview/import-map.json'));
+  const category = !libraryRootExists || !programmingRootExists
+    ? 'missing-cli-output-roots'
+    : !hasPreviewImportMap
+      ? 'missing-cli-programming-import-map'
+      : missingMetadataFiles.length > 0 || missingRepresentativeFiles.length > 0
+        ? 'incomplete-cli-library-output'
+        : 'complete';
+
   return {
-    libraryRootExists: existsSync(libraryRoot),
-    programmingRootExists: existsSync(programmingRoot),
-    missingMetadataFiles: metadataFiles.filter((fileName) => !existsSync(join(libraryRoot, fileName))),
-    missingRepresentativeFiles: representativeLibraryFiles.filter((relativePath) => !existsSync(join(libraryRoot, relativePath))),
-    hasPreviewImportMap: existsSync(join(programmingRoot, 'packer-driver/targets/preview/import-map.json')),
+    category,
+    libraryRootExists,
+    programmingRootExists,
+    missingMetadataFiles,
+    missingRepresentativeFiles,
+    hasPreviewImportMap,
   };
 }
 
@@ -80,6 +95,7 @@ describe('frozen editor output and CLI AssetDB output consistency', () => {
     const cliDefaultProgrammingRoot = join(paths.projectRoot, 'temp', 'cli', 'programming');
     const diagnostics = inspectCliOutput(cliDefaultLibraryRoot, cliDefaultProgrammingRoot);
 
+    expect(diagnostics.category, 'real CLI output diagnostic category').toBe('incomplete-cli-library-output');
     expect(diagnostics.libraryRootExists, 'real CLI library output must exist before consistency can be claimed').toBe(true);
     expect(diagnostics.programmingRootExists, 'real CLI programming output must exist before consistency can be claimed').toBe(true);
     expect(diagnostics.hasPreviewImportMap, 'real CLI programming output should expose preview import-map').toBe(true);
