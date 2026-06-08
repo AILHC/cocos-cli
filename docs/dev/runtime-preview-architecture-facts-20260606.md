@@ -194,6 +194,7 @@ Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-inf
 - `PreviewSettingsProvider` 可以复用或等价调用 `getPreviewSettings()`，但必须证明没有执行正常 build output copy、plugin build hooks、全量 asset copy 或完整 build pipeline。
 - settings generation 必须记录耗时，并在超过配置预算时输出明确诊断。
 - 可以在 server startup 后后台预热，也可以在第一次 `/settings.js` 前 lazy 生成；两种模式都不能递归扫描 `library/temp` 或复制 build artifacts。
+- 2026-06-08 Task 4 稳定性补充：`PreviewSettingsProvider` production 默认 timeout 保持 30 秒；`Launcher.startRuntimePreview()` 暴露 `settingsTimeoutMs` 给测试或显式调用方，real Launcher Vitest 使用 `120_000` 避免 full-suite 资源竞争把真实 settings generation 误判为功能失败。
 
 ### Old editor preview server route 对照
 
@@ -284,6 +285,7 @@ Frozen editor `temp/programming`：
 - `E:\own_space\cocos_work_lab_38x\temp\programming\packer-driver\targets\preview\import-map.json` 与 frozen editor programming reference 均存在。
 - 2026-06-07 轻量 CLI AssetDB generation probe 曾因未经过完整 editor engine preload 失败；该历史失败不能作为 production resolver 补偿依据。2026-06-08 复核现有 source-backed output 后，分类更新为下方 `source-backed-split-library-layout`，仍不能声明 CLI/editor output 完全一致。
 - 当前 CLI output 诊断：`library/cli/.assets-data.json`、`.assets-info.json`、`.assets-dependency.json` 存在；`src/core/assets/asset-config.ts` 将 `internal` 的 library 指向 engine `editor/library`，该目录存在 `.internal-data.json`、`.internal-info.json`、`.internal-dependency.json`，并包含 frozen `.internal-data.json` 中代表性的 TTF 与 primitive native-like sample；代表性 project asset 的 `url/depends/versionCode` 与 frozen editor project library 一致，代表性 internal asset 的 `url/depends` 与 frozen editor project library 一致，但 primitive root UUID `1263d74c-8167-4928-91a6-4e2672411f47` 的 `versionCode` 为 frozen `1`、engine internal `3`；frozen editor project library 使用 `info1.0.0` 命名，当前 `@cocos/asset-db` 写入 `.info.json`，因此 category 为 `source-backed-split-library-layout`；`temp/cli/programming/packer-driver/targets/preview/import-map.json` 存在。
+- 2026-06-08 Task 4 补充 behavior anchor：`editor-cli-output-consistency.test.ts` 现在验证 current output roots，并通过实例化 `@cocos/asset-db` 的 `AssetDB.prepareStart()` 证明当前 record 命名为 `${name}-info.json`、`${name}-data.json`、`${name}-dependency.json`。结论是不为匹配 frozen editor `info1.0.0` 命名而修改 CLI 生成链；后续 resolver/test 必须显式处理 current source-backed split layout 与 frozen editor reference layout。
 - 轻量 generation probe 的失败链路：不经过 `Engine.initEngine()` 时，AssetDB importer 会缺少真实 `cc.JsonAsset`、`ImageAsset`、`SpriteAtlas` 等 constructors，后续还会缺 `cc/mods-mgr`。因此真实 CLI AssetDB/settings 链路不能跳过 editor engine preload。
 
 2026-06-06 Task 9.5 filesystem-base parser probe 结果：
