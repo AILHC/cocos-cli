@@ -18,6 +18,12 @@ function guessContentType(filePath: string): string {
     if (normalized.endsWith('.ccon') || normalized.endsWith('.cconb')) {
         return 'application/json; charset=utf-8';
     }
+    if (normalized.endsWith('.png')) {
+        return 'image/png';
+    }
+    if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) {
+        return 'image/jpeg';
+    }
     return 'application/octet-stream';
 }
 

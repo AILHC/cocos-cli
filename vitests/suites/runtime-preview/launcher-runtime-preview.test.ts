@@ -1,7 +1,8 @@
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
-import { captureJsonAssetHttpRuntimeUrls } from '@shared/http-url-capture';
+import { captureJsonAssetHttpRuntimeUrls, captureRepresentativeHttpRuntimeUrls } from '@shared/http-url-capture';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
 import { execFile } from 'node:child_process';
@@ -70,6 +71,76 @@ describe('runtime preview production asset routes', () => {
 
       expect(server.context.preloadedLibraryFileCount).toBe(0);
       expect(server.context.preloadedProgrammingFileCount).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('serves an engine-captured native URL only when bundle config proves the native asset uuid', async () => {
+    const paths = getFixturePaths();
+    const capturedUrls = await captureRepresentativeHttpRuntimeUrls();
+    const capturedNative = capturedUrls.find((entry) => entry.routeCategory === 'native');
+    expect(capturedNative).toMatchObject({
+      routeCategory: 'native',
+      sourceOperation: 'resources.load(ImageAsset)',
+      expectedArtifactKind: 'native-image',
+      probe: 'http-base',
+    });
+
+    const imageAssetUuid = /^\/assets\/resources\/native\/[0-9a-f]{2}\/([0-9a-f-]{36})\.(?:png|jpg|jpeg)$/.exec(capturedNative!.url)?.[1];
+    expect(imageAssetUuid).toBeTruthy();
+
+    const server = await startRuntimePreviewServer({
+      projectRoot: paths.projectRoot,
+      engineRoot: paths.engineRoot,
+      projectLibraryRoot: paths.editorLibraryRef,
+      projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+      host: '127.0.0.1',
+      port: 0,
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings: async () => ({
+          settings: {
+            assets: {
+              importBase: 'http://127.0.0.1:19530/assets',
+              nativeBase: 'http://127.0.0.1:19530/assets',
+              server: 'http://127.0.0.1:19530',
+              remoteBundles: ['resources'],
+            },
+          },
+          script2library: {},
+          bundleConfigs: [
+            {
+              name: 'resources',
+              importBase: 'import',
+              nativeBase: 'native',
+              paths: {
+                [imageAssetUuid!]: [
+                  'test_dynamic_atlas/Atlas',
+                  'cc.ImageAsset',
+                ],
+              },
+            },
+          ],
+        }),
+      }),
+    });
+
+    try {
+      const response = await fetch(`${server.url}${capturedNative!.url}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('image/png');
+
+      const unconfiguredExistingNativeRelativePath = '08/0868af97-c788-44fb-a472-5b6e27a05f81.png';
+      expect(existsSync(join(paths.editorLibraryRef, unconfiguredExistingNativeRelativePath))).toBe(true);
+      const unconfiguredExistingNativeResponse = await fetch(
+        `${server.url}/assets/resources/native/${unconfiguredExistingNativeRelativePath}`,
+      );
+      expect(unconfiguredExistingNativeResponse.status).toBe(404);
+
+      const configuredUuidWrongNativeExtensionResponse = await fetch(
+        `${server.url}${capturedNative!.url.replace(/\.(?:png|jpg|jpeg)$/, '.json')}`,
+      );
+      expect(configuredUuidWrongNativeExtensionResponse.status).toBe(404);
     } finally {
       await server.close();
     }

@@ -80,6 +80,24 @@ function getUuidFromImportTail(tail: string): string | null {
     return match?.[1] ?? null;
 }
 
+function getUuidFromNativeTail(tail: string): string | null {
+    const fileName = tail.split('/').pop();
+    if (!fileName) {
+        return null;
+    }
+
+    const match = /^([0-9a-fA-F-]{32,36})\.(?:png|jpg|jpeg)$/i.exec(fileName);
+    return match?.[1] ?? null;
+}
+
+function getBundleConfigAssetType(bundleConfig: Record<string, any>, uuid: string): string | null {
+    const pathEntry = bundleConfig.paths?.[uuid];
+    if (!Array.isArray(pathEntry) || typeof pathEntry[1] !== 'string') {
+        return null;
+    }
+    return pathEntry[1];
+}
+
 function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<Record<string, any>>): boolean {
     if (!bundleConfigs) {
         return false;
@@ -90,20 +108,33 @@ function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<
         return false;
     }
 
-    if (route.artifactKind !== 'import') {
-        return false;
+    if (route.artifactKind === 'import') {
+        if (typeof bundleConfig.importBase === 'string' && bundleConfig.importBase !== 'import') {
+            return false;
+        }
+
+        const uuid = getUuidFromImportTail(route.tail);
+        if (!uuid) {
+            return false;
+        }
+
+        return Boolean(bundleConfig.paths && Object.prototype.hasOwnProperty.call(bundleConfig.paths, uuid));
     }
 
-    if (typeof bundleConfig.importBase === 'string' && bundleConfig.importBase !== 'import') {
-        return false;
+    if (route.artifactKind === 'native') {
+        if (typeof bundleConfig.nativeBase === 'string' && bundleConfig.nativeBase !== 'native') {
+            return false;
+        }
+
+        const uuid = getUuidFromNativeTail(route.tail);
+        if (!uuid) {
+            return false;
+        }
+
+        return getBundleConfigAssetType(bundleConfig, uuid) === 'cc.ImageAsset';
     }
 
-    const uuid = getUuidFromImportTail(route.tail);
-    if (!uuid) {
-        return false;
-    }
-
-    return Boolean(bundleConfig.paths && Object.prototype.hasOwnProperty.call(bundleConfig.paths, uuid));
+    return false;
 }
 
 function isAllowedRequestPath(requestPath: string, options: ResolveLibraryRequestOptions): boolean {

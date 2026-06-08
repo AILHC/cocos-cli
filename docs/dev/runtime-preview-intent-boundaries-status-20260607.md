@@ -135,7 +135,7 @@
 
 最近验证状态：
 
-- `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后已连续两次 26/26 通过。
+- `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后已连续通过；当前 native production mapping 加入后为 27/27 通过。
 - `settings-generation.test.ts` 的真实 Engine 初始化用例单文件约 9.6 秒通过；full-suite 下通过约 11.4 秒。
 - 结论：此前 30 秒超时符合 full-suite 并发真实 engine 初始化资源竞争的表现；当前通过定向 120 秒 timeout 避免把环境耗时误判为功能失败。
 
@@ -275,8 +275,8 @@
 | --- | --- | --- | --- |
 | CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过 | startup log、本地日志、小项目真实 CLI child process 集成验收 |
 | runtime server/routes | 部分实现 | `cli-startup.test.ts`、`http-contract.test.ts`、`pre-browser-http-smoke.test.ts` 通过 | scene、plugins、remote、SystemJS/macro、import-map-global 等 route 需按事实补齐 |
-| `PreviewSettingsProvider` | 部分实现 | 单独 `settings-generation.test.ts` 通过，full-suite 连续两次 26/26 通过 | 真实 production settings contract 未闭环 |
-| library resolver | 部分实现 | captured import URL 和 bundle-config-backed import route 通过 | native production mapping、pack、redirect、small-project extension fact、remote |
+| `PreviewSettingsProvider` | 部分实现 | 单独 `settings-generation.test.ts` 通过，full-suite 当前 27/27 通过 | 真实 production settings contract 未闭环 |
+| library resolver | 部分实现 | captured import URL、bundle-config-backed import route、fact-backed native production route 通过 | pack、redirect、small-project extension runtime trigger fact、remote |
 | programming resolver | 部分实现 | preview records/chunks、project script `dependScripts` 通过 | internal/extension/plugin/global scripts，SystemJS/macro route |
 | frozen editor resource parser probe | 部分实现 | JsonAsset、ImageAsset、Texture2D、SpriteFrame、SpriteAtlas、Spine SkeletonData 通过 | TTFFont、runtime `.plist` parser、Spine `.atlas` standalone |
 | CLI/editor output consistency | 未完成 | editor output shape 已验证；CLI output diagnostic category 为 `source-backed-split-library-layout` | project assets 位于 `library/cli`，internal 位于 engine `editor/library`；metadata info 命名存在 `info1.0.0` 与 `.info.json` 差异，不能声明完全一致 |
@@ -299,9 +299,9 @@
 
 ## 后续执行顺序建议
 
-1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前已在完整环境变量下连续两次 26/26 通过。
+1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前已在完整环境变量下 27/27 通过。
 2. 做真实 CLI AssetDB output consistency：定位 `library/cli` 与 editor `library` 差异，优先修生成链而不是 server 猜路径。
-3. 补 production native URL mapping：从 HTTP-base native capture 和 AssetDB/nativeDep metadata 推导 request-time resolver。
+3. 补 pack / redirect / extension asset route facts：pack、redirect 必须来自 engine/source bundle config 触发事实；小项目 extension runtime trigger 需要证明触发或记录 `not-triggered-in-small-project`。
 4. 补 pack / redirect capture：找到或构造由 engine source 和 bundle config 事实驱动的 sample，不手写近似 URL。
 5. 小项目 extension fact check：如果小项目 runtime 实际触发 `ViewStateGroup` extension request，则基于 package/AssetDB/frozen metadata 补 request-time contract；如果未触发，则记录 `not-triggered-in-small-project`，不把通用 extension 语义作为当前门槛。
 6. 补 scripting route：SystemJS、macro、import-map-global、plugins/script2library 按 current CLI programming source 验证。
@@ -316,4 +316,4 @@
 
 已确认的正确方向是：engine runtime 生成 URL，server 做 fact-backed request-time resolution；settings 由 CLI `getPreviewSettings()` 或等价封装提供；programming route 由真实 preview records/chunks 驱动；冻结 editor 产物只作为 reference。
 
-当前最大的未闭环点是：真实 CLI AssetDB output 与 editor output 对齐、production native/pack/redirect/extension mapping、完整 scripting route、本地日志/启动反馈、小项目真实 CLI child process 验收和最终浏览器集成。
+当前最大的未闭环点是：真实 CLI AssetDB output 与 editor output 完全对齐、pack/redirect/extension mapping、完整 scripting route、本地日志/启动反馈、小项目真实 CLI child process 验收和最终浏览器集成。
