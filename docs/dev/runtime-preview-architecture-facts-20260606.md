@@ -180,9 +180,9 @@ Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-inf
 
 已确认事实：
 
-- 当前 CLI runtime preview route handler 没有 root `/` production page，也没有 `/preview-app/*` route；`/` 与 `/preview-app/index.js` 当前均返回 `404 No runtime preview route handled`。
+- 当前 CLI runtime preview route handler 已接入 root `/` production page 和 `/preview-app/*` route；`/` 返回 production root HTML，`/preview-app/index.js` 返回 `build:runtime-preview-app` 生成的 JavaScript。
 - 当前 active browser-consumable routes 是 `/settings.js`、bundle config/index、library request-time routes、programming/scripting routes 和 `/plugins/*`。
-- Creator 3.8.6 `preview-app` 源码和备份分支中的 CLI adapted static template 已证明 production browser entry 的输入来源；当前 404 是 implementation gap，不是事实缺口。
+- Creator 3.8.6 `preview-app` 源码和备份分支中的 CLI adapted static template 已证明 production browser entry 的输入来源；当前实现已完成 Task 8B entry 接入，required routes 仍需 Task 8C 按实际请求建 inventory 后补齐。
 - 旧 editor server 的 root `/` 与 `/preview-app/*` 只能证明历史 entry 名称、render data 和业务意图；不能作为当前 URL mapping、library resolver 或 ready signal 的权威。
 - 备份分支的 `runtime-preview-template.ts`、`preview-app-resolver.ts` 和 browser contract tests 只能作为 business-intent reference；不能直接复制其中 route/base mapping。
 - 当前 production source 没有 `window.__RUNTIME_PREVIEW_READY` contract。Task 8D browser smoke 不能用 network idle、固定 sleep 或打开瞬间无错误替代 ready signal。
@@ -374,7 +374,7 @@ Frozen editor `temp/programming`：
 2026-06-06 Task 14 pre-browser HTTP smoke 结果：
 - `vitests/suites/runtime-preview/pre-browser-http-smoke.test.ts` 启动 runtime preview server 并请求代表性端点：`/settings.js`、`/assets/resources/config.json`、HTTP-base captured import URL、`/scripting/x/.../import-map.json` 和一个实际 chunk。
 - 该 smoke 在打开浏览器前验证短链路端点可用，仍不声明真实 browser page 已集成通过。
-- 当前尚未实现 root preview page route，因此没有打开浏览器；browser smoke 需要在页面入口和真实 `getPreviewSettings()` 端到端完成后再执行。
+- Root preview page route 已在 Task 8B 接入；browser smoke 仍需要在 preview-app required routes、ready signal 和真实 `getPreviewSettings()` 端到端完成后再执行。
 
 2026-06-07 资深子代理 review 结果：
 - 当前 `vitests` 能通过，但测试/验证链路尚未按计划闭环，不能声明 runtime preview 已完成或继续 browser integration。

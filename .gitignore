@@ -33,6 +33,7 @@ static/web/editor-extends.bundle.js
 
 # 构建文件
 /dist
+src/runtime-preview/preview-app/dist/
 
 # jest
 coverage
