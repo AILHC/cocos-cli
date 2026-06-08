@@ -94,7 +94,7 @@
 
 当前已知状态至少应包含并保持同步：
 
-- `suites/runtime-preview` full-suite 当前为 `done`；最近证据为 Task 4 后 `11 files / 36 tests passed`。此前 `settings-generation.test.ts` / real Launcher `/settings.js` 30s timeout 只保留为历史风险，不再作为当前状态。
+- `suites/runtime-preview` full-suite 当前为 `done`；最近证据为 Task 8A 后 `12 files / 40 tests passed`。此前 `settings-generation.test.ts` / real Launcher `/settings.js` 30s timeout 只保留为历史风险，不再作为当前状态。
 - `pre-browser-http-smoke.test.ts` 为 `partial`，说明 HTTP smoke 已覆盖但不代表 browser integration。
 - browser runtime smoke 为 `missing`。
 - 小项目真实 browser integration 验收为 `missing`。
@@ -197,7 +197,7 @@ rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_sp
 Current evidence:
 
 - 该问题已复现并归类为真实 engine init 在 full-suite 下的耗时/并发风险，不是功能断言失败。
-- Task 4 后 full-suite 证据为 `npm --prefix vitests test -- suites/runtime-preview` 通过，`11 files / 36 tests passed`。
+- Task 4 后 full-suite 证据为 `npm --prefix vitests test -- suites/runtime-preview` 通过，`11 files / 36 tests passed`；Task 8A 后最新 full-suite 证据为 `12 files / 40 tests passed`。
 
 - [x] **Step 2: 判断是功能失败还是并发/timeout 问题**
 
@@ -231,7 +231,7 @@ Run the same full-suite command from Step 1.
 
 Expected:
 
-- 当前最近证据为 `11 files / 36 tests passed`；以 full-suite pass、无 skipped real-engine test、无 unexpected timeout 为准。新增测试后不要用旧文件数/用例数判定失败。
+- 当前最近证据为 Task 8A 后 `12 files / 40 tests passed`；以 full-suite pass、无 skipped real-engine test、无 unexpected timeout 为准。新增测试后不要用旧文件数/用例数判定失败。
 
 - [x] **Step 5: 提交稳定性修复**
 
@@ -583,7 +583,7 @@ Current evidence:
 Verification:
 
 - `npm --prefix vitests test -- suites/runtime-preview/cli-startup.test.ts suites/runtime-preview/launcher-runtime-preview.test.ts`: 2 files / 5 tests passed.
-- Task 7 时 `npm --prefix vitests test -- suites/runtime-preview`: 11 files / 35 tests passed. 当前 Task 4 后最新 full-suite 基线为 11 files / 36 tests passed.
+- Task 7 时 `npm --prefix vitests test -- suites/runtime-preview`: 11 files / 35 tests passed. Task 4 后 full-suite 基线为 11 files / 36 tests passed. 当前 Task 8A 后最新 full-suite 基线为 12 files / 40 tests passed.
 
 - [x] **Step 4: 提交 diagnostics**
 
@@ -608,7 +608,7 @@ rtk git commit -m "feat(runtime-preview): add startup diagnostics"
 - Test: `vitests/suites/runtime-preview/browser-entry-contract.test.ts`
 - Modify as needed: `src/runtime-preview/server/runtime-preview-routes.ts`
 
-- [ ] **Step 1: 建立 browser entry fact ledger**
+- [x] **Step 1: 建立 browser entry fact ledger**
 
 Create `docs/dev/runtime-preview-browser-entry-facts-20260607.md` with this table:
 
@@ -630,7 +630,13 @@ Rules:
 - old editor / backup sources can prove historical route names, page boot order and business intent, but cannot prove current URL mapping.
 - If no factual root preview page exists yet, mark Task 8B as `blocked-by-fact-gap` and continue Task 4/5 instead of creating a browser smoke that pretends full preview exists.
 
-- [ ] **Step 2: Define root preview page / preview-app boundary**
+Current evidence:
+
+- `docs/dev/runtime-preview-browser-entry-facts-20260607.md` records current CLI root `/` and `/preview-app/*` as `blocked-by-fact-gap`.
+- Current CLI has active `/settings.js`、bundle config/index、library、programming and scripting routes, but no production browser entry page.
+- Old editor source and backup implementation prove historical entry names and business intent only; they are not URL mapping authority.
+
+- [x] **Step 2: Define root preview page / preview-app boundary**
 
 Root preview page / preview-app may:
 
@@ -646,7 +652,12 @@ Root preview page / preview-app must not:
 - scan `library`, `temp`, `assets` or generated output at startup.
 - turn a diagnostic browser harness into production preview page.
 
-- [ ] **Step 3: Define ready signal ownership**
+Current evidence:
+
+- The boundary is documented in `runtime-preview-browser-entry-facts-20260607.md`.
+- Future root page / preview-app can only consume current runtime facts; it must not rewrite engine/settings/bundle generated URL bases.
+
+- [x] **Step 3: Define ready signal ownership**
 
 Classify `window.__RUNTIME_PREVIEW_READY` before implementing browser smoke:
 
@@ -656,13 +667,22 @@ Classify `window.__RUNTIME_PREVIEW_READY` before implementing browser smoke:
 
 Only `production-contract` can satisfy final browser preview completion. `test-injection` or `diagnostic-harness` may support early browser-host/network validation, but acceptance matrix must mark the result as `partial`, not `done`.
 
-- [ ] **Step 4: Add entry contract test**
+Current evidence:
+
+- Current production source has no `window.__RUNTIME_PREVIEW_READY` contract.
+- Task 8B remains `blocked-by-fact-gap` unless a production entry or explicit diagnostic route is added and classified.
+
+- [x] **Step 4: Add entry contract test**
 
 `browser-entry-contract.test.ts` should verify:
 
 - any copied/adapted preview-app source is scanned for forbidden assignments and URL/base/route mapping logic.
 - if a diagnostic route is added, its name is explicit, such as `/__runtime-preview/browser-smoke`, and it is not documented as root preview.
 - root preview page route remains `blocked-by-fact-gap` when no factual entry exists.
+
+Current evidence:
+
+- `vitests/suites/runtime-preview/browser-entry-contract.test.ts` verifies `/` and `/preview-app/index.js` return `404` in current route behavior, `/settings.js` remains active, old editor / backup entry facts exist, and future copied preview-app code must not own engine URL/base mapping.
 
 - [ ] **Step 5: Commit browser entry facts**
 
