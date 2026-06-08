@@ -167,6 +167,30 @@ RuntimePreviewContext startup state 只能包括：
 
 Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-info1.0.0.json`、全部 chunks 或递归枚举 `library/temp`。
 
+### Browser entry source facts
+
+证据文件：
+
+- `src/runtime-preview/server/runtime-preview-routes.ts`
+- `docs/dev/runtime-preview-browser-entry-facts-20260607.md`
+- `vitests/suites/runtime-preview/browser-entry-contract.test.ts`
+- `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\docs\dev\reference\old_editor_preview_server\server.js`
+- `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\src\runtime-preview\runtime-preview-template.ts`
+- `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\src\runtime-preview\preview-app-resolver.ts`
+
+已确认事实：
+
+- 当前 CLI runtime preview route handler 没有 root `/` production page，也没有 `/preview-app/*` route；`/` 与 `/preview-app/index.js` 当前均返回 `404 No runtime preview route handled`。
+- 当前 active browser-consumable routes 是 `/settings.js`、bundle config/index、library request-time routes、programming/scripting routes 和 `/plugins/*`。
+- 旧 editor server 的 root `/` 与 `/preview-app/*` 只能证明历史 entry 名称、render data 和业务意图；不能作为当前 URL mapping、library resolver 或 ready signal 的权威。
+- 备份分支的 `runtime-preview-template.ts`、`preview-app-resolver.ts` 和 browser contract tests 只能作为 business-intent reference；不能直接复制其中 route/base mapping。
+- 当前 production source 没有 `window.__RUNTIME_PREVIEW_READY` contract。Task 8B 不能用 network idle、固定 sleep 或打开瞬间无错误替代 ready signal。
+
+实现约束：
+
+- Root preview page / preview-app 只能消费 `/settings.js` 和 current runtime facts，不能重写 `assets.importBase`、`assets.nativeBase`、`assets.server`、bundle config、internal route、pack route 或 captured runtime URL。
+- 如果先实现 diagnostic browser route，其 route 名必须显式，例如 `/__runtime-preview/browser-smoke`，验收状态只能是 `partial`，不能作为 production root preview completion。
+
 ### P6 engine-source Vitest 参考方案
 
 参考路径：`F:\ps_copy\p6\trunk\Project\GameClient\Client-ai_master\tests`。这是本机 optional reference，缺失时以 current engine source 和本项目 harness 为准。
