@@ -135,7 +135,7 @@
 
 最近验证状态：
 
-- `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后已连续通过；当前 native production mapping 加入后为 27/27 通过。
+- `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后已连续通过；Task 7 后最近证据为 `11 files / 35 tests passed`。
 - `settings-generation.test.ts` 的真实 Engine 初始化用例单文件约 9.6 秒通过；full-suite 下通过约 11.4 秒。
 - 结论：此前 30 秒超时符合 full-suite 并发真实 engine 初始化资源竞争的表现；当前通过定向 120 秒 timeout 避免把环境耗时误判为功能失败。
 
@@ -192,8 +192,8 @@
 | programming resolver | 已实现 | `src/runtime-preview/programming/resolve-programming-request.ts` |
 | preview records/chunks 读取 | 已验证 | `script-runtime-map.test.ts` 覆盖 import-map、main-record、assembly-record、chunks |
 | `dependScripts` 链路 | 部分验证 | 已覆盖 frozen project asset scripts 的 `db://assets/**/*.ts` |
-| internal / extension / plugin/global scripts | 未覆盖 | 当前测试未覆盖 `db://internal`、extension mount、plugin/global scripts 或完整 `script2library` |
-| `/scripting/systemjs/*`、`/scripting/userland/macro` | 部分支持 | 当前 resolver 支持 `/scripting/x/*`；SystemJS/macro route 仍需按当前产物路径补齐或验证 |
+| internal / extension / plugin/global scripts | 部分覆盖 | `/plugins/*` 已通过 `PreviewSettingsProvider.scriptRuntimeMap.script2library` 覆盖 compiled script library；extension mount runtime trigger 仍需小项目 browser/integration 事实 |
+| `/scripting/systemjs/*`、`/scripting/userland/macro`、`/scripting/import-map-global` | 已实现并验证 | `resolveProgrammingRequest()` 优先服务当前 CLI `temp/cli/programming`，保留 frozen/current project programming fallback；`script-runtime-map.test.ts` 和 `http-contract.test.ts` 已覆盖 |
 
 ### 9. extension asset-db 不能硬编码，当前先用小项目事实闭环
 
@@ -232,8 +232,8 @@
 
 | 项 | 状态 | 当前事实 |
 | --- | --- | --- |
-| 当前 runtime preview startup log | 部分实现 | `Launcher.startRuntimePreview()` 输出 server startup lines 和 listening URL |
-| runtime preview 本地日志 | 当前主线未恢复完整 | 备份分支有 logger；当前主线主要是 console 和测试 server startup lines |
+| 当前 runtime preview startup log | 已实现基础阶段日志 | `Launcher.startRuntimePreview()` 输出 `server:listening`、`engine:init:start/done`、`asset-db:start/done`、`builder:init:start/done` |
+| runtime preview 本地日志 | 已实现基础文件日志 | `<project>/temp/preview-logs/runtime-preview-YYYYMMDD-HHMMSS.log` 记录 roots、server URL、settings duration 和 startup stages；browser error 接入仍待 Task 8/9 |
 | script batching | 当前主线未纳入 | 备份分支实现过 `beginBatchScriptImport()` 等；当前主线主要聚焦 runtime URL/settings/server |
 | 编译慢验证指标 | 未恢复 | 尚未在当前主线记录 `Build iteration starts` 等指标 |
 
@@ -273,11 +273,11 @@
 
 | 模块 | 当前状态 | 已验证 | 主要缺口 |
 | --- | --- | --- | --- |
-| CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过 | startup log、本地日志、小项目真实 CLI child process 集成验收 |
-| runtime server/routes | 部分实现 | `cli-startup.test.ts`、`http-contract.test.ts`、`pre-browser-http-smoke.test.ts` 通过 | scene、plugins、remote、SystemJS/macro、import-map-global 等 route 需按事实补齐 |
-| `PreviewSettingsProvider` | 部分实现 | 单独 `settings-generation.test.ts` 通过，full-suite 当前 27/27 通过 | 真实 production settings contract 未闭环 |
+| CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过；startup console 和本地日志已覆盖 | 小项目真实 CLI child process 集成验收 |
+| runtime server/routes | 部分实现 | `cli-startup.test.ts`、`http-contract.test.ts`、`pre-browser-http-smoke.test.ts` 通过；SystemJS/macro/import-map-global、plugins/script2library 已补齐 | scene/root preview entry、remote、pack/redirect、小项目 extension runtime trigger |
+| `PreviewSettingsProvider` | 部分实现 | `settings-generation.test.ts` 通过，full-suite 最近证据为 `11 files / 35 tests passed` | 真实 browser/small-project production settings contract 未闭环 |
 | library resolver | 部分实现 | captured import URL、bundle-config-backed import route、fact-backed native production route 通过 | pack、redirect、small-project extension runtime trigger fact、remote |
-| programming resolver | 部分实现 | preview records/chunks、project script `dependScripts` 通过 | internal/extension/plugin/global scripts，SystemJS/macro route |
+| programming resolver | 部分实现 | preview records/chunks、project script `dependScripts`、SystemJS、macro、import-map-global、plugins/script2library 通过 | extension mount runtime trigger、完整 browser/integration 事实 |
 | frozen editor resource parser probe | 部分实现 | JsonAsset、ImageAsset、Texture2D、SpriteFrame、SpriteAtlas、Spine SkeletonData 通过 | TTFFont、runtime `.plist` parser、Spine `.atlas` standalone |
 | CLI/editor output consistency | 未完成 | editor output shape 已验证；CLI output diagnostic category 为 `source-backed-split-library-layout` | project assets 位于 `library/cli`，internal 位于 engine `editor/library`；metadata info 命名存在 `info1.0.0` 与 `.info.json` 差异，不能声明完全一致 |
 | browser integration | 未开始 | 无 | 必须等短链路 gap 收敛 |
@@ -299,16 +299,13 @@
 
 ## 后续执行顺序建议
 
-1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前已在完整环境变量下 30/30 通过。
-2. 做真实 CLI AssetDB output consistency：定位 `library/cli` 与 editor `library` 差异，优先修生成链而不是 server 猜路径。
-3. 补 pack / redirect / extension asset route facts：pack、redirect 必须来自 engine/source bundle config 触发事实；小项目 extension runtime trigger 需要证明触发或记录 `not-triggered-in-small-project`。
-4. 补 pack / redirect capture：找到或构造由 engine source 和 bundle config 事实驱动的 sample，不手写近似 URL。
-5. 小项目 extension fact check：如果小项目 runtime 实际触发 `ViewStateGroup` extension request，则基于 package/AssetDB/frozen metadata 补 request-time contract；如果未触发，则记录 `not-triggered-in-small-project`，不把通用 extension 语义作为当前门槛。
-6. 补 scripting route：SystemJS、macro、import-map-global、plugins/script2library 按 current CLI programming source 验证。
-7. 补 startup diagnostics：console stage、runtime preview log、packer/Cocos 原始日志关联。
-8. 小项目 HTTP smoke 稳定后，再进入浏览器集成测试。
-9. 小项目浏览器通过后，先完成小项目真实 CLI child process 集成验收和结论文档；P6 / feature-c 后续是否纳入，需要重新更新计划。
-10. 通用 extension asset-db enable/disable/global config 语义作为 deferred 专项，不进入当前小项目验收门槛。
+1. 保持 `suites/runtime-preview` full-suite 作为后续实现前置验证；当前最近证据为 `11 files / 35 tests passed`。
+2. 继续真实 CLI AssetDB output consistency：定位 `library/cli`、engine `editor/library` 与 frozen editor `library` / `temp/programming` 差异，优先修生成链而不是 server 猜路径。
+3. 补 pack / redirect / extension asset route facts：pack、redirect 必须来自 engine/source bundle config、CLI output 或真实 generated artifact；小项目 extension runtime trigger 需要证明触发或记录 `not-triggered-in-small-project`。
+4. 先做 browser entry fact ledger：确认 root preview page / preview-app entry 的事实来源和 `window.__RUNTIME_PREVIEW_READY` 归属；没有事实入口时，browser smoke 保持 `blocked-by-fact-gap`。
+5. 在 browser entry facts 闭环后，再实现 Task 8B browser smoke harness，监听 console/pageerror/network，并等待 ready 后稳定窗口。
+6. 小项目浏览器通过后，完成真实 CLI child process 集成验收脚本、测试和结论文档；P6 / feature-c 后续是否纳入，需要重新更新计划和验收矩阵。
+7. 通用 extension asset-db enable/disable/global config 语义作为 deferred 专项，不进入当前小项目验收门槛。
 
 ## 当前结论
 
@@ -316,4 +313,4 @@
 
 已确认的正确方向是：engine runtime 生成 URL，server 做 fact-backed request-time resolution；settings 由 CLI `getPreviewSettings()` 或等价封装提供；programming route 由真实 preview records/chunks 驱动；冻结 editor 产物只作为 reference。
 
-当前最大的未闭环点是：真实 CLI AssetDB output 与 editor output 完全对齐、pack/redirect/extension mapping、完整 scripting route、本地日志/启动反馈、小项目真实 CLI child process 验收和最终浏览器集成。
+当前最大的未闭环点是：真实 CLI AssetDB output 与 editor output 差异结论、pack/redirect/extension runtime trigger facts、root preview page / preview-app entry 事实来源、小项目真实 CLI child process 验收和最终浏览器集成。
