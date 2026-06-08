@@ -1,10 +1,10 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 
-const metadataFiles = [
+const frozenEditorMetadataFiles = [
   '.assets-data.json',
   '.assets-info1.0.0.json',
   '.assets-dependency.json',
@@ -13,13 +13,54 @@ const metadataFiles = [
   '.internal-dependency.json',
 ];
 
-const representativeLibraryFiles = [
+const cliProjectAssetMetadataFiles = [
+  '.assets-data.json',
+  '.assets-info.json',
+  '.assets-dependency.json',
+];
+
+const engineInternalMetadataFiles = [
+  '.internal-data.json',
+  '.internal-info.json',
+  '.internal-dependency.json',
+];
+
+const representativeProjectAssetFiles = [
   '00/00614c43-17eb-4463-be7a-c162c2b92d43.json',
   '01/014b2d77-d625-4e91-9e51-081e353db503.png',
-  '08/0835f102-5471-47a3-9a76-01c07ac9cdb2/OpenSans-Regular.ttf',
   '0d/0d687c8c-1928-4af0-8caa-195c7cd6ada3.atlas',
+];
+
+const representativeProjectAssetUuids = [
+  '00614c43-17eb-4463-be7a-c162c2b92d43',
+  '014b2d77-d625-4e91-9e51-081e353db503',
+  '0d687c8c-1928-4af0-8caa-195c7cd6ada3',
+];
+
+const representativeInternalFiles = [
+  '08/0835f102-5471-47a3-9a76-01c07ac9cdb2/OpenSans-Regular.ttf',
   '12/1263d74c-8167-4928-91a6-4e2672411f47@17020.bin',
 ];
+
+const representativeInternalUuids = [
+  '0835f102-5471-47a3-9a76-01c07ac9cdb2',
+  '1263d74c-8167-4928-91a6-4e2672411f47',
+  '1263d74c-8167-4928-91a6-4e2672411f47@17020',
+];
+
+interface AssetDataEntry {
+  url?: string;
+  value?: {
+    depends?: unknown;
+  };
+  versionCode?: unknown;
+}
+
+interface VersionCodeDiff {
+  uuid: string;
+  expected: unknown;
+  actual: unknown;
+}
 
 async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(await readFile(path, 'utf8')) as T;
@@ -27,7 +68,7 @@ async function readJson<T>(path: string): Promise<T> {
 
 async function readMetadataShape(root: string): Promise<Record<string, string[]>> {
   const shape: Record<string, string[]> = {};
-  for (const fileName of metadataFiles) {
+  for (const fileName of frozenEditorMetadataFiles) {
     const absolutePath = join(root, fileName);
     expect(existsSync(absolutePath), `${absolutePath} should exist`).toBe(true);
     shape[fileName] = Object.keys(await readJson<Record<string, unknown>>(absolutePath)).sort();
@@ -35,35 +76,103 @@ async function readMetadataShape(root: string): Promise<Record<string, string[]>
   return shape;
 }
 
+function listMetadataFiles(root: string, domain: 'assets' | 'internal'): string[] {
+  if (!existsSync(root)) {
+    return [];
+  }
+  const pattern = new RegExp(`^\\.${domain}-info(?:1\\.0\\.0)?\\.json$`);
+  return readdirSync(root).filter((fileName) => pattern.test(fileName)).sort();
+}
+
+function pickLoadRelevantDataEntry(entry: AssetDataEntry | undefined): AssetDataEntry | undefined {
+  if (!entry) {
+    return undefined;
+  }
+  return {
+    url: entry.url,
+    value: {
+      depends: entry.value?.depends,
+    },
+  };
+}
+
+function pickLoadRelevantDataEntries(data: Record<string, AssetDataEntry>, uuids: string[]): Record<string, AssetDataEntry | undefined> {
+  return Object.fromEntries(uuids.map((uuid) => [uuid, pickLoadRelevantDataEntry(data[uuid])]));
+}
+
+function collectVersionCodeDiffs(
+  actualData: Record<string, AssetDataEntry>,
+  expectedData: Record<string, AssetDataEntry>,
+  uuids: string[],
+): VersionCodeDiff[] {
+  return uuids.flatMap((uuid) => {
+    const actual = actualData[uuid]?.versionCode;
+    const expected = expectedData[uuid]?.versionCode;
+    return actual === expected ? [] : [{ uuid, expected, actual }];
+  });
+}
+
 interface CliOutputDiagnostics {
-  category: 'complete' | 'missing-cli-output-roots' | 'missing-cli-programming-import-map' | 'incomplete-cli-library-output';
+  category:
+    | 'complete'
+    | 'missing-cli-output-roots'
+    | 'missing-cli-programming-import-map'
+    | 'missing-source-backed-library-parts'
+    | 'source-backed-split-library-layout';
   libraryRootExists: boolean;
   programmingRootExists: boolean;
-  missingMetadataFiles: string[];
-  missingRepresentativeFiles: string[];
+  missingCliProjectAssetMetadataFiles: string[];
+  missingEngineInternalMetadataFiles: string[];
+  missingProjectAssetFiles: string[];
+  missingInternalFilesInEngineLibrary: string[];
+  editorVersionedInfoFiles: string[];
+  cliUnversionedInfoFiles: string[];
+  engineInternalRootExists: boolean;
   hasPreviewImportMap: boolean;
 }
 
-function inspectCliOutput(libraryRoot: string, programmingRoot: string): CliOutputDiagnostics {
+function inspectCliOutput(editorLibraryRoot: string, libraryRoot: string, programmingRoot: string, engineInternalLibraryRoot: string): CliOutputDiagnostics {
   const libraryRootExists = existsSync(libraryRoot);
   const programmingRootExists = existsSync(programmingRoot);
-  const missingMetadataFiles = metadataFiles.filter((fileName) => !existsSync(join(libraryRoot, fileName)));
-  const missingRepresentativeFiles = representativeLibraryFiles.filter((relativePath) => !existsSync(join(libraryRoot, relativePath)));
+  const engineInternalRootExists = existsSync(engineInternalLibraryRoot);
+  const missingCliProjectAssetMetadataFiles = cliProjectAssetMetadataFiles.filter((fileName) => !existsSync(join(libraryRoot, fileName)));
+  const missingEngineInternalMetadataFiles = engineInternalMetadataFiles.filter((fileName) => !existsSync(join(engineInternalLibraryRoot, fileName)));
+  const missingProjectAssetFiles = representativeProjectAssetFiles.filter((relativePath) => !existsSync(join(libraryRoot, relativePath)));
+  const missingInternalFilesInEngineLibrary = representativeInternalFiles.filter((relativePath) => !existsSync(join(engineInternalLibraryRoot, relativePath)));
+  const editorVersionedInfoFiles = [
+    ...listMetadataFiles(editorLibraryRoot, 'assets'),
+    ...listMetadataFiles(editorLibraryRoot, 'internal'),
+  ].filter((fileName) => fileName.endsWith('info1.0.0.json'));
+  const cliUnversionedInfoFiles = [
+    ...listMetadataFiles(libraryRoot, 'assets'),
+    ...listMetadataFiles(engineInternalLibraryRoot, 'internal'),
+  ].filter((fileName) => fileName.endsWith('info.json'));
   const hasPreviewImportMap = existsSync(join(programmingRoot, 'packer-driver/targets/preview/import-map.json'));
   const category = !libraryRootExists || !programmingRootExists
     ? 'missing-cli-output-roots'
     : !hasPreviewImportMap
       ? 'missing-cli-programming-import-map'
-      : missingMetadataFiles.length > 0 || missingRepresentativeFiles.length > 0
-        ? 'incomplete-cli-library-output'
-        : 'complete';
+      : missingCliProjectAssetMetadataFiles.length > 0
+        || !engineInternalRootExists
+        || missingEngineInternalMetadataFiles.length > 0
+        || missingProjectAssetFiles.length > 0
+        || missingInternalFilesInEngineLibrary.length > 0
+        ? 'missing-source-backed-library-parts'
+        : editorVersionedInfoFiles.length > 0 && cliUnversionedInfoFiles.length > 0
+          ? 'source-backed-split-library-layout'
+          : 'complete';
 
   return {
     category,
     libraryRootExists,
     programmingRootExists,
-    missingMetadataFiles,
-    missingRepresentativeFiles,
+    missingCliProjectAssetMetadataFiles,
+    missingEngineInternalMetadataFiles,
+    missingProjectAssetFiles,
+    missingInternalFilesInEngineLibrary,
+    editorVersionedInfoFiles,
+    cliUnversionedInfoFiles,
+    engineInternalRootExists,
     hasPreviewImportMap,
   };
 }
@@ -80,7 +189,11 @@ describe('frozen editor output and CLI AssetDB output consistency', () => {
     expect(activeProjectShape['.assets-data.json']).toEqual(referenceShape['.assets-data.json']);
     expect(activeProjectShape['.internal-data.json']).toEqual(referenceShape['.internal-data.json']);
 
-    for (const relativePath of representativeLibraryFiles) {
+    for (const relativePath of representativeProjectAssetFiles) {
+      expect(existsSync(join(paths.editorLibraryRef, relativePath)), `reference ${relativePath}`).toBe(true);
+      expect(existsSync(join(activeProjectLibraryRoot, relativePath)), `active project ${relativePath}`).toBe(true);
+    }
+    for (const relativePath of representativeInternalFiles) {
       expect(existsSync(join(paths.editorLibraryRef, relativePath)), `reference ${relativePath}`).toBe(true);
       expect(existsSync(join(activeProjectLibraryRoot, relativePath)), `active project ${relativePath}`).toBe(true);
     }
@@ -93,30 +206,46 @@ describe('frozen editor output and CLI AssetDB output consistency', () => {
     const paths = getFixturePaths();
     const cliDefaultLibraryRoot = join(paths.projectRoot, 'library', 'cli');
     const cliDefaultProgrammingRoot = join(paths.projectRoot, 'temp', 'cli', 'programming');
-    const diagnostics = inspectCliOutput(cliDefaultLibraryRoot, cliDefaultProgrammingRoot);
+    const engineInternalLibraryRoot = join(paths.engineRoot, 'editor', 'library');
+    const diagnostics = inspectCliOutput(paths.editorLibraryRef, cliDefaultLibraryRoot, cliDefaultProgrammingRoot, engineInternalLibraryRoot);
 
-    expect(diagnostics.category, 'real CLI output diagnostic category').toBe('incomplete-cli-library-output');
+    expect(diagnostics.category, 'real CLI output diagnostic category').toBe('source-backed-split-library-layout');
     expect(diagnostics.libraryRootExists, 'real CLI library output must exist before consistency can be claimed').toBe(true);
     expect(diagnostics.programmingRootExists, 'real CLI programming output must exist before consistency can be claimed').toBe(true);
     expect(diagnostics.hasPreviewImportMap, 'real CLI programming output should expose preview import-map').toBe(true);
+    expect(diagnostics.engineInternalRootExists, 'engine internal library root should exist').toBe(true);
 
-    if (diagnostics.missingMetadataFiles.length === 0 && diagnostics.missingRepresentativeFiles.length === 0) {
-      const referenceShape = await readMetadataShape(paths.editorLibraryRef);
-      const cliShape = await readMetadataShape(cliDefaultLibraryRoot);
-      expect(cliShape['.assets-data.json']).toEqual(referenceShape['.assets-data.json']);
-      expect(cliShape['.internal-data.json']).toEqual(referenceShape['.internal-data.json']);
-      return;
-    }
-
-    expect(diagnostics.missingMetadataFiles).toEqual([
+    expect(diagnostics.missingCliProjectAssetMetadataFiles).toEqual([]);
+    expect(diagnostics.missingEngineInternalMetadataFiles).toEqual([]);
+    expect(diagnostics.missingProjectAssetFiles).toEqual([]);
+    expect(diagnostics.missingInternalFilesInEngineLibrary).toEqual([]);
+    expect(diagnostics.editorVersionedInfoFiles).toEqual([
       '.assets-info1.0.0.json',
-      '.internal-data.json',
       '.internal-info1.0.0.json',
-      '.internal-dependency.json',
     ]);
-    expect(diagnostics.missingRepresentativeFiles).toEqual([
-      '08/0835f102-5471-47a3-9a76-01c07ac9cdb2/OpenSans-Regular.ttf',
-      '12/1263d74c-8167-4928-91a6-4e2672411f47@17020.bin',
+    expect(diagnostics.cliUnversionedInfoFiles).toEqual([
+      '.assets-info.json',
+      '.internal-info.json',
     ]);
+
+    const referenceAssetsData = await readJson<Record<string, AssetDataEntry>>(join(paths.editorLibraryRef, '.assets-data.json'));
+    const cliAssetsData = await readJson<Record<string, AssetDataEntry>>(join(cliDefaultLibraryRoot, '.assets-data.json'));
+    expect(pickLoadRelevantDataEntries(cliAssetsData, representativeProjectAssetUuids)).toEqual(
+      pickLoadRelevantDataEntries(referenceAssetsData, representativeProjectAssetUuids),
+    );
+    expect(collectVersionCodeDiffs(cliAssetsData, referenceAssetsData, representativeProjectAssetUuids)).toEqual([]);
+
+    const referenceInternalData = await readJson<Record<string, AssetDataEntry>>(join(paths.editorLibraryRef, '.internal-data.json'));
+    const engineInternalData = await readJson<Record<string, AssetDataEntry>>(join(engineInternalLibraryRoot, '.internal-data.json'));
+    expect(pickLoadRelevantDataEntries(engineInternalData, representativeInternalUuids)).toEqual(
+      pickLoadRelevantDataEntries(referenceInternalData, representativeInternalUuids),
+    );
+    expect(collectVersionCodeDiffs(engineInternalData, referenceInternalData, representativeInternalUuids)).toEqual(
+      [{
+        uuid: '1263d74c-8167-4928-91a6-4e2672411f47',
+        expected: 1,
+        actual: 3,
+      }],
+    );
   });
 });

@@ -270,24 +270,25 @@ rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_sp
 
 Expected:
 
-- Test passes as diagnostic, but matrix status remains `partial` or `blocked-by-fact-gap` if CLI output is incomplete.
+- Test passes as diagnostic, but matrix status remains `partial` or `blocked-by-fact-gap` if CLI output or engine internal library output is incomplete.
 
 - [ ] **Step 2: 写 CLI generation diagnostic**
 
 Add or update test to classify:
 
 - `library/cli/.assets-data.json`
-- `library/cli/.assets-info1.0.0.json`
-- `library/cli/.internal-data.json`
-- representative serialized JSON
-- representative native image
-- TTF subdirectory file
-- binary native-like file
+- `library/cli/.assets-info.json`
+- `library/cli/.assets-dependency.json`
+- engine `editor/library/.internal-data.json`
+- engine `editor/library/.internal-info.json`
+- engine `editor/library/.internal-dependency.json`
+- representative project serialized JSON / native image / atlas
+- representative internal TTF / binary files in engine `editor/library`
 - `temp/cli/programming/packer-driver/targets/preview/import-map.json`
 
 Expected:
 
-- Test must not treat missing CLI output as success.
+- Test must not treat missing CLI output or missing engine internal library output as success.
 - Missing fields must produce explicit diagnostic category.
 
 - [ ] **Step 3: 修生成链或标明阻塞**
@@ -300,7 +301,7 @@ If failure is due to skipping `Engine.initEngine()`:
 If output shape differs from editor:
 
 - Trace to AssetDB source and engine runtime consumption.
-- Decide whether CLI output should change or server should handle both shapes.
+- Decide whether CLI output should change or server should handle both source-backed split layout and frozen editor reference layout in tests.
 
 - [ ] **Step 4: 提交 output consistency 进展**
 
