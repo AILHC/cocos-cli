@@ -332,7 +332,7 @@ Frozen editor `temp/programming`：
 - `/assets/<bundle>/index.js` / `/remote/<bundle>/index.js` 按 engine `downloadBundle()` 事实返回 dummy bundle script；该 route 只在对应 bundle config 存在时返回 200。
 - `/query-extname/<uuid>` 只检查 library bucket 中是否存在 `<uuid>.cconb` 或 `<uuid>.ccon`，并返回 import payload extension replacement；普通 `.json` 返回空字符串。该 route 不参与 import/native 判断。
 - `/scripting/x/*` 通过 `resolveProgrammingRequest()` 按需读取 `temp/programming` 文件。
-- 当前 HTTP contract 覆盖 serialized JsonAsset import URL；native dependency 已通过 HTTP-base `ImageAsset` capture 和 production route contract 验证；pack URL、redirect bundle URL 尚未由 HTTP-base probe 捕获，不能声明已验证。
+- 当前 HTTP contract 覆盖 serialized JsonAsset import URL；native dependency 已通过 HTTP-base `ImageAsset` capture 和 production route contract 验证；pack URL、redirect bundle URL 尚未由 HTTP-base probe 捕获。当前 synthesized resources config 与小项目 `temp/writablePath/gamecaches` 中真实 cached bundle configs 的 `packs` / `redirect` 均为空，不能用手写近似 URL 代替未触发事实。
 
 2026-06-06 Task 13 runtime preview startup 结果：
 - `src/runtime-preview/server/runtime-preview-server.ts` 提供 `startRuntimePreviewServer()`，负责 HTTP server lifecycle、health route、runtime route dispatch 和 close。
@@ -352,7 +352,7 @@ Frozen editor `temp/programming`：
 - Critical：production `preview --runtime` 不会给 route context 传入 `capturedRuntimeUrls`；而 `resolveLibraryRequest()` 没有 `allowedRequestPaths` 时拒绝所有 asset import/native request。因此 injected HTTP contract 通过不等于真实 CLI server 能服务 representative asset URL。
 - Task 9 gap：`editor-cli-output-consistency.test.ts` 还没有真实验证 CLI AssetDB output，只验证 active/frozen editor library，并把 `cli-output-not-generated-yet` 当作通过状态。
 - Task 9.5 gap 已推进：filesystem-base `resources.load` parser probe 覆盖 JsonAsset、ImageAsset、Texture2D、SpriteFrame、Plist 源资产转换后的 serialized SpriteAtlas、Spine SkeletonData；TTFFont、runtime `.plist` parser 与 Spine `.atlas` standalone 按 frozen facts 记录 diagnostic gap。
-- Task 9.75 gap 更新：HTTP-base capture 已覆盖 `query-extname`、JsonAsset import URL 和 ImageAsset native URL；pack、redirect bundle URL 尚未捕获。
+- Task 9.75 gap 更新：HTTP-base capture 已覆盖 `query-extname`、JsonAsset import URL 和 ImageAsset native URL；pack、redirect bundle URL 尚未捕获，当前小项目 cached bundle configs 也未触发 pack/redirect。
 - Task 11 gap：`settings-generation.test.ts` 全部使用 mocked `loadPreviewSettings`；真实 `getPreviewSettings()` E2E 和 normal build boundary 尚未验证。
 - Task 12 gap：`http-contract.test.ts` 使用手写 injected `settings/bundleConfigs/script2library`，没有消费真实 Task 11 output。
 - Task 13 gap：`cli-startup.test.ts` 直接调用 `startRuntimePreviewServer()`，没有覆盖 `PreviewCommand -> Launcher.startRuntimePreview() -> server` 的真实命令链。
