@@ -489,7 +489,7 @@ Completed verification:
 - Test: `vitests/suites/runtime-preview/cli-startup.test.ts`
 - Test: `vitests/suites/runtime-preview/launcher-runtime-preview.test.ts`
 
-- [ ] **Step 1: 定义日志 contract**
+- [x] **Step 1: 定义日志 contract**
 
 Log file:
 
@@ -508,7 +508,7 @@ Must include:
 - settings generation duration
 - browser `/preview-error` if route is implemented
 
-- [ ] **Step 2: 控制台阶段输出**
+- [x] **Step 2: 控制台阶段输出**
 
 At minimum:
 
@@ -520,7 +520,7 @@ At minimum:
 
 Do not implement a complex progress UI in this task.
 
-- [ ] **Step 3: 测试日志文件和控制台摘要**
+- [x] **Step 3: 测试日志文件和控制台摘要**
 
 Expected:
 
@@ -528,7 +528,20 @@ Expected:
 - log file contains roots and server URL.
 - console output includes listening URL.
 
-- [ ] **Step 4: 提交 diagnostics**
+Current evidence:
+
+- Runtime preview server creates `<project>/temp/preview-logs/runtime-preview-YYYYMMDD-HHMMSS.log`.
+- Log file records project root, engine root, library root, programming roots, `server:listening`, and `settings:generation:done durationMs=...`.
+- Launcher runtime preview stdout and log file record `server:listening`, `engine:init:start/done`, `asset-db:start/done`, and `builder:init:start/done`.
+- `settings:generation:error` is logged with duration and error message if settings generation throws; `/settings.js` request failures also print a console summary.
+- Known residual risk: log file name follows the planned `YYYYMMDD-HHMMSS` format, so multiple starts in the same project within one second append to the same file.
+
+Verification:
+
+- `npm --prefix vitests test -- suites/runtime-preview/cli-startup.test.ts suites/runtime-preview/launcher-runtime-preview.test.ts`: 2 files / 5 tests passed.
+- `npm --prefix vitests test -- suites/runtime-preview`: 11 files / 35 tests passed.
+
+- [x] **Step 4: 提交 diagnostics**
 
 Run:
 
