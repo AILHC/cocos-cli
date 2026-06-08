@@ -147,7 +147,7 @@
     (function registerPrerequisiteImports() {
         var settings = window._CCSettings || {};
         var assets = settings.assets || {};
-        var bundles = assets.projectBundles || [];
+        var bundles = Array.from(new Set([].concat(assets.projectBundles || [], assets.remoteBundles || [])));
         bundles.forEach(function(bundle) {
             System.register(
                 "virtual:///prerequisite-imports/" + bundle,

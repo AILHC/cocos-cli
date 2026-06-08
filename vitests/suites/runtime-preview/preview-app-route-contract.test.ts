@@ -6,6 +6,10 @@ import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-pr
 import { handleRuntimePreviewRequest } from '@runtime-preview/server/runtime-preview-routes';
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
+import {
+  buildEditorLibraryInternalBundle,
+  buildEditorLibraryResourcesBundle,
+} from '@shared/editor-library-bundle';
 
 function createRouteContext() {
   const paths = getFixturePaths();
@@ -73,6 +77,14 @@ describe('runtime preview preview-app required route contract', () => {
       expect(response.headers['content-type'], route).toMatch(/application\/(javascript|json)/);
       expect(response.body.toString().length, route).toBeGreaterThan(0);
     }
+  });
+
+  it('renders the production entry with show FPS disabled when debug=false', async () => {
+    const routeContext = createRouteContext();
+    const response = await handleRuntimePreviewRequest(routeContext, '/?debug=false');
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toContain('id="btn-show-fps" class=""');
   });
 
   it('serves scene list and serialized scene json from current project metadata facts', async () => {
@@ -143,7 +155,153 @@ describe('runtime preview preview-app required route contract', () => {
       if (route === '/socket.io/socket.io.js') {
         expect(response.headers['content-type'], route).toContain('application/javascript');
         expect(response.body.toString(), route).toContain('io');
+        expect(response.body.toString(), route).toContain('createNoopSocket');
       }
+    }
+  });
+
+  it('serves engine external emscripten files from the engine native external root', async () => {
+    const routeContext = createRouteContext();
+    const response = await handleRuntimePreviewRequest(
+      routeContext,
+      '/engine_external/?url=external%3Aemscripten%2Fmeshopt%2Fmeshopt_decoder.wasm.wasm',
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/wasm');
+    expect(Buffer.isBuffer(response.body)).toBe(true);
+    expect((response.body as Buffer).subarray(0, 4)).toEqual(Buffer.from([0x00, 0x61, 0x73, 0x6d]));
+  });
+
+  it('serves preview-app general import URLs from bundle-config-backed library files', async () => {
+    const paths = getFixturePaths();
+    const { config, samples } = await buildEditorLibraryResourcesBundle(paths.editorLibraryRef, { buildFileIndex: false });
+    const routeContext = {
+      ...createRouteContext(),
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings: async () => ({
+          settings: {
+            launch: {
+              launchScene: '',
+            },
+            assets: {
+              importBase: 'http://127.0.0.1:19530/assets',
+              nativeBase: 'http://127.0.0.1:19530/assets',
+              server: 'http://127.0.0.1:19530',
+              projectBundles: ['resources'],
+              remoteBundles: [],
+            },
+          },
+          script2library: {},
+          bundleConfigs: [config],
+        }),
+      }),
+    };
+
+    expect(samples.jsonAsset?.uuid).toBeTruthy();
+
+    const response = await handleRuntimePreviewRequest(
+      routeContext,
+      `/assets/general/import/${samples.jsonAsset!.uuid.slice(0, 2)}/${samples.jsonAsset!.uuid}.json`,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.body.toString()).toContain('cc.JsonAsset');
+  });
+
+  it('rejects unproven bundle names even when the uuid exists in a bundle config', async () => {
+    const paths = getFixturePaths();
+    const { config, samples } = await buildEditorLibraryResourcesBundle(paths.editorLibraryRef, { buildFileIndex: false });
+    const routeContext = {
+      ...createRouteContext(),
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings: async () => ({
+          settings: {
+            launch: {
+              launchScene: '',
+            },
+            assets: {
+              importBase: 'http://127.0.0.1:19530/assets',
+              nativeBase: 'http://127.0.0.1:19530/assets',
+              server: 'http://127.0.0.1:19530',
+              projectBundles: ['resources'],
+              remoteBundles: [],
+            },
+          },
+          script2library: {},
+          bundleConfigs: [config],
+        }),
+      }),
+    };
+
+    expect(samples.jsonAsset?.uuid).toBeTruthy();
+
+    const response = await handleRuntimePreviewRequest(
+      routeContext,
+      `/assets/not-real/import/${samples.jsonAsset!.uuid.slice(0, 2)}/${samples.jsonAsset!.uuid}.json`,
+    );
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('serves preview-app general import URLs for internal builtin assets', async () => {
+    const paths = getFixturePaths();
+    const internalBundle = await buildEditorLibraryInternalBundle(paths.engineRoot);
+    const routeContext = {
+      ...createRouteContext(),
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings: async () => ({
+          settings: {
+            launch: {
+              launchScene: '',
+            },
+            engine: {
+              builtinAssets: internalBundle.builtinAssets,
+            },
+            assets: {
+              importBase: 'http://127.0.0.1:19530/assets',
+              nativeBase: 'http://127.0.0.1:19530/assets',
+              server: 'http://127.0.0.1:19530',
+              remoteBundles: ['internal'],
+            },
+          },
+          script2library: {},
+          bundleConfigs: [internalBundle.config],
+        }),
+      }),
+    };
+    const physicsMaterialUuid = 'ba21476f-2866-4f81-9c4d-6e359316e448';
+
+    const response = await handleRuntimePreviewRequest(
+      routeContext,
+      `/assets/general/import/${physicsMaterialUuid.slice(0, 2)}/${physicsMaterialUuid}.json`,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toContain('default-physics-material');
+
+    const fontUuid = '0835f102-5471-47a3-9a76-01c07ac9cdb2';
+    const fontResponse = await handleRuntimePreviewRequest(
+      routeContext,
+      `/assets/general/native/${fontUuid.slice(0, 2)}/${fontUuid}/OpenSans-Regular.ttf`,
+    );
+
+    expect(fontResponse.statusCode).toBe(200);
+    expect(fontResponse.headers['content-type']).toContain('font/ttf');
+    expect(Buffer.isBuffer(fontResponse.body)).toBe(true);
+  });
+
+  it('rejects unsupported engine external requests', async () => {
+    const routeContext = createRouteContext();
+    const invalidRoutes = [
+      '/engine_external/?url=http%3A%2F%2Fexample.com%2Fa.wasm',
+      '/engine_external/?url=external%3A..%2Fpackage.json',
+    ];
+
+    for (const route of invalidRoutes) {
+      const response = await handleRuntimePreviewRequest(routeContext, route);
+      expect(response.statusCode, route).toBe(400);
     }
   });
 

@@ -13,8 +13,33 @@ const nodeRequire = createRequire(__filename);
 const scriptingEnginePrefix = '/scripting/engine/';
 const scriptingEnginePreviewBase = 'bin/.cache/dev-cli/web/';
 const scriptingPolyfillsPrefix = '/scripting/polyfills/';
+const engineExternalPath = '/engine_external/';
 const missingAssetPrefix = '/missing-asset/';
 const scenePrefix = '/scene/';
+const noopSocketIoClient = `
+System.register([], function (_export) {
+    function createNoopSocket() {
+        return {
+            on() { return this; },
+            emit() { return this; },
+            off() { return this; },
+            close() { return this; },
+            disconnect() { return this; },
+        };
+    }
+
+    function io() {
+        return createNoopSocket();
+    }
+
+    return {
+        execute() {
+            _export('default', io);
+            _export('io', io);
+        },
+    };
+});
+`;
 
 interface AssetDataRecord {
     url?: string;
@@ -28,6 +53,7 @@ interface PreviewSceneRecord {
 }
 
 export interface PreviewAppRouteOptions {
+    requestPath?: string;
     method?: string;
     body?: string;
     logger?: RuntimePreviewLogger;
@@ -187,25 +213,23 @@ async function resolvePolyfillsFile(pathname: string): Promise<string | null> {
     return null;
 }
 
-async function resolveSocketIoClientFile(pathname: string): Promise<string | null> {
-    if (pathname !== '/socket.io/socket.io.js') {
+async function resolveEngineExternalFile(context: RuntimePreviewContext, pathname: string, requestPath?: string): Promise<string | null | false> {
+    if (pathname !== engineExternalPath) {
         return null;
     }
 
-    const socketIoRoot = getPackageRoot('socket.io');
-    if (socketIoRoot) {
-        const file = await resolveExistingFileInside(join(socketIoRoot, 'client-dist'), 'socket.io.js');
-        if (file) {
-            return file;
-        }
+    const url = new URL(requestPath ?? pathname, 'http://runtime-preview.local');
+    const externalUrl = url.searchParams.get('url');
+    if (!externalUrl?.startsWith('external:')) {
+        return false;
     }
 
-    const socketIoClientRoot = getPackageRoot('socket.io-client');
-    if (socketIoClientRoot) {
-        return resolveExistingFileInside(join(socketIoClientRoot, 'dist'), 'socket.io.js');
+    const externalRelativePath = externalUrl.slice('external:'.length);
+    if (!externalRelativePath || externalRelativePath.split(/[\\/]/).includes('..')) {
+        return false;
     }
 
-    return null;
+    return resolveExistingFileInside(context.engineRoot, `native/external/${externalRelativePath}`);
 }
 
 function getSceneUuid(pathname: string): string | null {
@@ -232,6 +256,14 @@ export async function handlePreviewAppRequiredRoute(
     pathname: string,
     options: PreviewAppRouteOptions = {},
 ): Promise<RuntimePreviewHttpResponse | null> {
+    const engineExternalFile = await resolveEngineExternalFile(context, pathname, options.requestPath);
+    if (engineExternalFile === false) {
+        return textResponse(400, 'Invalid runtime preview engine external request.');
+    }
+    if (engineExternalFile) {
+        return serveOnDemandFile({ absolutePath: engineExternalFile });
+    }
+
     const scriptingEngineFile = await resolveScriptingEngineFile(context, pathname);
     if (scriptingEngineFile) {
         return serveOnDemandFile({ absolutePath: scriptingEngineFile });
@@ -242,9 +274,8 @@ export async function handlePreviewAppRequiredRoute(
         return serveOnDemandFile({ absolutePath: polyfillsFile });
     }
 
-    const socketIoClientFile = await resolveSocketIoClientFile(pathname);
-    if (socketIoClientFile) {
-        return serveOnDemandFile({ absolutePath: socketIoClientFile });
+    if (pathname === '/socket.io/socket.io.js') {
+        return textResponse(200, noopSocketIoClient, 'application/javascript; charset=utf-8');
     }
 
     if (pathname === '/scene-list') {

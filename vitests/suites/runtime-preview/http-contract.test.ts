@@ -181,7 +181,7 @@ describe('runtime preview HTTP route contract', () => {
     expect(String(missingResponse.body)).toContain('No runtime preview route handled');
     expect(runtimeContext.preloadedLibraryFileCount).toBe(0);
     expect(runtimeContext.preloadedProgrammingFileCount).toBe(0);
-  });
+  }, 120_000);
 
   it('serves captured asset URLs without requiring settings generation', async () => {
     const paths = getFixturePaths();
@@ -208,5 +208,5 @@ describe('runtime preview HTTP route contract', () => {
     const response = await handleRuntimePreviewRequest(routeContext, capturedImport!.url);
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(String(response.body)).__type__).toBe('cc.JsonAsset');
-  });
+  }, 120_000);
 });

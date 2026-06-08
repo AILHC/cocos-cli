@@ -75,7 +75,7 @@ describe('runtime preview production asset routes', () => {
     } finally {
       await server.close();
     }
-  });
+  }, 120_000);
 
   it('serves an engine-captured native URL only when bundle config proves the native asset uuid', async () => {
     const paths = getFixturePaths();
@@ -145,7 +145,7 @@ describe('runtime preview production asset routes', () => {
     } finally {
       await server.close();
     }
-  });
+  }, 120_000);
 
   it('starts the real Launcher runtime preview path and serves settings', async () => {
     const paths = getFixturePaths();

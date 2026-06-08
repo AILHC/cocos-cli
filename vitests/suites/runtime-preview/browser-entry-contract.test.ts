@@ -148,6 +148,7 @@ describe('runtime preview browser entry contract', () => {
     const previewAppSource = (await Promise.all(previewAppFiles.map((file) => readFile(file, 'utf8')))).join('\n');
     expect(previewAppSource).toContain('assets/general/import');
     expect(previewAppSource).toContain('assets/general/native');
+    expect(await readFile(join(repoRoot, 'static/runtime-preview/script.ejs'), 'utf8')).toContain('assets.remoteBundles');
 
     const glueFiles = [
       ...await collectTextFiles(join(repoRoot, 'src/runtime-preview/server')),

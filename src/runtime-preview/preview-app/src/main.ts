@@ -1,6 +1,25 @@
 import { Ui } from './ui.js';
 import { bootstrap } from './index.js';
 
+type RuntimePreviewReadyResource = {
+    path: string;
+    type: string;
+    uuid?: string;
+};
+
+type RuntimePreviewReadyState = {
+    scene: string;
+    resources: RuntimePreviewReadyResource[];
+    timestamp: number;
+    limitation?: string;
+};
+
+declare global {
+    interface Window {
+        __RUNTIME_PREVIEW_READY?: RuntimePreviewReadyState;
+    }
+}
+
 export async function main(ui: Ui, options: bootstrap.Options) {
     const cc = await System.import('cc');
 
@@ -14,6 +33,7 @@ export async function main(ui: Ui, options: bootstrap.Options) {
     let launchScene = options.settings.launch.launchScene;
 
     Object.assign(option.overrideSettings, options.settings);
+    applyRuntimePreviewBrowserOverrides(option.overrideSettings);
 
     option.overrideSettings.profiling = option.overrideSettings.profiling || {};
     option.overrideSettings.profiling.showFPS = ui.showFps;
@@ -29,6 +49,7 @@ export async function main(ui: Ui, options: bootstrap.Options) {
     option.overrideSettings.launch.launchScene = '';
     // 等待引擎启动
     await cc.game.init(option);
+    const readyResources = await loadRuntimePreviewReadyResources(cc);
     cc.assetManager.onAssetMissing(async (parentAsset: any, owner: any, propName: string, uuid: string) => {
         let assetPathOrUuid = uuid;
         let errorInfo = `The asset ${uuid} used by ${parentAsset.name}{${cc.js.getClassName(parentAsset)}(${parentAsset.uuid})} is missing! \n`;
@@ -61,6 +82,12 @@ export async function main(ui: Ui, options: bootstrap.Options) {
         if (!launchScene) {
             ui.hideSplash();
             ui.hintEmptyScene();
+            setRuntimePreviewReady({
+                scene: '',
+                resources: readyResources,
+                timestamp: Date.now(),
+                limitation: readyResources.length > 0 ? undefined : 'resource-marker-not-requested',
+            });
             return;
         }
         const json = await getCurrentScene(launchScene);
@@ -88,6 +115,11 @@ export async function main(ui: Ui, options: bootstrap.Options) {
                 scene._name = sceneAsset._name;
                 cc.director.runSceneImmediate(scene, () => {
                     cc.game.resume();
+                    setRuntimePreviewReady({
+                        scene: launchScene || '',
+                        resources: readyResources,
+                        timestamp: Date.now(),
+                    });
                 });
             },
         );
@@ -96,6 +128,61 @@ export async function main(ui: Ui, options: bootstrap.Options) {
     await new Promise((resolve) => {
         setTimeout(resolve, 100);
     });
+}
+
+async function loadRuntimePreviewReadyResources(cc: any): Promise<RuntimePreviewReadyResource[]> {
+    const request = getRuntimePreviewReadyResourceRequest(cc);
+    if (!request) {
+        return [];
+    }
+
+    return [await new Promise<RuntimePreviewReadyResource>((resolve, reject) => {
+        cc.resources.load(request.path, request.ctor, (error: Error | null, asset: any) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+
+            resolve({
+                path: request.path,
+                type: request.type,
+                uuid: asset?.uuid,
+            });
+        });
+    })];
+}
+
+function getRuntimePreviewReadyResourceRequest(cc: any): { path: string; type: string; ctor: any } | null {
+    const params = new URLSearchParams(window.location.search);
+    const path = params.get('runtimePreviewReadyResource');
+    const type = params.get('runtimePreviewReadyType') || 'JsonAsset';
+    if (!path) {
+        return null;
+    }
+
+    const ctor = cc[type];
+    if (typeof ctor !== 'function') {
+        throw new Error(`Unsupported runtime preview ready resource type: ${type}`);
+    }
+
+    return { path, type, ctor };
+}
+
+const LEGACY_RENDER_MODE_WEBGL = 2;
+
+function applyRuntimePreviewBrowserOverrides(overrideSettings: Record<string, any>): void {
+    const params = new URLSearchParams(window.location.search);
+    const renderType = params.get('runtimePreviewRenderType');
+    if (renderType === 'webgl') {
+        overrideSettings.rendering = overrideSettings.rendering || {};
+        // Matches engine gfx/device-manager.ts LegacyRenderMode.WEBGL.
+        overrideSettings.rendering.renderMode = LEGACY_RENDER_MODE_WEBGL;
+    }
+}
+
+function setRuntimePreviewReady(state: RuntimePreviewReadyState): void {
+    window.__RUNTIME_PREVIEW_READY = state;
+    window.dispatchEvent(new CustomEvent('runtime-preview-ready', { detail: state }));
 }
 
 /**

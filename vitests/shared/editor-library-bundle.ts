@@ -39,7 +39,7 @@ export interface EditorLibraryBundleConfig {
   importBase: string;
   nativeBase: string;
   base: string;
-  name: 'resources';
+  name: 'resources' | 'internal';
   deps: string[];
   uuids: string[];
   paths: Record<string, [string, string] | [string, string, true]>;
@@ -80,6 +80,11 @@ export interface EditorLibraryResourcesBundle {
     bitmapFont?: EditorLibraryResourceSample;
     textAsset?: EditorLibraryResourceSample;
   };
+}
+
+export interface EditorLibraryInternalBundle {
+  config: EditorLibraryBundleConfig;
+  builtinAssets: string[];
 }
 
 export interface BuildEditorLibraryResourcesBundleOptions {
@@ -141,6 +146,14 @@ function toResourcePath(projectAssetPath: string): string | null {
   }
 
   return relativePath.slice(0, -extension.length);
+}
+
+function toInternalResourcePath(projectAssetPath: string): string | null {
+  const normalized = projectAssetPath.replace(/\\/g, '/');
+  if (normalized.startsWith('db://internal/')) {
+    return normalized.slice('db://internal/'.length);
+  }
+  return normalized || null;
 }
 
 function rememberSample(
@@ -280,6 +293,56 @@ export async function buildEditorLibraryResourcesBundle(
       byRuntimeUrl,
       importExtensionsByUuid,
     },
+  };
+}
+
+export async function buildEditorLibraryInternalBundle(engineRoot: string): Promise<EditorLibraryInternalBundle> {
+  const libraryRoot = join(engineRoot, 'editor', 'library');
+  const assetData = await readJson<Record<string, AssetDataRecord>>(join(libraryRoot, '.internal-data.json'));
+  const ccConfig = await readJson<{ features?: Record<string, { dependentAssets?: string[] }> }>(join(engineRoot, 'cc.config.json'));
+  const config: EditorLibraryBundleConfig = {
+    importBase: '',
+    nativeBase: '',
+    base: '',
+    name: 'internal',
+    deps: [],
+    uuids: [],
+    paths: Object.create(null),
+    scenes: Object.create(null),
+    packs: Object.create(null),
+    versions: { import: [], native: [] },
+    redirect: [],
+    debug: true,
+    types: [],
+    extensionMap: Object.create(null),
+  };
+  const builtinAssets = Array.from(new Set(
+    Object.values(ccConfig.features ?? {})
+      .flatMap((feature) => feature.dependentAssets ?? []),
+  )).sort();
+
+  for (const [uuid, record] of Object.entries(assetData)) {
+    const resourcePath = toInternalResourcePath(record.url);
+    if (!resourcePath) {
+      continue;
+    }
+    const serializedJsonPath = toSerializedJsonPath(libraryRoot, uuid);
+    if (!existsSync(serializedJsonPath)) {
+      continue;
+    }
+    const serialized = await readJson<{ __type__?: string }>(serializedJsonPath);
+    if (!serialized.__type__) {
+      continue;
+    }
+    config.uuids.push(uuid);
+    config.paths[uuid] = [resourcePath, serialized.__type__];
+  }
+
+  config.uuids.sort();
+
+  return {
+    config,
+    builtinAssets,
   };
 }
 
