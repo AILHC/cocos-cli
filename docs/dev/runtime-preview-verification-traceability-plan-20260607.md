@@ -684,7 +684,7 @@ Current evidence:
 
 - `vitests/suites/runtime-preview/browser-entry-contract.test.ts` verifies `/` and `/preview-app/index.js` return `404` in current route behavior, `/settings.js` remains active, old editor / backup entry facts exist, and future copied preview-app code must not own engine URL/base mapping.
 
-- [ ] **Step 5: Commit browser entry facts**
+- [x] **Step 5: Commit browser entry facts**
 
 Run:
 
@@ -692,6 +692,12 @@ Run:
 rtk git add docs/dev/runtime-preview-browser-entry-facts-20260607.md vitests/suites/runtime-preview src/runtime-preview
 rtk git commit -m "docs(runtime-preview): record browser entry facts"
 ```
+
+Completed:
+
+- Commit: `efe925c docs(runtime-preview): record browser entry facts`
+- Verification: `npm --prefix vitests test -- suites/runtime-preview/browser-entry-contract.test.ts` passed, 1 file / 4 tests.
+- Verification: `npm --prefix vitests test -- suites/runtime-preview` passed, 12 files / 40 tests.
 
 ### Task 8B: 实现真实浏览器运行期 smoke harness
 
