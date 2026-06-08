@@ -8,6 +8,11 @@ import scripting from './scripting';
 import { startupScene } from './scene';
 import { spawn } from 'child_process';
 
+interface RuntimePreviewStageDiagnostics {
+    stageStart: (stage: string) => void;
+    stageDone: (stage: string) => void;
+    stageError: (stage: string, error: unknown) => void;
+}
 
 /**
  * 启动器，主要用于整合各个模块的初始化和关闭流程
@@ -35,7 +40,7 @@ export default class Launcher {
         return GlobalPaths.enginePath;
     }
 
-    private async init(serverURL?: string) {
+    private async init(options: { serverURL?: string; diagnostics?: RuntimePreviewStageDiagnostics } = {}) {
         if (this._init) {
             return;
         }
@@ -54,19 +59,26 @@ export default class Launcher {
         await Project.open(this.projectPath);
         // 初始化引擎
         const { initEngine } = await import('./engine');
-        await initEngine(this.getEngineRoot(), this.projectPath, serverURL);
+        options.diagnostics?.stageStart('engine:init');
+        try {
+            await initEngine(this.getEngineRoot(), this.projectPath, options.serverURL);
+            options.diagnostics?.stageDone('engine:init');
+        } catch (error) {
+            options.diagnostics?.stageError('engine:init', error);
+            throw error;
+        }
         console.log('initEngine success');
     }
 
     /**
      * 导入资源
      */
-    async import(options: { serverURL?: string } = {}) {
+    async import(options: { serverURL?: string; diagnostics?: RuntimePreviewStageDiagnostics } = {}) {
         if (this._import) {
             return;
         }
         this._import = true;
-        await this.init(options.serverURL);
+        await this.init({ serverURL: options.serverURL, diagnostics: options.diagnostics });
         // 在导入资源之前，初始化 scripting 模块，才能正常导入编译脚本
         const { Engine } = await import('./engine');
         await scripting.initialize(this.projectPath, this.getEngineRoot(), Engine.getConfig().includeModules);
@@ -76,8 +88,15 @@ export default class Launcher {
 
         // 启动以及初始化资源数据库
         const { initAssetDB, startAssetDB } = await import('./assets');
-        await initAssetDB();
-        await startAssetDB();
+        options.diagnostics?.stageStart('asset-db');
+        try {
+            await initAssetDB();
+            await startAssetDB();
+            options.diagnostics?.stageDone('asset-db');
+        } catch (error) {
+            options.diagnostics?.stageError('asset-db', error);
+            throw error;
+        }
     }
 
     /**
@@ -133,14 +152,34 @@ export default class Launcher {
         const cliProgrammingRoot = getDefaultProjectProgrammingRoot(this.projectPath);
         const engineRoot = this.getEngineRoot();
         let serverUrl = '';
+        let writeRuntimePreviewLog: ((line: string) => void) | null = null;
+        const emitRuntimePreviewEvent = (line: string) => {
+            console.log(`[runtime-preview] ${line}`);
+            writeRuntimePreviewLog?.(line);
+        };
+        const diagnostics: RuntimePreviewStageDiagnostics = {
+            stageStart: (stage) => emitRuntimePreviewEvent(`${stage}:start`),
+            stageDone: (stage) => emitRuntimePreviewEvent(`${stage}:done`),
+            stageError: (stage, error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                emitRuntimePreviewEvent(`${stage}:error ${message}`);
+            },
+        };
         let preparePreviewSettings: Promise<void> | null = null;
         const ensurePreviewSettingsReady = () => {
             if (!preparePreviewSettings) {
                 preparePreviewSettings = (async () => {
                     const engineServerUrl = serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`;
-                    await this.import({ serverURL: engineServerUrl });
+                    await this.import({ serverURL: engineServerUrl, diagnostics });
                     const { init: initBuilder } = await import('./builder');
-                    await initBuilder();
+                    diagnostics.stageStart('builder:init');
+                    try {
+                        await initBuilder();
+                        diagnostics.stageDone('builder:init');
+                    } catch (error) {
+                        diagnostics.stageError('builder:init', error);
+                        throw error;
+                    }
                 })();
             }
             return preparePreviewSettings;
@@ -172,11 +211,16 @@ export default class Launcher {
             settingsProvider,
         });
         serverUrl = server.url;
+        writeRuntimePreviewLog = (line) => {
+            void server.logger.write(line).catch((error) => {
+                console.warn(`[runtime-preview] log-write:error ${error instanceof Error ? error.message : String(error)}`);
+            });
+        };
 
         server.startupLogLines.forEach((line) => console.log(`[runtime-preview] ${line}`));
-        console.log(`[runtime-preview] listening ${server.url}`);
+        emitRuntimePreviewEvent(`server:listening ${server.url}`);
         if (options.scene) {
-            console.log(`[runtime-preview] scene=${options.scene}`);
+            emitRuntimePreviewEvent(`scene=${options.scene}`);
         }
 
         return server;

@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { captureJsonAssetHttpRuntimeUrls, captureRepresentativeHttpRuntimeUrls } from '@shared/http-url-capture';
@@ -172,6 +173,7 @@ describe('runtime preview production asset routes', () => {
             settingsStatus: settingsResponse.status,
             assetsServer: settings.assets?.server,
             launchScene: settings.launch?.launchScene,
+            logFilePath: server.logFilePath,
           }) + '\\n');
         } finally {
           await server.close();
@@ -193,17 +195,33 @@ describe('runtime preview production asset routes', () => {
     });
     const resultLine = stdout.trim().split(/\r?\n/).find((line) => line.startsWith('RESULT '));
     expect(resultLine).toBeTruthy();
+    expect(stdout).toContain('[runtime-preview] server:listening ');
+    expect(stdout).toContain('[runtime-preview] engine:init:start');
+    expect(stdout).toContain('[runtime-preview] engine:init:done');
+    expect(stdout).toContain('[runtime-preview] asset-db:start');
+    expect(stdout).toContain('[runtime-preview] asset-db:done');
+    expect(stdout).toContain('[runtime-preview] builder:init:start');
+    expect(stdout).toContain('[runtime-preview] builder:init:done');
     const result = JSON.parse(resultLine!.slice('RESULT '.length)) as {
       serverUrl: string;
       healthStatus: number;
       settingsStatus: number;
       assetsServer: string;
       launchScene: string;
+      logFilePath: string;
     };
 
     expect(result.healthStatus).toBe(200);
     expect(result.settingsStatus).toBe(200);
     expect(result.assetsServer).toBe(result.serverUrl);
     expect(result.launchScene).toBe(diagnosticSceneUuid);
+    const logSource = await readFile(result.logFilePath, 'utf8');
+    expect(logSource).toContain('server:listening');
+    expect(logSource).toContain('engine:init:start');
+    expect(logSource).toContain('engine:init:done');
+    expect(logSource).toContain('asset-db:start');
+    expect(logSource).toContain('asset-db:done');
+    expect(logSource).toContain('builder:init:start');
+    expect(logSource).toContain('builder:init:done');
   }, 120_000);
 });

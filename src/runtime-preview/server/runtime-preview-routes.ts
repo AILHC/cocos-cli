@@ -2,6 +2,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
 import type { RuntimePreviewContext } from '../context/runtime-preview-context';
 import { resolveLibraryRequest } from '../library/resolve-library-request';
+import type { RuntimePreviewLogger } from '../logging/runtime-preview-logger';
 import {
     createRuntimePreviewGlobalImportMap,
     resolveProgrammingRequest,
@@ -17,6 +18,7 @@ export interface RuntimePreviewRouteContext {
     runtimeContext: RuntimePreviewContext;
     settingsProvider: PreviewSettingsProvider;
     capturedRuntimeUrls?: Array<{ url: string }>;
+    logger?: RuntimePreviewLogger;
 }
 
 function decodePathname(requestPath: string): string | null {
@@ -161,7 +163,18 @@ export async function handleRuntimePreviewRequest(
     }
 
     if (pathname === '/settings.js') {
-        const settings = await context.settingsProvider.getPreviewSettings();
+        const startedAt = Date.now();
+        await context.logger?.write('settings:generation:start');
+        let settings;
+        try {
+            settings = await context.settingsProvider.getPreviewSettings();
+        } catch (error) {
+            const durationMs = Date.now() - startedAt;
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            await context.logger?.write(`settings:generation:error durationMs=${durationMs} error=${errorMessage}`);
+            throw error;
+        }
+        await context.logger?.write(`settings:generation:done durationMs=${Date.now() - startedAt}`);
         return textResponse(200, settings.settingsJsSource, 'application/javascript; charset=utf-8');
     }
 

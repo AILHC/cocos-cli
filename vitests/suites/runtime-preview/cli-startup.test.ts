@@ -1,6 +1,8 @@
 import { createServer } from 'node:net';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
@@ -51,6 +53,9 @@ describe('runtime preview server startup', () => {
       expect(server.startupLogLines).toContain(`engineRoot=${paths.engineRoot}`);
       expect(server.startupLogLines).toContain(`projectLibraryRoot=${paths.editorLibraryRef}`);
       expect(server.startupLogLines).toContain(`projectProgrammingRoot=${join(paths.editorProgrammingRef, 'programming')}`);
+      expect(server.startupLogLines).toContain(`server:listening=${server.url}`);
+      expect(server.logFilePath).toMatch(/runtime-preview-\d{8}-\d{6}\.log$/);
+      expect(existsSync(server.logFilePath)).toBe(true);
 
       const health = await fetch(`${server.url}/__runtime-preview/health`);
       expect(health.status).toBe(200);
@@ -63,10 +68,48 @@ describe('runtime preview server startup', () => {
       const settings = await fetch(`${server.url}/settings.js`);
       expect(settings.status).toBe(200);
       expect(await settings.text()).toContain('window._CCSettings = ');
+
+      const logSource = await readFile(server.logFilePath, 'utf8');
+      expect(logSource).toContain(`projectRoot=${paths.projectRoot}`);
+      expect(logSource).toContain(`engineRoot=${paths.engineRoot}`);
+      expect(logSource).toContain(`projectLibraryRoot=${paths.editorLibraryRef}`);
+      expect(logSource).toContain(`projectProgrammingRoot=${join(paths.editorProgrammingRef, 'programming')}`);
+      expect(logSource).toContain(`server:listening=${server.url}`);
+      expect(logSource).toMatch(/settings:generation:done durationMs=\d+/);
     } finally {
       await server.close();
     }
 
     expect(await canListen(server.port)).toBe(true);
+  });
+
+  it('prints a settings generation error summary to the console', async () => {
+    const paths = getFixturePaths();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const settingsProvider = new PreviewSettingsProvider({
+      loadPreviewSettings: async () => {
+        throw new Error('settings-timeout-sample');
+      },
+    });
+
+    const server = await startRuntimePreviewServer({
+      projectRoot: paths.projectRoot,
+      engineRoot: paths.engineRoot,
+      projectLibraryRoot: paths.editorLibraryRef,
+      projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+      host: '127.0.0.1',
+      port: 0,
+      settingsProvider,
+    });
+
+    try {
+      const settings = await fetch(`${server.url}/settings.js`);
+      expect(settings.status).toBe(500);
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('[runtime-preview] settings:generation:error'));
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('settings-timeout-sample'));
+    } finally {
+      consoleError.mockRestore();
+      await server.close();
+    }
   });
 });
