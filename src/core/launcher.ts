@@ -145,7 +145,7 @@ export default class Launcher {
             PreviewSettingsProvider,
             startRuntimePreviewServer,
         } = await import('../runtime-preview');
-        const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF || join(this.projectPath, 'library');
+        const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF || join(this.projectPath, 'library', 'cli');
         const projectProgrammingRoot = process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF
             ? join(process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF, 'programming')
             : getDefaultProjectProgrammingRoot(this.projectPath);

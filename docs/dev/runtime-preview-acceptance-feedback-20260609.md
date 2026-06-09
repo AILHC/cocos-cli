@@ -180,7 +180,54 @@ npm --prefix vitests test -- suites/runtime-preview
 - HTTP bad responses 为空。
 - runtime preview server log 无 `settings:generation:error`、`browser:preview-error`、`UnhandledPromiseRejection`、`route:error`、`RuntimePreviewRequestBodyTooLarge`。
 
-## 5. 后续建议
+## 5. 真实 CLI generated output 验收补充
+
+反馈问题：
+
+- 仅验证 frozen editor reference 或 active editor 根产物，不能证明 CLI 自己生成的 `library` / `programming` 没问题。
+- 原 `startRuntimePreviewCliProcess()` 总是向真实 CLI child process 注入 `COCOS_CLI_TEST_EDITOR_LIBRARY_REF` / `COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF`，因此小项目集成验收仍带 reference 影响。
+- `Launcher.startRuntimePreview()` 在没有 reference env 时默认 `projectLibraryRoot=<project>/library`，而当前 CLI AssetDB project output 是 `<project>/library/cli`；这会让存在 editor 根产物的小项目优先读 `<project>/library`，掩盖 CLI generated output 问题。
+
+修复决策：
+
+- 保留 frozen reference 测试能力，但 helper 只有显式传入 reference 时才注入对应 env；不传时必须删除父进程中的 reference env。
+- production 默认 `projectLibraryRoot` 改为 `<project>/library/cli`，与 CLI AssetDB project output 对齐。
+- `projectProgrammingRoot` / `cliProgrammingRoot` 继续使用 `<project>/temp/cli/programming`。
+- 新增真实 CLI generated output 验收测试，先断言 health/startup root 没有 reference，再启动 browser 加载三个复杂 scene。
+
+新增测试：
+
+- `vitests/suites/runtime-preview/cli-generated-output-integration.test.ts`
+
+已通过命令：
+
+```powershell
+npm run build
+npm --prefix vitests test -- suites/runtime-preview/cli-generated-output-integration.test.ts
+npm --prefix vitests test -- suites/runtime-preview/editor-cli-output-consistency.test.ts
+npm --prefix vitests test -- suites/runtime-preview/cli-generated-output-integration.test.ts suites/runtime-preview/editor-cli-output-consistency.test.ts
+```
+
+本轮证据：
+
+- CLI command：`node E:\own_space\engines\cocos-cli\dist\cli.js preview --project E:/own_space/cocos_work_lab_38x --runtime --host 127.0.0.1 --port 19601 --settings-timeout-ms 120000`
+- `projectLibraryRoot=E:\own_space\cocos_work_lab_38x\library\cli`
+- `projectProgrammingRoot=E:\own_space\cocos_work_lab_38x\temp\cli\programming`
+- evidence summary：`E:\own_space\cocos_work_lab_38x\temp\runtime-preview-cli-generated-output-evidence.json`
+- server log：`E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-214155.log`
+
+本轮三场景验收结果：
+
+- `test_area_edge_graphic`：`668efa31-4841-4cbc-bbae-33255599d478`，runtime server request count `246`
+- `test_dynamic_atlas`：`465d8fb0-d260-4256-a785-651bf2ebf7d1`，runtime server request count `249`
+- `test_custom_shader_batch`：`ec470553-bc56-4c2c-91aa-c7016f677e3e`，runtime server request count `232`
+
+边界：
+
+- 这证明当前小项目三复杂场景在真实 CLI generated `library/cli` 和 `temp/cli/programming` root 下可以通过 browser runtime smoke。
+- 这不等于所有资源类型、所有 bundle、所有 extension runtime request 都已覆盖；`editor-cli-output-consistency.test.ts` 仍把 CLI/editor output 差异分类为 `source-backed-split-library-layout`。
+
+## 6. 后续建议
 
 1. 将 renderMode 默认策略从“默认 WebGL”收敛为配置推导实现。
 2. 为 `useWebGPU=true` 或 `gfx-webgpu=true` 的小型 fixture 增加单独 WebGPU opt-in 验收；不要把 WebGPU 失败和默认 preview 稳定性混为同一 gate。
