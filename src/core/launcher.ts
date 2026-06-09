@@ -231,9 +231,8 @@ export default class Launcher {
         server.startupLogLines.forEach((line) => console.log(`[runtime-preview] ${line}`));
         emitRuntimePreviewSummary({
             url: server.url,
-            projectLibraryRoot,
-            projectProgrammingRoot,
-            cliProgrammingRoot,
+            libraryRoot: projectLibraryRoot,
+            programmingRoot: projectProgrammingRoot,
             internalLibraryRoot: join(engineRoot, 'editor', 'library'),
             logFilePath: server.logFilePath,
         });
