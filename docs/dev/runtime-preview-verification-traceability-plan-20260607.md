@@ -1300,8 +1300,9 @@ Use the same browser smoke rules as Task 8, but record small-project integration
 - review 后已修复 first loadable 边界：fallback scene 不再只取 metadata 第一条，而是确认 `/scene/<uuid>.json` 对应 library 文件存在。
 - review 后已修复 AssetDB fallback proof 性能：`/assets/general/import|native/*` 的 metadata 证明从每请求全量 `depends` 扫描改为每 metadata root 一次性 `Set` 索引。
 - review 后已补真实 browser 默认 root 和 scene select 验收：小项目测试先打开无 `?scene=` root 并等待默认 scene ready，再通过真实 `<select id="scene-select">` 触发 scene 切换，等待 reload 后目标 scene ready。
+- WebGPU validation error 处理边界：runtime preview 默认 render type 改为 WebGL；`runtimePreviewRenderType=webgpu` 仍保留为显式 opt-in。默认 root 和 scene select 真实验收 URL 不再带 `runtimePreviewRenderType=webgl`，用于覆盖手动打开 `?scene=<uuid>` 的默认路径。
 - 验证通过：`npm --prefix vitests test -- suites/runtime-preview`，15 files / 61 tests passed。
-- 三场景、默认 root、scene select 真实验收通过，证据文件：`E:\own_space\cocos_work_lab_38x\temp\runtime-preview-small-project-cli-evidence.json`；server log：`E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-140105.log`。验收 scene 为 `test_area_edge_graphic`、`test_dynamic_atlas`、`test_custom_shader_batch`，每个 scene 都等待 `window.__RUNTIME_PREVIEW_READY.scene`，ready 后继续观察稳定窗口，并断言 browser console/page/network 与 runtime preview server log 无错误。
+- 三场景、默认 root、scene select 真实验收通过，证据文件：`E:\own_space\cocos_work_lab_38x\temp\runtime-preview-small-project-cli-evidence.json`；server log：`E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-142020.log`。验收 scene 为 `test_area_edge_graphic`、`test_dynamic_atlas`、`test_custom_shader_batch`，每个 scene 都等待 `window.__RUNTIME_PREVIEW_READY.scene`，ready 后继续观察稳定窗口，并断言 browser console/page/network 与 runtime preview server log 无错误。
 
 - [ ] **Step 5: 写验收结论**
 

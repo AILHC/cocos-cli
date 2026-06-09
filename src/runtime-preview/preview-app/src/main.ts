@@ -169,15 +169,17 @@ function getRuntimePreviewReadyResourceRequest(cc: any): { path: string; type: s
 }
 
 const LEGACY_RENDER_MODE_WEBGL = 2;
+const LEGACY_RENDER_MODE_WEBGPU = 4;
 
 function applyRuntimePreviewBrowserOverrides(overrideSettings: Record<string, any>): void {
     const params = new URLSearchParams(window.location.search);
-    const renderType = params.get('runtimePreviewRenderType');
-    if (renderType === 'webgl') {
-        overrideSettings.rendering = overrideSettings.rendering || {};
-        // Matches engine gfx/device-manager.ts LegacyRenderMode.WEBGL.
-        overrideSettings.rendering.renderMode = LEGACY_RENDER_MODE_WEBGL;
-    }
+    const renderType = params.get('runtimePreviewRenderType') || 'webgl';
+    overrideSettings.rendering = overrideSettings.rendering || {};
+    // Runtime preview defaults to WebGL for deterministic browser validation.
+    // WebGPU stays opt-in because 3.8.6 WebGPU validation can fail for existing project assets.
+    overrideSettings.rendering.renderMode = renderType === 'webgpu'
+        ? LEGACY_RENDER_MODE_WEBGPU
+        : LEGACY_RENDER_MODE_WEBGL;
 }
 
 function setRuntimePreviewReady(state: RuntimePreviewReadyState): void {
