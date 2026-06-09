@@ -202,6 +202,12 @@ export default class Launcher {
                 } as never);
             },
         });
+        const emitRuntimePreviewSummary = (summary: Record<string, string>) => {
+            console.log('[runtime-preview] active-output:');
+            for (const [key, value] of Object.entries(summary)) {
+                console.log(`[runtime-preview]   ${key}: ${value}`);
+            }
+        };
 
         const server = await startRuntimePreviewServer({
             projectRoot: this.projectPath,
@@ -223,6 +229,14 @@ export default class Launcher {
         };
 
         server.startupLogLines.forEach((line) => console.log(`[runtime-preview] ${line}`));
+        emitRuntimePreviewSummary({
+            url: server.url,
+            projectLibraryRoot,
+            projectProgrammingRoot,
+            cliProgrammingRoot,
+            internalLibraryRoot: join(engineRoot, 'editor', 'library'),
+            logFilePath: server.logFilePath,
+        });
         emitRuntimePreviewEvent(`server:listening ${server.url}`);
         if (options.scene) {
             emitRuntimePreviewEvent(`scene=${options.scene}`);
