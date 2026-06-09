@@ -9,6 +9,7 @@ import { configurationRegistry, IBaseConfiguration } from '../configuration';
 import { assetManager } from '../assets';
 import { getEngineDynamicConfigContribution, getEngineRenderConfig, getLocalizedEngineRenderConfig } from './dynamic-metadata';
 import { createEngineMetadataNodes } from './metadata';
+import { installUuidUtilsCompatibility } from './editor-extends/uuid-utils-compatibility';
 import i18n from '../base/i18n';
 
 /**
@@ -337,9 +338,8 @@ class EngineManager implements IEngine {
 
         // @ts-ignore
         globalThis.EditorExtends = await import('./editor-extends');
-        // 注意：目前 utils 用的是 UUID，EditorExtends 用的是 Uuid 
         // @ts-ignore
-        globalThis.EditorExtends.UuidUtils.compressUuid = globalThis.EditorExtends.UuidUtils.compressUUID;
+        installUuidUtilsCompatibility(globalThis.EditorExtends.UuidUtils);
     }
 
     async initEditorExtensions() {

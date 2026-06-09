@@ -1,4 +1,5 @@
 import * as EditorExtends from '../../engine/editor-extends';
+import { installUuidUtilsCompatibility } from '../../engine/editor-extends/uuid-utils-compatibility';
 import { Rpc } from './rpc';
 import { serviceManager } from './service/service-manager';
 import { Service as DecoratorService } from './service/core/decorator';
@@ -7,14 +8,7 @@ import { initLocalI18n } from './i18n';
 
 import './service';
 
-// Patch UuidUtils for casing compatibility
-if (EditorExtends.UuidUtils) {
-    const U = EditorExtends.UuidUtils as any;
-    U.decompressUuid = U.decompressUuid || U.decompressUUID;
-    U.compressUuid = U.compressUuid || U.compressUUID;
-    U.isUuid = U.isUuid || U.isUUID;
-    U.uuid = U.uuid || U.generate;
-}
+installUuidUtilsCompatibility(EditorExtends.UuidUtils);
 
 export { serviceManager, EditorExtends };
 export const Service = DecoratorService;
