@@ -88,15 +88,17 @@ describe('runtime preview real CLI generated output acceptance', () => {
 
       const normalizedStdout = cli.stdout.replace(/\\/g, '/');
       expect(normalizedStdout).toContain('[runtime-preview] active-output:');
+      const activeOutputBlock = normalizedStdout.slice(normalizedStdout.indexOf('[runtime-preview] active-output:'));
       expect(normalizedStdout).toContain(`[runtime-preview]   url: ${cli.url}`);
       expect(normalizedStdout).toContain(`[runtime-preview] projectLibraryRoot=${slash(expectedProjectLibraryRoot)}`);
-      expect(normalizedStdout).toContain(`[runtime-preview]   projectLibraryRoot: ${slash(expectedProjectLibraryRoot)}`);
+      expect(normalizedStdout).toContain(`[runtime-preview]   libraryRoot: ${slash(expectedProjectLibraryRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview] projectProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
-      expect(normalizedStdout).toContain(`[runtime-preview]   projectProgrammingRoot: ${slash(expectedProjectProgrammingRoot)}`);
+      expect(normalizedStdout).toContain(`[runtime-preview]   programmingRoot: ${slash(expectedProjectProgrammingRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview] cliProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
-      expect(normalizedStdout).toContain(`[runtime-preview]   cliProgrammingRoot: ${slash(expectedProjectProgrammingRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview]   internalLibraryRoot: ${slash(expectedInternalLibraryRoot)}`);
       expect(normalizedStdout).toContain('[runtime-preview]   logFilePath: ');
+      expect(activeOutputBlock).not.toContain('[runtime-preview]   projectProgrammingRoot:');
+      expect(activeOutputBlock).not.toContain('[runtime-preview]   cliProgrammingRoot:');
       expect(normalizedStdout).not.toContain('.codex-tmp/reference-library');
       expect(normalizedStdout).not.toContain('.codex-tmp/reference-temp');
       const normalizedCliCommand = `${cli.command} ${cli.args.join(' ')}`.replace(/\\/g, '/');
