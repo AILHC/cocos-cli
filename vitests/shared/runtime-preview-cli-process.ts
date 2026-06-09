@@ -6,8 +6,8 @@ export interface RuntimePreviewCliProcessOptions {
   repoRoot: string;
   projectRoot: string;
   engineRoot: string;
-  editorLibraryRef: string;
-  editorProgrammingRef: string;
+  editorLibraryRef?: string;
+  editorProgrammingRef?: string;
   host?: string;
   port?: number;
   scene?: string;
@@ -106,14 +106,24 @@ export async function startRuntimePreviewCliProcess(
     args.push('--scene', options.scene);
   }
 
+  const env = {
+    ...process.env,
+    COCOS_CLI_TEST_ENGINE_ROOT: options.engineRoot,
+  };
+  if (options.editorLibraryRef) {
+    env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF = options.editorLibraryRef;
+  } else {
+    delete env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF;
+  }
+  if (options.editorProgrammingRef) {
+    env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF = options.editorProgrammingRef;
+  } else {
+    delete env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF;
+  }
+
   const child = spawn(command, args, {
     cwd: options.repoRoot,
-    env: {
-      ...process.env,
-      COCOS_CLI_TEST_ENGINE_ROOT: options.engineRoot,
-      COCOS_CLI_TEST_EDITOR_LIBRARY_REF: options.editorLibraryRef,
-      COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF: options.editorProgrammingRef,
-    },
+    env,
     stdio: 'pipe',
   });
   child.stdin.end();
