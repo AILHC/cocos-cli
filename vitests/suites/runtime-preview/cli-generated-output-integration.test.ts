@@ -60,6 +60,7 @@ describe('runtime preview real CLI generated output acceptance', () => {
     const port = await findAvailablePort(19601, 50);
     const expectedProjectLibraryRoot = join(paths.projectRoot, 'library', 'cli');
     const expectedProjectProgrammingRoot = join(paths.projectRoot, 'temp', 'cli', 'programming');
+    const expectedInternalLibraryRoot = join(paths.engineRoot, 'editor', 'library');
     const evidenceSummaryFilePath = join(paths.projectRoot, 'temp', 'runtime-preview-cli-generated-output-evidence.json');
 
     const cli = await startRuntimePreviewCliProcess({
@@ -86,9 +87,16 @@ describe('runtime preview real CLI generated output acceptance', () => {
       expect(slash(health.cliProgrammingRoot ?? '')).toBe(slash(expectedProjectProgrammingRoot));
 
       const normalizedStdout = cli.stdout.replace(/\\/g, '/');
+      expect(normalizedStdout).toContain('[runtime-preview] active-output:');
+      expect(normalizedStdout).toContain(`[runtime-preview]   url: ${cli.url}`);
       expect(normalizedStdout).toContain(`[runtime-preview] projectLibraryRoot=${slash(expectedProjectLibraryRoot)}`);
+      expect(normalizedStdout).toContain(`[runtime-preview]   projectLibraryRoot: ${slash(expectedProjectLibraryRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview] projectProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
+      expect(normalizedStdout).toContain(`[runtime-preview]   projectProgrammingRoot: ${slash(expectedProjectProgrammingRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview] cliProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
+      expect(normalizedStdout).toContain(`[runtime-preview]   cliProgrammingRoot: ${slash(expectedProjectProgrammingRoot)}`);
+      expect(normalizedStdout).toContain(`[runtime-preview]   internalLibraryRoot: ${slash(expectedInternalLibraryRoot)}`);
+      expect(normalizedStdout).toContain('[runtime-preview]   logFilePath: ');
       expect(normalizedStdout).not.toContain('.codex-tmp/reference-library');
       expect(normalizedStdout).not.toContain('.codex-tmp/reference-temp');
       const normalizedCliCommand = `${cli.command} ${cli.args.join(' ')}`.replace(/\\/g, '/');
