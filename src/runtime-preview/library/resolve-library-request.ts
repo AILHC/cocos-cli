@@ -1,5 +1,5 @@
-import { resolve } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
 import type { RuntimePreviewContext } from '../context/runtime-preview-context';
 
 export interface ResolvedRuntimePreviewFile {
@@ -24,6 +24,16 @@ interface LibraryRoute {
     artifactKind: 'import' | 'native';
     tail: string;
 }
+
+interface AssetDataRecord {
+    url?: string;
+    value?: {
+        depends?: unknown;
+    };
+}
+
+const assetDataCache = new Map<string, Promise<Record<string, AssetDataRecord> | null>>();
+const assetProofCache = new Map<string, Promise<Set<string>>>();
 
 function parseLibraryRoute(requestPath: string): LibraryRoute | null {
     const pathname = decodePathname(requestPath);
@@ -76,7 +86,7 @@ function getUuidFromImportTail(tail: string): string | null {
         return null;
     }
 
-    const match = /^([0-9a-fA-F-]{32,36})(?:\.(?:json|ccon|cconb))?$/.exec(fileName);
+    const match = /^([0-9a-fA-F-]{32,36}(?:@[0-9a-fA-F]+)?)(?:\.(?:json|ccon|cconb))?$/.exec(fileName);
     return match?.[1] ?? null;
 }
 
@@ -87,17 +97,98 @@ function getUuidFromNativeTail(tail: string): string | null {
         return null;
     }
 
-    const match = /^([0-9a-fA-F-]{32,36})\.(?:png|jpg|jpeg)$/i.exec(fileName);
+    const match = /^([0-9a-fA-F-]{32,36}(?:@[0-9a-fA-F]+)?)\.(?:png|jpg|jpeg)$/i.exec(fileName);
     if (match?.[1]) {
         return match[1];
     }
 
-    const uuidSegment = segments.find((segment) => /^[0-9a-fA-F-]{32,36}$/.test(segment));
+    const uuidSegment = segments.find((segment) => /^[0-9a-fA-F-]{32,36}(?:@[0-9a-fA-F]+)?$/.test(segment));
     if (uuidSegment) {
         return uuidSegment;
     }
 
     return null;
+}
+
+function getMetadataRoots(context: RuntimePreviewContext): string[] {
+    return Array.from(new Set([
+        context.projectLibraryRoot,
+        join(context.projectRoot, 'library', 'cli'),
+        join(context.projectRoot, 'library'),
+        context.internalLibraryRoot,
+    ].filter((value): value is string => Boolean(value))));
+}
+
+async function readAssetDataFile(filePath: string): Promise<Record<string, AssetDataRecord> | null> {
+    let cached = assetDataCache.get(filePath);
+    if (!cached) {
+        cached = readFile(filePath, 'utf8')
+            .then((source) => JSON.parse(source) as Record<string, AssetDataRecord>)
+            .catch(() => null);
+        assetDataCache.set(filePath, cached);
+    }
+    return cached;
+}
+
+async function loadRootAssetData(root: string): Promise<Record<string, AssetDataRecord> | null> {
+    return await readAssetDataFile(join(root, '.assets-data.json'))
+        ?? await readAssetDataFile(join(root, '.internal-data.json'));
+}
+
+function buildAssetProofSet(assetData: Record<string, AssetDataRecord> | null): Set<string> {
+    const proofSet = new Set<string>();
+    if (!assetData) {
+        return proofSet;
+    }
+
+    for (const [uuid, record] of Object.entries(assetData)) {
+        if (record?.url) {
+            proofSet.add(uuid);
+        }
+
+        const depends = record.value?.depends;
+        if (Array.isArray(depends)) {
+            depends.forEach((dependency) => {
+                if (typeof dependency === 'string') {
+                    proofSet.add(dependency);
+                }
+            });
+        }
+    }
+
+    return proofSet;
+}
+
+async function loadRootAssetProofSet(root: string): Promise<Set<string>> {
+    let cached = assetProofCache.get(root);
+    if (!cached) {
+        cached = loadRootAssetData(root).then(buildAssetProofSet);
+        assetProofCache.set(root, cached);
+    }
+
+    return cached;
+}
+
+async function isAssetDataBackedGeneralRequest(context: RuntimePreviewContext, route: LibraryRoute): Promise<boolean> {
+    if (route.bundleName !== 'general') {
+        return false;
+    }
+
+    const uuid = route.artifactKind === 'import'
+        ? getUuidFromImportTail(route.tail)
+        : getUuidFromNativeTail(route.tail);
+    if (!uuid) {
+        return false;
+    }
+
+    for (const root of getMetadataRoots(context)) {
+        const proofSet = await loadRootAssetProofSet(root);
+        if (proofSet.has(uuid)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<Record<string, any>>): boolean {
@@ -151,7 +242,7 @@ function isBundleConfigBackedRequest(route: LibraryRoute, bundleConfigs?: Array<
     return false;
 }
 
-function isAllowedRequestPath(requestPath: string, options: ResolveLibraryRequestOptions): boolean {
+async function isAllowedRequestPath(context: RuntimePreviewContext, requestPath: string, options: ResolveLibraryRequestOptions): Promise<boolean> {
     const route = parseLibraryRoute(requestPath);
     if (!route) {
         return false;
@@ -159,7 +250,8 @@ function isAllowedRequestPath(requestPath: string, options: ResolveLibraryReques
 
     const { allowedRequestPaths } = options;
     if (!allowedRequestPaths) {
-        return isBundleConfigBackedRequest(route, options.bundleConfigs);
+        return isBundleConfigBackedRequest(route, options.bundleConfigs)
+            || await isAssetDataBackedGeneralRequest(context, route);
     }
 
     return isCapturedRequestPath(requestPath, allowedRequestPaths);
@@ -170,7 +262,7 @@ export async function resolveLibraryRequest(
     requestPath: string,
     options: ResolveLibraryRequestOptions = {},
 ): Promise<ResolvedRuntimePreviewFile | null> {
-    if (!isAllowedRequestPath(requestPath, options)) {
+    if (!await isAllowedRequestPath(context, requestPath, options)) {
         return null;
     }
 
@@ -181,6 +273,8 @@ export async function resolveLibraryRequest(
 
     const candidateRoots = [
         context.projectLibraryRoot,
+        join(context.projectRoot, 'library', 'cli'),
+        join(context.projectRoot, 'library'),
         context.internalLibraryRoot,
     ].filter((root): root is string => Boolean(root));
 

@@ -79,7 +79,8 @@ export class PreviewSettingsProvider {
     private readonly buildOptions?: Record<string, any>;
     private readonly timeoutMs: number;
     private readonly now: () => number;
-    private cachedResult: PreviewSettingsProviderResult | null = null;
+    private activeResult: PreviewSettingsProviderResult | null = null;
+    private cachedResults = new Map<string, PreviewSettingsProviderResult>();
 
     constructor(options: PreviewSettingsProviderOptions = {}) {
         this.loadPreviewSettings = options.loadPreviewSettings ?? defaultLoadPreviewSettings;
@@ -88,16 +89,30 @@ export class PreviewSettingsProvider {
         this.now = options.now ?? Date.now;
     }
 
-    async getPreviewSettings(): Promise<PreviewSettingsProviderResult> {
-        if (this.cachedResult) {
-            return this.cachedResult;
+    async getPreviewSettings(buildOptionsOverride?: Record<string, any>): Promise<PreviewSettingsProviderResult> {
+        if (!buildOptionsOverride && this.activeResult) {
+            return this.activeResult;
+        }
+
+        const hasBuildOptions = Boolean(this.buildOptions) || Boolean(buildOptionsOverride);
+        const buildOptions = hasBuildOptions
+            ? {
+                ...(this.buildOptions ?? {}),
+                ...(buildOptionsOverride ?? {}),
+            }
+            : undefined;
+        const cacheKey = JSON.stringify(buildOptions ?? null);
+        const cachedResult = this.cachedResults.get(cacheKey);
+        if (cachedResult) {
+            this.activeResult = cachedResult;
+            return cachedResult;
         }
 
         const start = this.now();
-        const cliResult = await withTimeout(this.loadPreviewSettings(this.buildOptions), this.timeoutMs);
+        const cliResult = await withTimeout(this.loadPreviewSettings(buildOptions), this.timeoutMs);
         const elapsedMs = this.now() - start;
 
-        this.cachedResult = {
+        const result: PreviewSettingsProviderResult = {
             settings: cliResult.settings,
             settingsJsSource: createSettingsJsSource(cliResult.settings),
             bundleConfigs: cliResult.bundleConfigs,
@@ -113,10 +128,13 @@ export class PreviewSettingsProvider {
             },
         };
 
-        return this.cachedResult;
+        this.cachedResults.set(cacheKey, result);
+        this.activeResult = result;
+        return result;
     }
 
     invalidate(): void {
-        this.cachedResult = null;
+        this.activeResult = null;
+        this.cachedResults.clear();
     }
 }

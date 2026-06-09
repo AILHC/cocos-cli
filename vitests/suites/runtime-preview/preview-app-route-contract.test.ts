@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-preview-context';
 import { handleRuntimePreviewRequest } from '@runtime-preview/server/runtime-preview-routes';
@@ -108,6 +108,60 @@ describe('runtime preview preview-app required route contract', () => {
     expect(sceneResponse.body.toString()).toContain('cc.SceneAsset');
   });
 
+  it('uses a non-empty default scene for the production entry and scene selector state', async () => {
+    const routeContext = createProductionLibraryRouteContext();
+    const sceneListResponse = await handleRuntimePreviewRequest(routeContext, '/scene-list');
+    const sceneList = JSON.parse(sceneListResponse.body.toString()) as {
+      scenes: Array<{ uuid: string; url: string }>;
+      currentScene?: string;
+    };
+
+    expect(sceneList.scenes.length).toBeGreaterThan(0);
+    expect(sceneList.currentScene).toBe(sceneList.scenes[0].uuid);
+
+    const entryResponse = await handleRuntimePreviewRequest(routeContext, '/?debug=false');
+    expect(entryResponse.statusCode).toBe(200);
+    expect(entryResponse.body.toString()).toContain(`/settings.js?scene=${sceneList.currentScene}`);
+  });
+
+  it('generates settings for the scene requested by settings.js query', async () => {
+    const routeContext = createProductionLibraryRouteContext();
+    const sceneListResponse = await handleRuntimePreviewRequest(routeContext, '/scene-list');
+    const sceneList = JSON.parse(sceneListResponse.body.toString()) as {
+      scenes: Array<{ uuid: string; url: string }>;
+    };
+    const requestedScene = sceneList.scenes[1]?.uuid ?? sceneList.scenes[0].uuid;
+    const loadPreviewSettings = vi.fn(async (buildOptions?: Record<string, unknown>) => ({
+      settings: {
+        launch: {
+          launchScene: buildOptions?.startScene,
+        },
+        assets: {
+          server: buildOptions?.server,
+        },
+      },
+      script2library: {},
+      bundleConfigs: [],
+    }));
+
+    const response = await handleRuntimePreviewRequest({
+      ...routeContext,
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings,
+        buildOptions: {
+          server: 'http://127.0.0.1:19530',
+        },
+      }),
+    }, `/settings.js?scene=${requestedScene}`);
+
+    expect(response.statusCode).toBe(200);
+    expect(loadPreviewSettings).toHaveBeenCalledWith({
+      server: 'http://127.0.0.1:19530',
+      startScene: requestedScene,
+    });
+    expect(response.body.toString()).toContain(`"launchScene":"${requestedScene}"`);
+  });
+
   it('prefers current CLI AssetDB scene output when production root is project library', async () => {
     const paths = getFixturePaths();
     const routeContext = createProductionLibraryRouteContext();
@@ -173,6 +227,16 @@ describe('runtime preview preview-app required route contract', () => {
     expect((response.body as Buffer).subarray(0, 4)).toEqual(Buffer.from([0x00, 0x61, 0x73, 0x6d]));
   });
 
+  it('serves builder-declared rendering effect settings from the project AssetDB output', async () => {
+    const routeContext = createRouteContext();
+    const response = await handleRuntimePreviewRequest(routeContext, '/src/effect.bin');
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/octet-stream');
+    expect(Buffer.isBuffer(response.body)).toBe(true);
+    expect((response.body as Buffer).length).toBeGreaterThan(0);
+  });
+
   it('serves preview-app general import URLs from bundle-config-backed library files', async () => {
     const paths = getFixturePaths();
     const { config, samples } = await buildEditorLibraryResourcesBundle(paths.editorLibraryRef, { buildFileIndex: false });
@@ -208,6 +272,21 @@ describe('runtime preview preview-app required route contract', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('application/json');
     expect(response.body.toString()).toContain('cc.JsonAsset');
+  });
+
+  it('serves preview-app general import URLs for scene dependencies proven by AssetDB metadata', async () => {
+    const routeContext = createProductionLibraryRouteContext();
+    const dependentRoutes = [
+      '/assets/general/import/7d/7d8f9b89-4fd1-4c9f-a3ab-38ec7cded7ca@f9941.json',
+      '/assets/general/import/75/75bcfad1-6b3e-41db-bbb6-6ff9f0ebd32b.json',
+    ];
+
+    for (const route of dependentRoutes) {
+      const response = await handleRuntimePreviewRequest(routeContext, route);
+      expect(response.statusCode, route).toBe(200);
+      expect(response.headers['content-type'], route).toContain('application/json');
+      expect(response.body.toString().length, route).toBeGreaterThan(0);
+    }
   });
 
   it('rejects unproven bundle names even when the uuid exists in a bundle config', async () => {

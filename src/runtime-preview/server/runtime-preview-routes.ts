@@ -18,6 +18,10 @@ import {
     resolveRuntimePreviewStaticFile,
 } from './preview-entry-template';
 import { handlePreviewAppRequiredRoute } from './preview-app-required-routes';
+import {
+    getRequestedScene,
+    resolveRuntimePreviewStartScene,
+} from './preview-scenes';
 
 export interface RuntimePreviewRouteContext {
     runtimeContext: RuntimePreviewContext;
@@ -197,7 +201,12 @@ export async function handleRuntimePreviewRequest(
         await context.logger?.write('settings:generation:start');
         let settings;
         try {
-            settings = await context.settingsProvider.getPreviewSettings();
+            const startScene = await resolveRuntimePreviewStartScene(
+                context.runtimeContext,
+                getRequestedScene(requestPath),
+                context.runtimeContext.scene,
+            );
+            settings = await context.settingsProvider.getPreviewSettings(startScene ? { startScene } : undefined);
         } catch (error) {
             const durationMs = Date.now() - startedAt;
             const errorMessage = error instanceof Error ? error.message : String(error);

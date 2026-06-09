@@ -192,10 +192,13 @@ export default class Launcher {
                 }
                 await ensurePreviewSettingsReady();
                 const { getPreviewSettings } = await import('./builder');
+                const startScene = typeof buildOptions?.startScene === 'string'
+                    ? buildOptions.startScene
+                    : options.scene;
                 return getPreviewSettings({
                     ...(buildOptions ?? {}),
                     server: serverUrl,
-                    startScene: options.scene,
+                    startScene,
                 } as never);
             },
         });
@@ -206,6 +209,7 @@ export default class Launcher {
             projectLibraryRoot,
             projectProgrammingRoot,
             cliProgrammingRoot,
+            internalLibraryRoot: join(engineRoot, 'editor', 'library'),
             host: options.host,
             port: options.port,
             scene: options.scene,

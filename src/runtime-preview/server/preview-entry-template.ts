@@ -3,6 +3,10 @@ import { readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import type { RuntimePreviewContext } from '../context/runtime-preview-context';
 import type { ResolvedRuntimePreviewFile } from '../library/resolve-library-request';
+import {
+    getRequestedScene,
+    resolveRuntimePreviewStartScene,
+} from './preview-scenes';
 
 interface RuntimePreviewDevice {
     name: string;
@@ -66,9 +70,8 @@ async function loadRuntimePreviewDevices(): Promise<Record<string, RuntimePrevie
     }
 }
 
-function getSceneQuery(requestPath: string): string {
-    const requestUrl = new URL(requestPath, 'http://runtime-preview.local');
-    const scene = requestUrl.searchParams.get('scene');
+async function getSceneQuery(context: RuntimePreviewContext, requestPath: string): Promise<string> {
+    const scene = await resolveRuntimePreviewStartScene(context, getRequestedScene(requestPath), context.scene);
     return scene ? `?scene=${encodeURIComponent(scene)}` : '';
 }
 
@@ -79,11 +82,12 @@ function shouldShowFps(requestPath: string): boolean {
 
 export async function renderRuntimePreviewEntry(context: RuntimePreviewContext, requestPath: string): Promise<string> {
     const devices = await loadRuntimePreviewDevices();
+    const sceneQuery = await getSceneQuery(context, requestPath);
     const html = await ejs.renderFile(join(runtimePreviewStaticRoot, 'index.ejs'), {
         title: `Cocos Creator Preview - ${basename(context.projectRoot)}`,
         tip_sceneIsEmpty: 'No user scene found to load.',
         enableDebugger: false,
-        settingsJs: `/settings.js${getSceneQuery(requestPath)}`,
+        settingsJs: `/settings.js${sceneQuery}`,
         packImportMapURL: '/scripting/x/packer-driver/targets/preview/import-map.json',
         packResolutionDetailMapURL: '/scripting/x/packer-driver/targets/preview/main-record.json',
         cocosTemplate: join(runtimePreviewStaticRoot, 'script.ejs'),

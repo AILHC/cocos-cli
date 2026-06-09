@@ -1261,6 +1261,48 @@ Use the same browser smoke rules as Task 8, but record small-project integration
 - browser runtime error after ready signal
 - slow startup or script compile
 
+- [x] **Step 4A: 默认场景加载与场景选择加载修复**
+
+本步骤是 Task 9 的当前阻塞项。当前实现已经证明 resource marker smoke 能通过，但这不能代表完整 preview load。必须修复并验证这些行为：
+
+- production root `/` 在没有 `?scene=` 时不能生成空 launch scene。
+- 默认 scene 解析顺序必须明确：URL `scene` > CLI `--scene` > project profile `profiles/v2/packages/preview.json` 的 `general.start_scene` > AssetDB scene list 第一个可加载 scene。
+- CLI runtime preview 没有 editor scene service，`current_scene` 不能直接传给 builder；在当前独立 CLI 模式下必须解析为 AssetDB scene list 的第一个可加载 scene，并在文档中标注该降级规则。
+- `/scene-list.currentScene`、root entry 中的 `/settings.js?scene=...`、`/settings.js?scene=...` 生成的 `window._CCSettings.launch.launchScene` 必须一致。
+- `/settings.js` 必须读取 query `scene`，并按 scene 维度生成或缓存 settings；不能复用第一次空 scene settings 导致 UI 选场景后仍加载空场景。
+- 场景选择 UI 改变 `<select id="scene-select">` 后，页面 reload 到 `?scene=<uuid>`，再通过 `/settings.js?scene=<uuid>` 加载对应 scene。
+- 不允许为此做 startup recursive scan；scene list 只能按请求读取当前 `library/cli`、configured project library 或 frozen reference metadata 中的 `.assets-data.json`。
+
+必须补充测试：
+
+- route/settings contract：默认 root entry 带非空 `settings.js?scene=...`。
+- route/settings contract：`/settings.js?scene=<uuid>` 传入 CLI `getPreviewSettings({ startScene })`，且返回 settings 中 `launch.launchScene` 为该 uuid。
+- route/settings contract：`/scene-list.currentScene` 与默认 scene 解析一致。
+- 小项目真实 CLI browser acceptance：至少 3 个小项目 scene，分别等待 `window.__RUNTIME_PREVIEW_READY.scene`，ready 后继续观察稳定窗口，并断言 browser console/page/network 无错误。
+- 小项目真实 CLI browser acceptance：读取 runtime preview server log，断言没有 `settings:generation:error`、`browser:preview-error`、`UnhandledPromiseRejection`、`route:error` 等明确失败信号。
+- 小项目真实 CLI browser acceptance：不能只检查浏览器打开瞬间；每个 scene 必须等待 runtime ready，ready 前失败要输出 console、pageerror、network、server log 证据，ready 后仍需观察稳定窗口。
+
+当前小项目可用于三场景验收的候选 scene 来自 `E:\own_space\cocos_work_lab_38x\library\cli\.assets-data.json`，优先选择非空且覆盖图形、动态图集、shader/batch 资源路径的 scene，例如：
+
+- `668efa31-4841-4cbc-bbae-33255599d478`：`db://assets/test_cases/test_custom_graphics/test_area_edge_graphic.scene`
+- `465d8fb0-d260-4256-a785-651bf2ebf7d1`：`db://assets/test_cases/test_dynamic_atlas/test_dynamic_atlas.scene`
+- `ec470553-bc56-4c2c-91aa-c7016f677e3e`：`db://assets/test_cases/test_custom_shader_batch/test_custom_shader_batch.scene`
+
+如果这三个 scene 任一失败，不能用 JsonAsset smoke 代替；必须按 failure taxonomy 归类为 `fail-route-contract`、`fail-programming`、`fail-engine-adaptation`、`fail-small-project-input` 或 `fail-timeout`。
+
+执行状态（2026-06-09）：
+
+- 已补 route/settings contract：默认 root entry 带非空 `/settings.js?scene=...`，`/scene-list.currentScene` 与默认 scene 一致，`/settings.js?scene=<uuid>` 会传入 `startScene` 并生成同一 `launch.launchScene`。
+- 已补真实 CLI 三场景 acceptance 测试，启动独立 CLI child process，使用小项目 `E:\own_space\cocos_work_lab_38x`，不使用大项目作为验收输入。
+- 已修复 first scene 资源 404：`/assets/general/import/*` 支持 AssetDB 依赖证明的 `uuid@subid`，并为真实 CLI server 注入 `engineRoot/editor/library` 作为 internal library root。
+- 已定位并修复 `localSetLayout` 运行时异常：小项目 `settings/v2/packages/engine.json` 中 `modules.graphics.pipeline` 为 `legacy-pipeline`，冻结编辑器 preview programming 产物也使用 `legacy-pipeline`；当前 CLI preview settings 原先绕过项目配置补齐，导致 settings 和 generated programming 走 `custom-pipeline`。修复点是让 `getPreviewSettings()` 复用 `fillIncludeModulesFromProjectConfig()`，并仅在 `preview` settings 场景按 `modules.graphics.pipeline` 归一化 `includeModules/customPipeline`，避免扩大普通 build 语义。
+- review 后已修复 `--scene` 优先级：`RuntimePreviewContext` 持有 CLI scene，默认解析链路恢复为 URL `scene` > CLI `--scene` > profile > first loadable scene。
+- review 后已修复 first loadable 边界：fallback scene 不再只取 metadata 第一条，而是确认 `/scene/<uuid>.json` 对应 library 文件存在。
+- review 后已修复 AssetDB fallback proof 性能：`/assets/general/import|native/*` 的 metadata 证明从每请求全量 `depends` 扫描改为每 metadata root 一次性 `Set` 索引。
+- review 后已补真实 browser 默认 root 和 scene select 验收：小项目测试先打开无 `?scene=` root 并等待默认 scene ready，再通过真实 `<select id="scene-select">` 触发 scene 切换，等待 reload 后目标 scene ready。
+- 验证通过：`npm --prefix vitests test -- suites/runtime-preview`，15 files / 61 tests passed。
+- 三场景、默认 root、scene select 真实验收通过，证据文件：`E:\own_space\cocos_work_lab_38x\temp\runtime-preview-small-project-cli-evidence.json`；server log：`E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-140105.log`。验收 scene 为 `test_area_edge_graphic`、`test_dynamic_atlas`、`test_custom_shader_batch`，每个 scene 都等待 `window.__RUNTIME_PREVIEW_READY.scene`，ready 后继续观察稳定窗口，并断言 browser console/page/network 与 runtime preview server log 无错误。
+
 - [ ] **Step 5: 写验收结论**
 
 Conclusion categories:
