@@ -90,7 +90,7 @@ describe('runtime preview small-project CLI integration acceptance', () => {
       expect(await defaultEntryResponse.text()).toContain(`/settings.js?scene=${sceneList.currentScene}`);
 
       const defaultSmoke = await runBrowserRuntimeSmoke({
-        url: `${cli.url}/?runtimePreviewRenderType=webgl&debug=false`,
+        url: `${cli.url}/?debug=false`,
         runtimeServerOrigin: cli.url,
         readyTimeoutMs: 120_000,
         stableWindowMs: 10_000,
@@ -114,7 +114,7 @@ describe('runtime preview small-project CLI integration acceptance', () => {
 
       const selectTargetScene = selectedScenes[1] ?? selectedScenes[0];
       const sceneSelectSmoke = await runBrowserRuntimeSmoke({
-        url: `${cli.url}/?runtimePreviewRenderType=webgl&debug=false`,
+        url: `${cli.url}/?debug=false`,
         runtimeServerOrigin: cli.url,
         sceneSelectTarget: selectTargetScene.uuid,
         readyTimeoutMs: 120_000,
