@@ -202,6 +202,7 @@ export async function getPreviewSettings<P extends Platform>(options?: IBuildTas
         ...(options ?? {}),
         preview: true,
     };
+    await fillIncludeModulesFromProjectConfig(buildOptions);
     // TODO 预览 settings 的排队之类的
     const { BuildTask } = await import('./worker/builder/index');
     const buildTask = new BuildTask(buildOptions.taskId || 'v', buildOptions as unknown as IBuildTaskOption<Platform>);

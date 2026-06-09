@@ -459,23 +459,34 @@ export async function checkProjectSetting(options: IInternalBuildOptions | IInte
  * @param options 构建选项
  */
 export async function fillIncludeModulesFromProjectConfig(options: IInternalBuildOptions | IInternalBundleBuildOptions | IBuildTaskOption): Promise<void> {
-    if (!options.includeModules || !options.includeModules.length) {
-        try {
-            const projectPath = builderConfig.projectRoot;
-            const configLoader = new CocosConfigLoader();
-            configLoader.initialize(projectPath);
-            const engineConfig = await configLoader.loadConfig('project', 'engine');
-            
+    try {
+        const projectPath = builderConfig.projectRoot;
+        const configLoader = new CocosConfigLoader();
+        configLoader.initialize(projectPath);
+        const engineConfig = await configLoader.loadConfig('project', 'engine');
+        if (!options.includeModules || !options.includeModules.length) {
             if (engineConfig?.modules?.configs) {
                 const configs = engineConfig.modules.configs;
                 const globalConfigKey = engineConfig.modules.globalConfigKey || Object.keys(configs)[0];
                 
                 if (globalConfigKey && configs[globalConfigKey]?.includeModules) {
-                    options.includeModules = configs[globalConfigKey].includeModules;
+                    options.includeModules = [...configs[globalConfigKey].includeModules];
                 }
             }
-        } catch (error) {
-            console.warn(`[Build] 加载项目引擎配置失败，将使用默认配置: ${error}`);
         }
+
+        const graphicsPipeline = engineConfig?.modules?.graphics?.pipeline;
+        const isPreviewSettings = Boolean((options as { preview?: boolean }).preview);
+        if (isPreviewSettings && (graphicsPipeline === 'legacy-pipeline' || graphicsPipeline === 'custom-pipeline')) {
+            const includeModules = new Set(options.includeModules ?? []);
+            includeModules.delete('legacy-pipeline');
+            includeModules.delete('custom-pipeline');
+            includeModules.delete('custom-pipeline-builtin-scripts');
+            includeModules.add(graphicsPipeline);
+            options.includeModules = Array.from(includeModules);
+            options.customPipeline = graphicsPipeline === 'custom-pipeline';
+        }
+    } catch (error) {
+        console.warn(`[Build] 加载项目引擎配置失败，将使用默认配置: ${error}`);
     }
 }

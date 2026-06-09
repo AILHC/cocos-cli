@@ -113,6 +113,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
     const context = createRuntimePreviewContext({
         projectRoot: options.projectRoot,
         engineRoot: options.engineRoot,
+        scene: options.scene,
         projectLibraryRoot: options.projectLibraryRoot,
         projectProgrammingRoot: options.projectProgrammingRoot,
         cliProgrammingRoot: options.cliProgrammingRoot,

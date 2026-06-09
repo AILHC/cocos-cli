@@ -8,6 +8,7 @@ import WebSocket from 'ws';
 export interface BrowserRuntimeSmokeOptions {
   url: string;
   runtimeServerOrigin: string;
+  sceneSelectTarget?: string;
   readyTimeoutMs?: number;
   stableWindowMs?: number;
   evidenceFilePath?: string;
@@ -16,6 +17,7 @@ export interface BrowserRuntimeSmokeOptions {
 
 export interface BrowserRuntimeSmokeResult {
   ready: unknown;
+  initialReady?: unknown;
   elapsedReadyMs: number;
   elapsedTotalMs: number;
   networkRequestCount: number;
@@ -193,6 +195,28 @@ function consoleText(params: any): string {
     .join(' ');
 }
 
+function formatExceptionDetails(params: any): string {
+  const details = params.exceptionDetails ?? params;
+  const exception = details.exception ?? {};
+  const stackFrames = details.stackTrace?.callFrames ?? exception.stackTrace?.callFrames ?? [];
+  const stack = stackFrames
+    .map((frame: any) => {
+      const functionName = frame.functionName || '<anonymous>';
+      const url = frame.url || '';
+      const line = typeof frame.lineNumber === 'number' ? frame.lineNumber + 1 : '';
+      const column = typeof frame.columnNumber === 'number' ? frame.columnNumber + 1 : '';
+      return `${functionName} ${url}:${line}:${column}`.trim();
+    })
+    .filter(Boolean)
+    .join('\n');
+  return [
+    details.text,
+    exception.description,
+    exception.value,
+    stack,
+  ].filter((value) => typeof value === 'string' && value.length > 0).join('\n');
+}
+
 function isRuntimeServerUrl(url: string, runtimeServerOrigin: string): boolean {
   try {
     return new URL(url).origin === runtimeServerOrigin;
@@ -220,6 +244,51 @@ async function waitForReadySignal(session: CdpSession, timeoutMs: number): Promi
   }
 
   throw new Error(`fail-timeout: window.__RUNTIME_PREVIEW_READY was not set within ${timeoutMs}ms.`);
+}
+
+async function waitForSceneSelectOption(session: CdpSession, sceneUuid: string, timeoutMs: number): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = await session.send('Runtime.evaluate', {
+      expression: `Boolean(Array.from(document.querySelector('#scene-select')?.options || []).some((option) => option.value === ${JSON.stringify(sceneUuid)}))`,
+      returnByValue: true,
+      awaitPromise: false,
+    });
+    if (result.result?.value) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(`fail-timeout: scene selector did not expose ${sceneUuid} within ${timeoutMs}ms.`);
+}
+
+async function selectSceneAndWaitForReady(
+  session: CdpSession,
+  sceneUuid: string,
+  timeoutMs: number,
+): Promise<{ initialReady: unknown; ready: unknown; elapsedMs: number }> {
+  const initialReady = await waitForReadySignal(session, timeoutMs);
+  await waitForSceneSelectOption(session, sceneUuid, timeoutMs);
+  await session.send('Runtime.evaluate', {
+    expression: `
+      window.__RUNTIME_PREVIEW_READY = null;
+      {
+        const selector = document.querySelector('#scene-select');
+        selector.value = ${JSON.stringify(sceneUuid)};
+        selector.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    `,
+    returnByValue: true,
+    awaitPromise: false,
+  });
+  const selectedReady = await waitForReadySignal(session, timeoutMs);
+  return {
+    initialReady: initialReady.ready,
+    ready: selectedReady.ready,
+    elapsedMs: initialReady.elapsedMs + selectedReady.elapsedMs,
+  };
 }
 
 function failureCategory(error: unknown): string {
@@ -301,7 +370,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       }
     });
     session.on('Runtime.exceptionThrown', (params) => {
-      pageErrors.push(params.exceptionDetails?.text ?? JSON.stringify(params.exceptionDetails ?? params));
+      pageErrors.push(formatExceptionDetails(params) || JSON.stringify(params.exceptionDetails ?? params));
     });
     session.on('Network.requestWillBeSent', (params) => {
       const url = params.request?.url ?? '';
@@ -337,9 +406,11 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
     ]);
     await session.send('Page.navigate', { url: options.url });
 
-    let ready: { ready: unknown; elapsedMs: number };
+    let ready: { ready: unknown; initialReady?: unknown; elapsedMs: number };
     try {
-      ready = await waitForReadySignal(session, readyTimeoutMs);
+      ready = options.sceneSelectTarget
+        ? await selectSceneAndWaitForReady(session, options.sceneSelectTarget, readyTimeoutMs)
+        : await waitForReadySignal(session, readyTimeoutMs);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw classifyPreReadyFailure(`${message}\n${JSON.stringify({
@@ -372,6 +443,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
 
     const result = {
       ready: ready.ready,
+      initialReady: ready.initialReady,
       elapsedReadyMs: ready.elapsedMs,
       elapsedTotalMs: Date.now() - startedAt,
       networkRequestCount,
@@ -386,6 +458,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       runtimeServerOrigin: options.runtimeServerOrigin,
       ...options.evidenceContext,
       ready: result.ready,
+      initialReady: result.initialReady,
       elapsedReadyMs: result.elapsedReadyMs,
       elapsedTotalMs: result.elapsedTotalMs,
       networkRequestCount,

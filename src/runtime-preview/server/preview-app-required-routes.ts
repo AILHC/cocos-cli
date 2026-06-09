@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import type { RuntimePreviewContext } from '../context/runtime-preview-context';
@@ -8,6 +8,12 @@ import {
     textResponse,
     type RuntimePreviewHttpResponse,
 } from './serve-on-demand-file';
+import {
+    getRequestedScene,
+    listPreviewScenes,
+    resolveRuntimePreviewStartScene,
+    resolveSceneJsonFile,
+} from './preview-scenes';
 
 const nodeRequire = createRequire(__filename);
 const scriptingEnginePrefix = '/scripting/engine/';
@@ -16,6 +22,7 @@ const scriptingPolyfillsPrefix = '/scripting/polyfills/';
 const engineExternalPath = '/engine_external/';
 const missingAssetPrefix = '/missing-asset/';
 const scenePrefix = '/scene/';
+const effectSettingsPath = '/src/effect.bin';
 const noopSocketIoClient = `
 System.register([], function (_export) {
     function createNoopSocket() {
@@ -40,17 +47,6 @@ System.register([], function (_export) {
     };
 });
 `;
-
-interface AssetDataRecord {
-    url?: string;
-}
-
-interface PreviewSceneRecord {
-    uuid: string;
-    url: string;
-    name?: string;
-    bundle?: string;
-}
 
 export interface PreviewAppRouteOptions {
     requestPath?: string;
@@ -99,84 +95,6 @@ function getPackageRoot(packageName: string): string | null {
     } catch {
         return null;
     }
-}
-
-function getProjectLibraryRoots(context: RuntimePreviewContext): string[] {
-    const projectLibraryRoot = resolve(context.projectRoot, 'library');
-    const cliLibraryRoot = join(projectLibraryRoot, 'cli');
-    const configuredLibraryRoot = resolve(context.projectLibraryRoot);
-    const roots = configuredLibraryRoot === projectLibraryRoot
-        ? [cliLibraryRoot, context.projectLibraryRoot]
-        : [context.projectLibraryRoot, cliLibraryRoot, projectLibraryRoot];
-
-    return Array.from(new Set(roots.filter((value): value is string => Boolean(value))));
-}
-
-async function readJsonFile<T>(absolutePath: string): Promise<T | null> {
-    try {
-        return JSON.parse(await readFile(absolutePath, 'utf8')) as T;
-    } catch {
-        return null;
-    }
-}
-
-async function loadAssetData(root: string): Promise<Record<string, AssetDataRecord> | null> {
-    return readJsonFile<Record<string, AssetDataRecord>>(join(root, '.assets-data.json'));
-}
-
-function sceneNameFromUrl(url: string): string | undefined {
-    const name = url.split('/').pop()?.replace(/\.scene$/, '');
-    return name || undefined;
-}
-
-function sceneBundleFromUrl(url: string): string | undefined {
-    if (!url.startsWith('db://assets/')) {
-        return undefined;
-    }
-
-    const relativeAssetPath = url.slice('db://assets/'.length);
-    return relativeAssetPath.split('/')[0] || undefined;
-}
-
-async function listPreviewScenes(context: RuntimePreviewContext): Promise<PreviewSceneRecord[]> {
-    for (const root of getProjectLibraryRoots(context)) {
-        const assetData = await loadAssetData(root);
-        if (!assetData) {
-            continue;
-        }
-
-        return Object.entries(assetData)
-            .filter((entry): entry is [string, AssetDataRecord & { url: string }] => typeof entry[1]?.url === 'string' && entry[1].url.endsWith('.scene'))
-            .map(([uuid, record]) => ({
-                uuid,
-                url: record.url,
-                name: sceneNameFromUrl(record.url),
-                bundle: sceneBundleFromUrl(record.url),
-            }))
-            .sort((left, right) => left.url.localeCompare(right.url));
-    }
-
-    return [];
-}
-
-async function resolveSceneJsonFile(context: RuntimePreviewContext, uuid: string): Promise<string | null> {
-    if (!/^[0-9a-fA-F-]+$/.test(uuid)) {
-        return null;
-    }
-
-    for (const root of getProjectLibraryRoots(context)) {
-        const assetData = await loadAssetData(root);
-        if (!assetData?.[uuid]?.url?.endsWith('.scene')) {
-            continue;
-        }
-
-        const file = await resolveExistingFileInside(root, `${uuid.slice(0, 2)}/${uuid}.json`);
-        if (file) {
-            return file;
-        }
-    }
-
-    return null;
 }
 
 async function resolveScriptingEngineFile(context: RuntimePreviewContext, pathname: string): Promise<string | null> {
@@ -232,6 +150,14 @@ async function resolveEngineExternalFile(context: RuntimePreviewContext, pathnam
     return resolveExistingFileInside(context.engineRoot, `native/external/${externalRelativePath}`);
 }
 
+async function resolveEffectSettingsFile(context: RuntimePreviewContext, pathname: string): Promise<string | null> {
+    if (pathname !== effectSettingsPath) {
+        return null;
+    }
+
+    return resolveExistingFileInside(context.projectRoot, 'temp/asset-db/effect/effect.bin');
+}
+
 function getSceneUuid(pathname: string): string | null {
     if (!pathname.startsWith(scenePrefix) || !pathname.endsWith('.json')) {
         return null;
@@ -274,15 +200,21 @@ export async function handlePreviewAppRequiredRoute(
         return serveOnDemandFile({ absolutePath: polyfillsFile });
     }
 
+    const effectSettingsFile = await resolveEffectSettingsFile(context, pathname);
+    if (effectSettingsFile) {
+        return serveOnDemandFile({ absolutePath: effectSettingsFile });
+    }
+
     if (pathname === '/socket.io/socket.io.js') {
         return textResponse(200, noopSocketIoClient, 'application/javascript; charset=utf-8');
     }
 
     if (pathname === '/scene-list') {
         const scenes = await listPreviewScenes(context);
+        const currentScene = await resolveRuntimePreviewStartScene(context, getRequestedScene(options.requestPath), context.scene);
         const body = JSON.stringify({
             scenes,
-            currentScene: scenes[0]?.uuid ?? '',
+            currentScene,
         });
         return textResponse(200, body, 'application/json; charset=utf-8');
     }

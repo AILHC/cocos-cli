@@ -1,6 +1,7 @@
 export interface RuntimePreviewContextOptions {
     projectRoot: string;
     engineRoot: string;
+    scene?: string;
     projectLibraryRoot: string;
     internalLibraryRoot?: string;
     projectProgrammingRoot: string;
