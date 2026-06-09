@@ -90,8 +90,7 @@ export async function startRuntimePreviewCliProcess(
   const startupTimeoutMs = options.startupTimeoutMs ?? 120_000;
   const command = process.execPath;
   const args = [
-    join(options.repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
-    join(options.repoRoot, 'src', 'cli.ts'),
+    join(options.repoRoot, 'dist', 'cli.js'),
     'preview',
     '--project',
     options.projectRoot,
@@ -122,6 +121,7 @@ export async function startRuntimePreviewCliProcess(
   let stdout = '';
   let stderr = '';
   let url = '';
+  let previewReady = false;
   let resolvedPort = port;
   let logFilePath: string | null = null;
   const startedAt = Date.now();
@@ -135,12 +135,12 @@ export async function startRuntimePreviewCliProcess(
       }
       settled = true;
       void closeChild(child).finally(() => reject(new Error(
-        `Timed out waiting for runtime preview CLI server:listening after ${startupTimeoutMs}ms.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+        `Timed out waiting for runtime preview CLI preview:ready after ${startupTimeoutMs}ms.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
       )));
     }, startupTimeoutMs);
 
     const tryResolve = async () => {
-      if (settled || resolving || !url) {
+      if (settled || resolving || !url || !previewReady) {
         return;
       }
       resolving = true;
@@ -187,6 +187,7 @@ export async function startRuntimePreviewCliProcess(
       if (listeningMatch) {
         url = listeningMatch[1];
       }
+      previewReady = stdout.includes('[runtime-preview] preview:ready');
       void tryResolve();
     });
     child.stderr.on('data', (chunk) => {

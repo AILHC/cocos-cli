@@ -147,7 +147,7 @@ describe('runtime preview production asset routes', () => {
     }
   }, 120_000);
 
-  it('starts the real Launcher runtime preview path and serves settings', async () => {
+  it('starts the real Launcher runtime preview path and warms settings before browser settings requests', async () => {
     const paths = getFixturePaths();
     const repoRoot = join(process.cwd(), '..');
     const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
@@ -165,6 +165,7 @@ describe('runtime preview production asset routes', () => {
 
         try {
           const health = await fetch(server.url + '/__runtime-preview/health');
+          process.stdout.write('AFTER_START\\n');
           const settingsResponse = await fetch(server.url + '/settings.js');
           const settingsSource = await settingsResponse.text();
           const settings = JSON.parse(settingsSource.replace(/^window\\._CCSettings = /, '').replace(/;$/, ''));
@@ -215,13 +216,17 @@ describe('runtime preview production asset routes', () => {
     });
     const resultLine = stdout.trim().split(/\r?\n/).find((line) => line.startsWith('RESULT '));
     expect(resultLine).toBeTruthy();
+    expect(stdout.indexOf('[runtime-preview] engine:init:start')).toBeLessThan(stdout.indexOf('AFTER_START'));
+    expect(stdout.indexOf('[runtime-preview] preview:ready')).toBeLessThan(stdout.indexOf('AFTER_START'));
     expect(stdout).toContain('[runtime-preview] server:listening ');
+    expect(stdout).toContain('[runtime-preview] preview:preparing');
     expect(stdout).toContain('[runtime-preview] engine:init:start');
     expect(stdout).toContain('[runtime-preview] engine:init:done');
     expect(stdout).toContain('[runtime-preview] asset-db:start');
     expect(stdout).toContain('[runtime-preview] asset-db:done');
     expect(stdout).toContain('[runtime-preview] builder:init:start');
     expect(stdout).toContain('[runtime-preview] builder:init:done');
+    expect(stdout).toContain('[runtime-preview] preview:ready');
     const result = JSON.parse(resultLine!.slice('RESULT '.length)) as {
       serverUrl: string;
       healthStatus: number;
@@ -257,11 +262,13 @@ describe('runtime preview production asset routes', () => {
     ).toEqual([]);
     const logSource = await readFile(result.logFilePath, 'utf8');
     expect(logSource).toContain('server:listening');
+    expect(logSource).toContain('preview:preparing');
     expect(logSource).toContain('engine:init:start');
     expect(logSource).toContain('engine:init:done');
     expect(logSource).toContain('asset-db:start');
     expect(logSource).toContain('asset-db:done');
     expect(logSource).toContain('builder:init:start');
     expect(logSource).toContain('builder:init:done');
+    expect(logSource).toContain('preview:ready');
   }, 120_000);
 });

@@ -1209,7 +1209,7 @@ Document:
 
 - [ ] **Step 2: 脚本化启动真实 runtime preview**
 
-Do not use a foreground-only command as the acceptance procedure. Implement `vitests/shared/runtime-preview-cli-process.ts` to spawn the CLI process, wait for `server:listening`, collect stdout/stderr/log paths, and shut the process down.
+Do not use a foreground-only command as the acceptance procedure. Implement `vitests/shared/runtime-preview-cli-process.ts` to spawn the CLI process, read `server:listening` for the URL, wait for `preview:ready`, collect stdout/stderr/log paths, and shut the process down. `server:listening` is socket readiness only; it is not preview readiness.
 
 `small-project-cli-integration.test.ts` must call this helper and then reuse the browser smoke helper from Task 8D. If Task 8B / Task 8C has not yet established production root `/`、`/preview-app/*` and preview-app required routes, this test must stay skipped or `blocked-by-fact-gap` with a clear reason in the acceptance document; it must not open a browser and pass by waiting for no immediate error.
 
@@ -1294,6 +1294,7 @@ Use the same browser smoke rules as Task 8, but record small-project integration
 
 - 已补 route/settings contract：默认 root entry 带非空 `/settings.js?scene=...`，`/scene-list.currentScene` 与默认 scene 一致，`/settings.js?scene=<uuid>` 会传入 `startScene` 并生成同一 `launch.launchScene`。
 - 已补真实 CLI 三场景 acceptance 测试，启动独立 CLI child process，使用小项目 `E:\own_space\cocos_work_lab_38x`，不使用大项目作为验收输入。
+- 已修复真实 CLI 启动准备时机：`Launcher.startRuntimePreview()` 在 `server:listening` 后主动 warm-up 默认 preview settings，输出 `preview:preparing` / `preview:ready`；真实 CLI process helper 已从 `tsx src/cli.ts` 改为 `node dist/cli.js`，并等待 `preview:ready` 后才返回。
 - 已修复 first scene 资源 404：`/assets/general/import/*` 支持 AssetDB 依赖证明的 `uuid@subid`，并为真实 CLI server 注入 `engineRoot/editor/library` 作为 internal library root。
 - 已定位并修复 `localSetLayout` 运行时异常：小项目 `settings/v2/packages/engine.json` 中 `modules.graphics.pipeline` 为 `legacy-pipeline`，冻结编辑器 preview programming 产物也使用 `legacy-pipeline`；当前 CLI preview settings 原先绕过项目配置补齐，导致 settings 和 generated programming 走 `custom-pipeline`。修复点是让 `getPreviewSettings()` 复用 `fillIncludeModulesFromProjectConfig()`，并仅在 `preview` settings 场景按 `modules.graphics.pipeline` 归一化 `includeModules/customPipeline`，避免扩大普通 build 语义。
 - review 后已修复 `--scene` 优先级：`RuntimePreviewContext` 持有 CLI scene，默认解析链路恢复为 URL `scene` > CLI `--scene` > profile > first loadable scene。
@@ -1304,8 +1305,8 @@ Use the same browser smoke rules as Task 8, but record small-project integration
 - renderMode 事实记录：当前小项目没有显式 `settings.rendering.renderMode = WEBGL` 配置；项目事实是 `settings/v2/packages/engine.json` 中 `gfx-webgl = true`、`gfx-webgl2 = true`、`gfx-webgpu = false`，并且 `modules.graphics.pipeline = "legacy-pipeline"`。`pipeline` 只决定 legacy/custom render pipeline，不直接决定 WebGL/WebGPU backend。
 - engine 调用链事实：browser preview 调用 `cc.game.init()` 后，引擎在 `cocos/gfx/device-manager.ts` 读取 `settings.rendering.renderMode`；当 renderMode 为缺省或 `AUTO` 时，3.8.6 的 `_determineRenderType()` 会在浏览器支持 `navigator.gpu` 且 `!EDITOR` 时选择 WebGPU。这解释了手动打开 `?scene=<uuid>` 时出现 WebGPU validation error，而编辑器预览未必出现同类问题。
 - 当前修复状态：`b85815c` 解决的是默认无参数 runtime preview 误入 WebGPU 的现象，已通过默认 root、scene select 和三复杂 scene 验收；但这仍是策略止血，不是最终“配置推导 renderMode”实现。后续应把默认 renderMode 改为：URL `runtimePreviewRenderType` override > 已存在 `settings.rendering.renderMode` > 项目/平台 `useWebGPU` 或 `gfx-webgpu` 配置 > WebGL fallback。
-- 验证通过：`npm --prefix vitests test -- suites/runtime-preview`，15 files / 61 tests passed。
-- 三场景、默认 root、scene select 真实验收通过，证据文件：`E:\own_space\cocos_work_lab_38x\temp\runtime-preview-small-project-cli-evidence.json`；server log：`E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-142020.log`。验收 scene 为 `test_area_edge_graphic`、`test_dynamic_atlas`、`test_custom_shader_batch`，每个 scene 都等待 `window.__RUNTIME_PREVIEW_READY.scene`，ready 后继续观察稳定窗口，并断言 browser console/page/network 与 runtime preview server log 无错误。
+- 验证通过：`npm run build`；`npm --prefix vitests test -- suites/runtime-preview`，15 files / 61 tests passed。
+- 三场景、默认 root、scene select 真实验收通过，证据文件：`E:\own_space\cocos_work_lab_38x\temp\runtime-preview-small-project-cli-evidence.json`；server log：`E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-153629.log`。验收 scene 为 `test_area_edge_graphic`、`test_dynamic_atlas`、`test_custom_shader_batch`，每个 scene 都等待 `window.__RUNTIME_PREVIEW_READY.scene`，ready 后继续观察稳定窗口，并断言 browser console/page/network 与 runtime preview server log 无错误。
 
 - [ ] **Step 5: 写验收结论**
 

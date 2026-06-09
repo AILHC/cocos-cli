@@ -227,6 +227,14 @@ export default class Launcher {
         if (options.scene) {
             emitRuntimePreviewEvent(`scene=${options.scene}`);
         }
+        emitRuntimePreviewEvent('preview:preparing');
+        try {
+            await settingsProvider.getPreviewSettings(options.scene ? { startScene: options.scene } : undefined);
+            emitRuntimePreviewEvent('preview:ready');
+        } catch (error) {
+            diagnostics.stageError('preview', error);
+            throw error;
+        }
 
         return server;
     }

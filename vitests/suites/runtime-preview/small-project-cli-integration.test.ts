@@ -71,9 +71,18 @@ describe('runtime preview small-project CLI integration acceptance', () => {
       expect(cli.pid).toBeGreaterThan(0);
       expect(cli.url).toBe(`http://127.0.0.1:${port}`);
       expect(cli.port).toBe(port);
+      const cliCommand = `${cli.command} ${cli.args.join(' ')}`;
+      const normalizedCliCommand = cliCommand.replace(/\\/g, '/');
+      expect(normalizedCliCommand).toContain('/dist/cli.js');
+      expect(normalizedCliCommand).not.toContain('/tsx/');
       expect(cli.stdout).toContain('[runtime-preview] projectRoot=');
       expect(cli.stdout).toContain('[runtime-preview] engineRoot=');
       expect(cli.stdout).toContain('[runtime-preview] server:listening');
+      expect(cli.stdout).toContain('[runtime-preview] preview:preparing');
+      expect(cli.stdout).toContain('[runtime-preview] engine:init:start');
+      expect(cli.stdout).toContain('[runtime-preview] engine:init:done');
+      expect(cli.stdout).toContain('[runtime-preview] builder:init:done');
+      expect(cli.stdout).toContain('[runtime-preview] preview:ready');
       expect(cli.logFilePath).toBeTruthy();
 
       const sceneListResponse = await fetch(`${cli.url}/scene-list`);

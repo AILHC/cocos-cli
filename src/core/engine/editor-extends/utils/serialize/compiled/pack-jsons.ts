@@ -43,7 +43,7 @@ function genArrayParser<T>(parser: ParseFunction<T>): ParseFunction<T[]> {
 function parseArray(data: IFileData, value: IArrayData, classNodes: (ClassNode|CustomClassNode)[]) {
     const array = value[ARRAY_ITEM_VALUES] as any[];
     for (let i = 0; i < array.length; ++i) {
-        const type = value[i + 1] as DataTypeID;
+        const type = value[i + 1] as unknown as DataTypeID;
         const op = PARSERS[type];
         if (op) {
             op(data, array[i], classNodes);
