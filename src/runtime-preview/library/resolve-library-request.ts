@@ -131,8 +131,16 @@ async function readAssetDataFile(filePath: string): Promise<Record<string, Asset
 }
 
 async function loadRootAssetData(root: string): Promise<Record<string, AssetDataRecord> | null> {
-    return await readAssetDataFile(join(root, '.assets-data.json'))
-        ?? await readAssetDataFile(join(root, '.internal-data.json'));
+    const assetData = await readAssetDataFile(join(root, '.assets-data.json'));
+    const internalData = await readAssetDataFile(join(root, '.internal-data.json'));
+    if (!assetData && !internalData) {
+        return null;
+    }
+
+    return {
+        ...(assetData ?? {}),
+        ...(internalData ?? {}),
+    };
 }
 
 function buildAssetProofSet(assetData: Record<string, AssetDataRecord> | null): Set<string> {
@@ -288,6 +296,7 @@ export async function resolveLibraryRequest(
         } catch {
             // Try the next fact-backed candidate root.
         }
+
     }
 
     return null;

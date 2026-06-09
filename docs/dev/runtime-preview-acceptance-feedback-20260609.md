@@ -27,6 +27,8 @@
 | 手动打开 `?scene=<uuid>` 出现 WebGPU validation error | 自动验收此前显式带 `runtimePreviewRenderType=webgl`，没有覆盖默认无参数入口；无参数时引擎 AUTO 在支持 WebGPU 的浏览器中会选 WebGPU。 | 现象已通过默认 WebGL 止血并补验收；配置推导 renderMode 仍是后续设计项。 |
 | renderMode 不是应该读取配置吗 | 项目没有显式 `settings.rendering.renderMode = WEBGL`；配置事实是 `gfx-webgl/gfx-webgl2=true`、`gfx-webgpu=false`、`pipeline=legacy-pipeline`。 | 已记录为设计债：后续应从 URL override、settings、`useWebGPU/gfx-webgpu` 推导。 |
 | 编辑器预览没有特殊设置 WebGL，只设置 pipeline | 源码事实支持：pipeline 决定 legacy/custom render pipeline，不直接决定 WebGL/WebGPU backend。 | 已记录，避免把 pipeline 误当 render backend。 |
+| 执行 `preview --runtime` 后很久才看到第一条 `Start record log` | 本地探针显示 `import('./src/core/launcher.ts')` 约 10.8s；该日志在 `new Launcher()` 的 `newConsole.record()` 中输出，说明延迟主要发生在 `Launcher` 顶层模块加载和 TS 编译阶段。 | 已记录为 deferred；本轮不处理，等待 CLI startup / Launcher 依赖边界对齐后再设计。 |
+| `server:listening` 后只有访问浏览器页面才出现 `engine:init:start` | 原实现是 lazy settings：server 先监听，`/settings.js` 或依赖 settings 的 route 才触发 `ensurePreviewSettingsReady()`，进而初始化 engine / AssetDB / builder。 | 已修复；`Launcher.startRuntimePreview()` 在 server URL 可用后主动输出 `preview:preparing`，生成默认 preview settings，完成后输出 `preview:ready`。真实 CLI 验收改为先 build，再用 `dist/cli.js` 启动并等待 `preview:ready`。 |
 
 ## 3. 问题原因
 
@@ -105,11 +107,47 @@
 - 这仍是止血策略，不是最终配置推导实现。
 - 后续应实现：URL `runtimePreviewRenderType` override > 已存在 `settings.rendering.renderMode` > 项目/平台 `useWebGPU` 或 `gfx-webgpu` 配置 > WebGL fallback。
 
+### 3.5 runtime preview 启动准备时机
+
+现象：
+
+- 执行 `preview --runtime` 后，控制台先出现 `server:listening http://127.0.0.1:<port>`。
+- 不访问浏览器页面时，看不到 `engine:init:start`。
+- 访问 root 页面后，浏览器请求 `/settings.js`，才触发 `engine:init:start`。
+
+事实核查：
+
+- 当前 `Launcher.startRuntimePreview()` 创建 `PreviewSettingsProvider` 后启动 HTTP server。
+- `engine:init:start` 位于 `ensurePreviewSettingsReady()` 触发的 import / builder 初始化链路中。
+- `ensurePreviewSettingsReady()` 当前由 `settingsProvider.loadPreviewSettings()` 调用。
+- `/settings.js` 是最典型的 settings 触发入口；root HTML 本身不代表 engine/settings 已 ready。
+
+问题判断：
+
+- `server:listening` 只能证明 socket 已监听，不能证明 runtime preview 已准备好。
+- 当前 lazy settings 策略会把主要启动成本转移到第一次浏览器访问，导致手动验收和自动验收的状态语义不清。
+- 这和当前验收目标不一致：CLI 启动真实 preview server 后，应主动准备默认 scene 的 preview settings，并输出可区分的 preparing / ready 状态。
+
+修复决策：
+
+- 本轮不处理 `Launcher` 顶层依赖加载慢问题。
+- 本轮已处理 runtime preview server 启动后的主动准备流程。
+- `server:listening` 保留为端口监听日志；新增或调整 `preview:preparing` / `preview:ready` 类状态，避免把 socket ready 误判为 preview ready。
+- 测试不再使用 `tsx` 直接执行 TS 源码；需要先编译出 `dist`，再用编译后的 CLI 入口启动真实 runtime preview。
+
+修复结果：
+
+- `Launcher.startRuntimePreview()` 在 `server:listening` 后立即主动调用 `PreviewSettingsProvider.getPreviewSettings()`。
+- `engine:init:start/done`、`asset-db:start/done`、`builder:init:start/done` 发生在 `startRuntimePreview()` 返回前；`launcher-runtime-preview.test.ts` 使用 `AFTER_START` 哨兵验证该顺序。
+- `vitests/shared/runtime-preview-cli-process.ts` 已从 `tsx src/cli.ts` 改为 `node dist/cli.js`，并且默认等待 `preview:ready` 后才返回。
+- `server:listening` 仍只表示 socket ready；`preview:ready` 才表示默认 preview settings warm-up 完成。
+
 ## 4. 验收与证据
 
 已通过命令：
 
 ```powershell
+npm run build
 npm --prefix vitests test -- suites/runtime-preview
 ```
 
@@ -130,7 +168,7 @@ npm --prefix vitests test -- suites/runtime-preview
 证据文件：
 
 - `E:\own_space\cocos_work_lab_38x\temp\runtime-preview-small-project-cli-evidence.json`
-- `E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-142020.log`
+- `E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-153629.log`
 
 验收断言：
 

@@ -162,7 +162,7 @@ export class Node {
     constructor(dataTypeID: DynamicType) {
         this.selfType = dataTypeID;
     }
-    setStatic<T extends StaticType>(key: string|number, dataTypeID: T, data: DataTypes[T]) {
+    setStatic<T extends StaticType>(key: string|number, dataTypeID: T, data: AnyData) {
     }
     setDynamic(target: Node, key?: string|number) {
         ++target.refCount;
@@ -250,7 +250,7 @@ export class ArrayNode extends Node {
         }
         // 混合数组
         this.selfType = DataTypeID.Array;
-        return [this.datas, ...this.types] as IArrayData;
+        return [this.datas, ...this.types] as unknown as IArrayData;
     }
 }
 

@@ -143,7 +143,7 @@ class Type {
 
         const offset = CLASS_PROP_TYPE_OFFSET + 1 - simpleKeys.length;
         const dataTypes = advancedKeys.map((x) => this.properties.get(x));
-        const classData = [classId, keys, offset, ...dataTypes] as IClass;
+        const classData = [classId, keys, offset, ...dataTypes] as unknown as IClass;
 
         (sharedClasses.get(this) as TraceableItem).result = classData;
     }
