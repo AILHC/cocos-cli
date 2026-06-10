@@ -316,7 +316,7 @@ Current decision:
 
 - Do not change CLI generation solely to mimic frozen editor `info1.0.0` metadata names. Current `@cocos/asset-db` writes `.info.json` files, and `src/core/assets/asset-config.ts` explicitly uses `library/cli`, engine `editor/library`, and `library/cli-extensions/*`.
 - Runtime preview tests and resolver facts must handle current source-backed split layout plus frozen editor reference layout explicitly; server must not compensate by guessing URL tails or copying frozen output into production.
-- Real Launcher `/settings.js` once reproduced the 30s default timeout during full-suite resource contention; `Launcher.startRuntimePreview()` now accepts `settingsTimeoutMs`, and the real Launcher test passes `120_000`. Production default remains `PreviewSettingsProvider`'s 30s unless explicitly overridden.
+- Real Launcher `/settings.js` once reproduced the previous 30s default timeout during full-suite resource contention. Current production default does not set a settings timeout; `Launcher.startRuntimePreview()` still accepts explicit `settingsTimeoutMs` for callers that intentionally want a timeout. Automated test failure protection should come from the test process/case timeout, not from production settings generation defaults.
 
 - [x] **Step 4: 提交 output consistency 进展**
 

@@ -137,7 +137,7 @@
 
 - `npm --prefix vitests test -- suites/runtime-preview` 在补齐环境变量后通过；Task 8A 后最近证据为 `12 files / 40 tests passed`。
 - `settings-generation.test.ts` 的真实 Engine 初始化用例单文件约 9.6 秒通过；full-suite 下通过约 11.4 秒。
-- 结论：此前 30 秒超时符合 full-suite 并发真实 engine/settings 初始化资源竞争的表现；当前真实 Engine init probe 和 real Launcher test 通过定向 120 秒 timeout 避免把环境耗时误判为功能失败。生产默认 timeout 仍由 `PreviewSettingsProvider` 保持 30 秒，除非调用方显式传入 `settingsTimeoutMs`。
+- 结论：此前 30 秒超时符合 full-suite 并发真实 engine/settings 初始化资源竞争的表现；当前 production 默认不设置 settings timeout，避免把合法的慢启动误判为功能失败。显式调用方仍可传入 `settingsTimeoutMs`，自动化测试的失败保护应优先使用测试进程/用例 timeout。
 
 ### 6. 性能边界：禁止启动期全量扫描和 full manifest
 
@@ -275,7 +275,7 @@
 | --- | --- | --- | --- |
 | CLI command / Launcher | 部分实现 | `launcher-runtime-preview.test.ts` 真实 Launcher path 通过；startup console 和本地日志已覆盖 | 小项目真实 CLI child process 集成验收 |
 | runtime server/routes | 部分实现 | `cli-startup.test.ts`、`http-contract.test.ts`、`pre-browser-http-smoke.test.ts` 通过；SystemJS/macro/import-map-global、plugins/script2library 已补齐 | scene/root preview entry、remote、pack/redirect、小项目 extension runtime trigger |
-| `PreviewSettingsProvider` | 部分实现 | `settings-generation.test.ts` 通过，full-suite 最近证据为 Task 8A 后 `12 files / 40 tests passed`；real Launcher test 显式传入 `settingsTimeoutMs: 120_000` | 真实 browser/small-project production settings contract 未闭环 |
+| `PreviewSettingsProvider` | 部分实现 | `settings-generation.test.ts` 通过；production 默认无 settings timeout，显式调用方可传入 `settingsTimeoutMs` | 真实 browser/small-project production settings contract 未闭环 |
 | library resolver | 部分实现 | captured import URL、bundle-config-backed import route、fact-backed native production route 通过 | pack、redirect、small-project extension runtime trigger fact、remote |
 | programming resolver | 部分实现 | preview records/chunks、project script `dependScripts`、SystemJS、macro、import-map-global、plugins/script2library 通过 | extension mount runtime trigger、完整 browser/integration 事实 |
 | frozen editor resource parser probe | 部分实现 | JsonAsset、ImageAsset、Texture2D、SpriteFrame、SpriteAtlas、Spine SkeletonData 通过 | TTFFont、runtime `.plist` parser、Spine `.atlas` standalone |

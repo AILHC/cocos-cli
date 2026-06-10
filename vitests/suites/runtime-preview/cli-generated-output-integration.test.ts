@@ -104,6 +104,7 @@ describe('runtime preview real CLI generated output acceptance', () => {
       const normalizedCliCommand = `${cli.command} ${cli.args.join(' ')}`.replace(/\\/g, '/');
       expect(normalizedCliCommand).toContain('/dist/cli.js');
       expect(normalizedCliCommand).not.toContain('/tsx/');
+      expect(normalizedCliCommand).not.toContain('--settings-timeout-ms');
       expect(cli.stdout).toContain('[runtime-preview] preview:ready');
 
       const sceneListResponse = await fetch(`${cli.url}/scene-list`);

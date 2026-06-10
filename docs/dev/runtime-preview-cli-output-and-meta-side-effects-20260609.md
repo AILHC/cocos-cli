@@ -176,7 +176,7 @@ git -C E:\own_space\cocos_work_lab_38x diff --stat -- "*.meta"
    - `git diff --name-only -- "*.meta"`
    - tracked `.meta` 文件 hash 或 `git diff --quiet -- "*.meta"` 结果
 2. 启动真实 dist CLI：
-   - `node E:\own_space\engines\cocos-cli\dist\cli.js preview --runtime --project E:/own_space/cocos_work_lab_38x --host 127.0.0.1 --port <port> --settings-timeout-ms 120000`
+   - `node E:\own_space\engines\cocos-cli\dist\cli.js preview --runtime --project E:/own_space/cocos_work_lab_38x --host 127.0.0.1 --port <port>`
 3. 等待 `[runtime-preview] preview:ready`。
 4. 停止进程。
 5. 再次记录：
