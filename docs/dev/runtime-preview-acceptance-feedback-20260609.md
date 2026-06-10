@@ -227,7 +227,54 @@ npm --prefix vitests test -- suites/runtime-preview/cli-generated-output-integra
 - 这证明当前小项目三复杂场景在真实 CLI generated `library/cli` 和 `temp/cli/programming` root 下可以通过 browser runtime smoke。
 - 这不等于所有资源类型、所有 bundle、所有 extension runtime request 都已覆盖；`editor-cli-output-consistency.test.ts` 仍把 CLI/editor output 差异分类为 `source-backed-split-library-layout`。
 
-## 6. 后续建议
+## 6. 待修问题：启动日志与早期反馈
+
+记录时间：2026-06-10
+
+### 6.1 日志记录混乱
+
+现象：
+
+- runtime preview 启动时同时存在 stdout、`temp/logs` 通用 CLI 日志、`temp/preview-logs` runtime preview 专用日志。
+- stdout 受 `newConsole.record()` 接管，会出现 `[log]`、pino JSON、底层 AssetDB/importer/builder 日志和 runtime preview 状态混杂。
+- `active-output` 当前只输出到 stdout，未写入 runtime preview 专用日志。
+- runtime preview 专用日志只记录阶段和部分 request/settings 事件，不包含完整资源 import、script compile、底层 importer 失败上下文。
+
+影响：
+
+- 人工验收时很难第一时间判断当前 preview 使用的 `libraryRoot`、`programmingRoot`、server log 文件、启动阶段和失败位置。
+- 自动测试可通过 stdout substring 判断，但人工诊断仍需要在多份日志之间来回查找。
+
+修复方向：
+
+- 明确三类日志职责：stdout 只显示人工可读摘要和关键阶段；`temp/preview-logs` 记录 runtime preview 验收主线；`temp/logs` 保留底层全量日志。
+- `active-output`、启动阶段、settings 生成、AssetDB 摘要、script compile 摘要应同时写入 runtime preview 专用日志。
+- 不在人工摘要中暴露内部实现字段或实现过程术语。
+
+状态：`open`
+
+### 6.2 启动早期无反馈，端口检查后置
+
+现象：
+
+- 执行 `preview --runtime` 后，用户需要等待较久才看到第一条有效 runtime preview 状态反馈。
+- 端口冲突检查发生在较晚阶段；如果端口被占用，可能在已经做了一部分初始化后才报错。
+- 这会造成“看起来卡住很久，最后才发现端口冲突”的体验。
+
+影响：
+
+- 人工验收无法区分 CLI 是否已开始处理、是否正在初始化、还是卡在端口/配置/engine/AssetDB 阶段。
+- 端口冲突属于廉价、确定的前置失败条件，后置检查会浪费启动时间。
+
+修复方向：
+
+- `preview --runtime` 进入命令后立即输出最小启动反馈，包括 project、host、port、engineRoot 解析结果。
+- 在启动 engine、AssetDB、builder 之前先做端口可用性检查，端口冲突应快速失败。
+- `server:listening` 继续表示 socket ready；`preview:preparing` / `preview:ready` 表示 runtime preview 准备状态，不能混用。
+
+状态：`open`
+
+## 7. 后续建议
 
 1. 将 renderMode 默认策略从“默认 WebGL”收敛为配置推导实现。
 2. 为 `useWebGPU=true` 或 `gfx-webgpu=true` 的小型 fixture 增加单独 WebGPU opt-in 验收；不要把 WebGPU 失败和默认 preview 稳定性混为同一 gate。
