@@ -4,6 +4,7 @@
 !.vscode/
 !.github/
 !.husky/
+!.codex/
 .vscode/extensions.json
 .vscode/launch.json
 .vscode/*.code-workspace
