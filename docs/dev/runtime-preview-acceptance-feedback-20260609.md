@@ -255,8 +255,8 @@ npm --prefix vitests test -- suites/runtime-preview/cli-generated-output-integra
 
 - runtime preview 启动时同时存在 stdout、`temp/logs` 通用 CLI 日志、`temp/preview-logs` runtime preview 专用日志。
 - stdout 受 `newConsole.record()` 接管，会出现 `[log]`、pino JSON、底层 AssetDB/importer/builder 日志和 runtime preview 状态混杂。
-- `active-output` 当前只输出到 stdout，未写入 runtime preview 专用日志。
-- runtime preview 专用日志只记录阶段和部分 request/settings 事件，不包含完整资源 import、script compile、底层 importer 失败上下文。
+- 已修复一部分：`active-output`、主要启动阶段耗时、settings build 摘要、AssetDB effect/script sync 摘要会同时输出到 stdout 和 runtime preview 专用日志。
+- 仍未完成：runtime preview 专用日志还没有完整资源 import 进度、单个 importer 失败上下文、route 级别 404/500 摘要。
 
 影响：
 
@@ -269,7 +269,7 @@ npm --prefix vitests test -- suites/runtime-preview/cli-generated-output-integra
 - `active-output`、启动阶段、settings 生成、AssetDB 摘要、script compile 摘要应同时写入 runtime preview 专用日志。
 - 不在人工摘要中暴露内部实现字段或实现过程术语。
 
-状态：`open`
+状态：`partially-fixed`
 
 ### 6.2 启动早期无反馈，端口检查后置
 
@@ -289,6 +289,274 @@ npm --prefix vitests test -- suites/runtime-preview/cli-generated-output-integra
 - `preview --runtime` 进入命令后立即输出最小启动反馈，包括 project、host、port、engineRoot 解析结果。
 - 在启动 engine、AssetDB、builder 之前先做端口可用性检查，端口冲突应快速失败。
 - `server:listening` 继续表示 socket ready；`preview:preparing` / `preview:ready` 表示 runtime preview 准备状态，不能混用。
+
+状态：`open`
+
+### 6.3 启动时序模型不清晰，难以排查大项目
+
+记录时间：2026-06-10
+
+现象：
+
+- 当前 runtime preview 把 engine init、AssetDB 启动/导入、script collect/compile、builder init、settings build、server listening、browser scene load 等不同阶段混在 `settingsProvider.getPreviewSettings()` 和少量阶段日志下。
+- 对小项目还能靠最终 `preview:ready` 和 browser smoke 判断结果；对大项目，例如 `F:\ps_copy\p6\trunk\Project\GameClient\feature-c`，启动耗时长、日志多、失败点深，现有流程很难判断卡在资源导入、脚本编译、settings build、server route 还是浏览器运行时。
+- 当前 `server:listening`、`preview:preparing`、`settings:generation:start/done`、`preview:ready` 的语义不足以表达“CLI preview 准备完成”“socket 已监听”“浏览器页面加载完成”“scene runtime ready”这些不同状态。
+
+期望方向：
+
+- 参考编辑器的大致流程，但按 CLI 形态优化：先初始化引擎，再启动/导入资源，再收集和编译脚本，再初始化 builder/preview settings，最后启动或声明 preview ready。
+- 对必须前置的工作给出明确阶段和耗时：engine init、端口检查、active output roots、AssetDB database ready、资源导入摘要、script collect/compile、builder init、settings build。
+- 对可以延后的工作保持 request-time / lazy：非默认 scene settings、library 文件按需读取、浏览器 scene load、诊断信息聚合。
+- 日志需要体现真实时序，而不是让 `settings generation` 承担整个初始化成本。
+
+已验证事实：
+
+- 2026-06-10 使用 `dist/cli.js` 启动 `F:\ps_copy\p6\trunk\Project\GameClient\feature-c`，server 可以到 `preview:ready`。
+- 一次实测 `preview:ready` 总耗时约 66.5s；其中 `engine:init` 约 1.3s、`asset-db` 约 55.1s、`script-sync collect` 约 0.57s、`script-compile` 约 4.8s、`builder:init` 约 0.22s、`settings:build` 约 5.3s。
+- 当前事实说明：`feature-c` 的首要慢点在 AssetDB 启动/导入阶段；“无法正常预览”的失败点还不能从 server ready 推断，下一步必须采集浏览器运行时 console/page/request 证据。
+
+状态：`partially-fixed`
+
+### 6.4 `feature-c` 浏览器错误上报与监听边界
+
+记录时间：2026-06-10
+
+现象：
+
+- 默认 scene 诊断和人工浏览器实际打开的 scene 不一致时，会误判为“监听不到人工报错”。
+- 当前 `static/runtime-preview/script.ejs` 通过 `window.error` / `unhandledrejection` 上报 `/preview-error`；这可以覆盖 script load error、pageerror 等事件，但不能覆盖所有普通 console error。
+- Playwright 监听到的 console error 不会自动触发 `/preview-error`；`Ui.showError()` 仍依赖 socket `preview error`，而当前 `/socket.io/socket.io.js` 是 noop。
+
+已验证事实：
+
+- 已新增 Playwright console listener 诊断入口：`npm --prefix vitests run diagnose:feature-c`。
+- `F:\ps_copy\p6\trunk\Project\GameClient\feature-c` 可启动到 `preview:ready`，浏览器也能设置 `window.__RUNTIME_PREVIEW_READY`。
+- evidence 文件：`F:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\runtime-preview-feature-c-playwright-console-evidence.json`。
+- Playwright 监听结果：`pageErrors=0`、`failedRequests=0`、`badResponses=0`，但 `consoleMessages=4`。
+- 首个明确 error：`[Physics] PhysicsSystem initDefaultMaterial() Failed to load builtinMaterial.`
+- `/settings.js` 解析结果：`settings.engine.builtinAssets` 数量为 23，不包含 `ba21476f-2866-4f81-9c4d-6e359316e448`。
+- `ba21476f-2866-4f81-9c4d-6e359316e448` 是 engine `cc.config.json` 中 `physics-cannon` / `physics-physx` / `physics-ammo` / `physics-builtin` 的 `dependentAssets`，对应 `db://internal/physics/default-physics-material.pmtl`。
+- `feature-c` 项目 engine settings 只启用了 `physics-2d-box2d-wasm`，没有启用 3D physics backend；但编译产物中存在 `cce:/internal/x/cc-fu/physics-framework` 依赖。
+- 2026-06-10 按人工反馈的精确 URL `http://localhost:19530/?scene=30f506ee-cb3b-4263-a71a-950ff4fa060b` 连接已有 server，等待 `ready` 后继续监听 60s，evidence 文件：`F:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\runtime-preview-exact-scene-30f506ee-browser-evidence.json`。
+- 精确 URL 监听结果：`readyTimedOut=false`，`ready.scene=30f506ee-cb3b-4263-a71a-950ff4fa060b`，`consoleMessages=5`，`pageErrors=1`，`failedRequests=0`，`badResponses=0`。
+- 对应 server log `F:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\preview-logs\runtime-preview-20260610-122811.log` 中存在 `browser:preview-error` 266 条，包含大量 chunk `Get ... failed!` 和 `SliderEx._updateHandlePosition` 的真实 stack。
+- 因此“完全监听不到这些报错”不是事实；准确问题是：默认诊断未覆盖人工 exact scene，且 Playwright `requestfailed` 未复现人工 Chrome console 中的 `net::ERR_INSUFFICIENT_RESOURCES` 文案，但 `/preview-error` route 已经收到浏览器事件上报。
+
+当前判断：
+
+- `feature-c` exact scene 的 script load/pageerror 已经能进入 preview server log；之前未看到是诊断对象不一致和日志读取不完整导致的误判。
+- 普通 console error 仍不一定进入 `/preview-error`，因为它不是 `window.error` / `unhandledrejection`。
+- `feature-c` 当前可见 runtime error 的直接原因是 3D `PhysicsSystem` 被加载后需要 `default-physics-material`，但 settings 没有声明该 builtin asset。
+- 这不是 HTTP route 缺文件；route contract 已证明 `/assets/general/import/ba/ba21476f-2866-4f81-9c4d-6e359316e448.json` 可由 internal library 服务。
+
+后续修复方向：
+
+- 短期：保留 Playwright console listener 作为真实项目诊断入口，人工验收不能只看 preview server log。
+- 上报：让 preview-app 的 `Ui.showError()` / bootstrap catch / scene load error catch 显式调用 `/preview-error`，不要依赖 noop socket。
+- settings：根据实际 engine feature / compiled script feature usage，补齐 `settings.engine.builtinAssets` 中 runtime 必需的 dependentAssets；不能在 route 层硬猜 URL。
+
+状态：`open`
+
+### 6.5 `feature-c` 模块配置与编译/运行事实不一致
+
+记录时间：2026-06-10
+
+问题：
+
+- `feature-c` 的项目 engine 模块配置只声明了 2D physics：`settings/v2/packages/engine.json` 中 `modules.configs.migrationsConfig.includeModules` 只包含 `physics-2d-box2d-wasm`，不包含 `physics-framework`、`physics-cannon`、`physics-physx`、`physics-ammo`、`physics-builtin`。
+- 但浏览器 runtime 实际执行到了 3D `PhysicsSystem.initDefaultMaterial()`，并输出：
+
+```text
+[Physics] PhysicsSystem initDefaultMaterial() Failed to load builtinMaterial.
+```
+
+已确认事实：
+
+- engine 源码 `cocos/physics/framework/physics-system.ts` 中，`initDefaultMaterial()` 通过 `builtinResMgr.get('default-physics-material')` 获取默认 3D physics material。
+- engine `cc.config.json` 中，`default-physics-material` 的 uuid 是 `ba21476f-2866-4f81-9c4d-6e359316e448`，只挂在 `physics-cannon` / `physics-physx` / `physics-ammo` / `physics-builtin` 的 `dependentAssets` 下。
+- CLI builder 的 `setting-task/asset.ts` 使用 `this.bundleManager.bundleMap[internal]._rootAssets` 生成 `settings.engine.builtinAssets`。
+- internal bundle root assets 来自 `queryPreloadAssetList(this.options.includeModules, enginePath)`，即主要根据 `includeModules` 查询 engine `cc.config.json` 的 `dependentAssets` / `dependentScripts`。
+- `feature-c` 诊断结果中 `/settings.js` 的 `settings.engine.builtinAssets` 数量为 23，明确不包含 `ba21476f-2866-4f81-9c4d-6e359316e448`。
+- `feature-c` 的 `temp/cli/programming/packer-driver/targets/editor/import-map.json` 中存在 `cce:/internal/x/cc-fu/physics-framework` 映射；注意该映射表本身不能单独证明该 feature 已执行，真正执行事实来自浏览器 console 中的 `PhysicsSystem` 错误。
+
+当前解释：
+
+- 直接原因：settings 生成只按项目 `includeModules` 收集 builtin assets，因此没有把 3D physics backend 的 `default-physics-material` 写入 `settings.engine.builtinAssets`。
+- 运行时事实：浏览器中 3D `PhysicsSystem` 被执行，导致它需要 `default-physics-material`。
+- 因此当前不一致不是 URL route 猜错，而是“settings 使用的模块输入”和“浏览器实际加载/执行的 engine feature”没有对齐。
+
+待验证根因：
+
+- 是否是 engine dev-cli web 产物生成时包含了比 `includeModules` 更宽的 feature set。
+- 是否是 packer-driver / `cc` 聚合模块在处理项目脚本 import 时引入了 `physics-framework`。
+- 是否是 `includeModules` 缺少由编译产物反推的实际 feature usage，导致 settings 只相信项目配置而没有校验产物事实。
+
+后续处理原则：
+
+- 修复不能在 runtime route 层硬塞 `default-physics-material` URL。
+- 应先追溯 engine source / `@cocos/ccbuild` / packer-driver 输出，确认 3D `PhysicsSystem` 是如何进入浏览器执行路径。
+- 如果确认编译产物确实需要 `physics-framework`，settings 生成必须补齐与实际 feature usage 对应的 `dependentAssets`，并记录可溯源关系。
+
+状态：`open`
+
+### 6.6 `feature-c` chunk load `ERR_INSUFFICIENT_RESOURCES`
+
+记录时间：2026-06-10
+
+人工反馈错误：
+
+```text
+GET http://localhost:19530/scripting/x/packer-driver/targets/preview/chunks/...js net::ERR_INSUFFICIENT_RESOURCES
+Error loading ... from .../chunks/6d/6d8fd2b0177941b032ddc0733af48a561fb60657.js (SystemJS Error#3)
+POST http://localhost:19530/preview-error net::ERR_INSUFFICIENT_RESOURCES
+```
+
+已验证事实：
+
+- `feature-c/temp/cli/programming/packer-driver/targets/preview/chunks` 下当前有 3257 个 `.js` chunk。
+- `feature-c/temp/cli/programming/packer-driver/targets/preview/import-map.json` 有 3244 个 `imports`，没有 `depcache`。
+- `cce:/internal/x/prerequisite-imports` 映射到 `./chunks/6d/6d8fd2b0177941b032ddc0733af48a561fb60657.js`。
+- `preview/main-record.json` 中 `cce:/internal/x/prerequisite-imports.imports.length = 3242`。
+- `preview/chunks/6d/6d8fd2b0177941b032ddc0733af48a561fb60657.js` 是 `System.register([...3242 个静态依赖...], ...)`，`execute` 为空。
+- 直接请求一个人工报错中的 chunk，例如 `/scripting/x/packer-driver/targets/preview/chunks/cb/cbfae4011f3f41274a428b2876a741afbc4a134b.js`，server 返回 `HTTP/1.1 200 OK`，`content-type: application/javascript`。
+- 对应 server log 中没有该 chunk 的 route 404/500；有的是浏览器通过 `/preview-error` 上报的 `Get ... failed!`。
+- `targets/editor` 中同名 `prerequisite-imports` chunk 是 `System.register([], ...)`，在 `execute` 内用 `_context.import("__unresolved_N")` 顺序 `await`，不会在实例化阶段暴露 3242 个静态依赖。
+- 当前 `src/core/scripting/packer-driver/index.ts` 中 `tentativePrerequisiteImportsMod: target.isEditor ?? false`，所以 `preview` target 使用静态 import，`editor` target 才使用 tentative dynamic import。
+- 旧版编辑器 preview server 参考代码也使用 `get-loader-context("preview")`，说明“browser preview 使用 preview target”是旧事实；但旧事实不等于当前大项目下的加载策略可承受。
+
+当前判断：
+
+- 主因不是 URL 转换错误，也不是 chunk 文件缺失。
+- 主因是 `preview` target 的 `prerequisite-imports` 被生成为 3242 个静态依赖，SystemJS 在导入该模块时会触发大规模 chunk 加载；在 `feature-c` 这种大项目中，Chrome 可能出现 `ERR_INSUFFICIENT_RESOURCES`。
+- `/preview-error` POST 也可能被同一个浏览器资源耗尽状态影响，因此不能只依赖 server 端上报判断浏览器错误是否发生。
+
+修复方向：
+
+- 短期修复应优先让 `preview` target 的 `prerequisite-imports` 改为 bounded / sequential dynamic import 形态，保持“导入全部 prerequisite script”的语义，但避免一次性暴露几千个静态依赖。
+- 不应把修复放在 route 层重试或硬编码 chunk URL；chunk route 已能返回文件。
+- 中长期可以研究 scene-scoped prerequisite script 集合，但这涉及脚本 class 注册完整性，必须以 asset-db / settings / script depend facts 验证，不能直接按当前 scene 粗暴裁剪。
+
+快速修复试验：
+
+- 已新增 `src/core/scripting/packer-driver/target-policy.ts`，将 `preview` target 纳入 tentative prerequisite imports 策略；`editor` target 原行为保持不变。
+- `src/core/scripting/packer-driver/index.ts` 从 `target.isEditor ?? false` 改为 `shouldUseTentativePrerequisiteImportsMod(targetId, target)`。
+- 已新增 `vitests/suites/runtime-preview/preview-prerequisite-imports-policy.test.ts` 覆盖 `preview` / `editor` 策略。
+- 2026-06-10 重新 build 后，用 `dist/cli.js` 启动 `feature-c`，scene `30f506ee-cb3b-4263-a71a-950ff4fa060b`，evidence 文件：`F:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\runtime-preview-feature-c-after-tentative-preview-evidence.json`。
+- 复测结果：`readyTimedOut=false`，`failedRequests=0`，`badResponses=0`；preview log `runtime-preview-20260610-132042.log` 中没有批量 chunk `Get ... failed!`，只剩 1 条 `SliderEx._updateHandlePosition` runtime error。
+- 重新生成后的 `preview/chunks/6d/6d8fd2b0177941b032ddc0733af48a561fb60657.js` 已变为 `System.register([], ...)`，在 `execute` 内顺序 dynamic import，不再声明 3242 个静态依赖。
+
+语义边界：
+
+- `tentativePrerequisiteImportsMod` 不会改变“成功 import 的脚本会执行模块外层逻辑、decorator 和 class 注册”这一事实；如果 3242 个 prerequisite script 都成功加载，它仍然能覆盖默认 Cocos runtime “所有脚本先加载”的基本语义。
+- 但当前 tentative 实现会捕获单个 import 失败并继续执行，存在隐藏脚本加载失败的风险；这可能导致 class 注册缺失，最终在 scene / prefab 反序列化或组件初始化阶段才以二次错误暴露。
+- 因此当前修改只作为验证 `ERR_INSUFFICIENT_RESOURCES` 主因和缓解浏览器资源耗尽的快速修复，不应视为最终语义闭环。
+- 最终实现应改为 strict bounded / sequential dynamic import：限制并发或顺序加载所有 prerequisite script，收集失败，最终在 preview ready 前抛出聚合错误；既避免几千个静态依赖一次性触发，又不吞掉脚本加载失败。
+
+状态：`partially-fixed`
+
+### 6.7 `feature-c` scene `4c721bfe-0b6e-46c2-97f0-644adfdcba31` 大量报错
+
+记录时间：2026-06-10
+
+人工反馈 URL：
+
+```text
+http://localhost:19530/?scene=4c721bfe-0b6e-46c2-97f0-644adfdcba31
+```
+
+已采集证据：
+
+- 当前 `19530` 服务仍在监听；读取当前服务的 `cce:/internal/x/prerequisite-imports` chunk，结果是 `System.register([], ...)`，不是 3242 个静态依赖的旧形态。
+- 使用 Playwright 连接人工 exact URL，等待 ready 后继续监听 60s，evidence 文件：`F:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\runtime-preview-exact-scene-4c721bfe-browser-evidence.json`。
+- 监听结果：`readyTimedOut=false`，`ready.scene=4c721bfe-0b6e-46c2-97f0-644adfdcba31`，`elapsedTotalMs=88533`，`consoleMessages=1035`，`pageErrors=420`，`failedRequests=3`，`badResponses=24`，其中同源 bad response 为 24。
+- 对应 runtime preview log：`F:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\preview-logs\runtime-preview-20260610-132851.log`。
+- 该 log 中 active output 为：
+
+```text
+libraryRoot: F:\ps_copy\p6\trunk\Project\GameClient\feature-c\library\cli
+programmingRoot: F:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\cli\programming
+```
+
+资源加载事实：
+
+- 浏览器出现 24 个同源 404，典型 URL：
+
+```text
+/assets/resources/import/20/207a3957-d7e1-4fdb-8903-c63948195ada@f9941.json
+/assets/resources/import/b7/b72be1c8-a06a-49b6-9078-68b96662d5ae@f9941.json
+/assets/general/native/8c/8c1ebdc5-5bb8-48b2-a60f-e16fd6b0a624.manifest
+/assets/general/native/98/9804400a-5e5d-4dc7-a564-33ef97537007.bin
+```
+
+- `libraryRoot` 使用的是 CLI flat layout：`library/cli/<prefix>/<uuid...>`，并且存在 `.assets-data.json` / `.assets-info.json` / `.assets-dependency.json`。
+- `207a3957-d7e1-4fdb-8903-c63948195ada@f9941.json` 在 active root 下真实存在于 `library\cli\20\207a3957-d7e1-4fdb-8903-c63948195ada@f9941.json`；通过 `/assets/product/import/20/207a3957-d7e1-4fdb-8903-c63948195ada@f9941.json` 请求可返回 200。
+- 同一个资源通过浏览器实际请求的 `/assets/resources/import/20/207a3957-d7e1-4fdb-8903-c63948195ada@f9941.json` 返回 404；`resources/config.json` 的 `paths` / `uuids` 中不包含该 UUID，而 `product/config.json` 中包含。
+- `b72be1c8-a06a-49b6-9078-68b96662d5ae@f9941.json` 同样属于 `product` bundle，`resources` bundle 不包含。
+- `8c1ebdc5-5bb8-48b2-a60f-e16fd6b0a624.manifest` 在 active root 下存在于 `library\cli\8c\8c1ebdc5-5bb8-48b2-a60f-e16fd6b0a624.manifest`；但当前 `resolve-library-request.ts` 的 `getUuidFromNativeTail()` 只识别 `png/jpg/jpeg` 文件名或单独 UUID 路径段，因此 `.manifest` native 请求不会被 asset-data backed general request 放行。
+- scene `4c721bfe-0b6e-46c2-97f0-644adfdcba31` 在 `.assets-data.json` 中对应 `db://assets/scenes/start.scene`，flat 文件 `library\cli\4c\4c721bfe-0b6e-46c2-97f0-644adfdcba31.json` 存在，并且 `/assets/general/import/4c/4c721bfe-0b6e-46c2-97f0-644adfdcba31.json` 可返回 200。
+- public `/settings.js` 中 `launch.launchScene=4c721bfe-0b6e-46c2-97f0-644adfdcba31`，但各 bundle config 的 `scenes` / `paths` 中没有该 scene；当前 preview-app 是通过 `/scene/<uuid>.json` 手动读取 scene JSON，再用 `cc.assetManager.loadWithJson()` 加载。
+
+运行时错误事实：
+
+- 最高频 console error：`Failed to allocate chunk in StaticVBAccessor, the requested buffer might be too large: 216000000 bytes`，出现 420 次。
+- 最高频 pageerror：`TypeError: Cannot read properties of null (reading 'vb')`，出现 420 次。
+- stack 指向项目编译 chunk `d21a2b29f3f9a543852aa0c242e02db418bf06a7.js` 中的 `updateOpacity(render.renderData, opacity)`，随后进入 engine `Batcher2D.update()` / `Root._frameMoveProcess()`。
+- 该错误发生在 404 之后，当前不能直接断定是根因；更合理的顺序判断是：scene 能进入运行，部分依赖资源按错误 bundle 或无法放行的 native URL 请求失败，之后 2D batch/render 阶段持续触发 `StaticVBAccessor` / `renderData.chunk` 异常。
+
+当前判断：
+
+- 这次 exact scene 的主要问题不是旧的 `prerequisite-imports` 静态依赖导致的 `ERR_INSUFFICIENT_RESOURCES`；当前服务已经使用 dynamic import 形态。
+- 至少存在两个独立问题：一是 scene 依赖资源的 bundle 归属和 runtime 请求 URL 不一致，典型表现为真实属于 `product` 的资源被请求到 `resources`；二是 `.manifest` / `.bin` 等 native 文件没有被当前 `getUuidFromNativeTail()` 和白名单逻辑正确识别。
+- `preview-app` 强制 `importBase=assets/general/import` / `nativeBase=assets/general/native` 可以让手动 scene JSON 读取跑通，但不能自动修正 scene 依赖资源的 bundle 归属；依赖解析仍必须与 `bundleConfigs`、asset-db facts、CLI flat library 产物一致。
+- 后续修复应优先基于 engine runtime 的 bundle 解析规则、CLI `bundleConfigs`、`.assets-data.json` / `.assets-info.json` 事实设计 URL 放行和 bundle 映射，不能在 route 层按报错 URL 硬编码补洞。
+- 这里的目标不是“接近旧版编辑器 route 写法”，而是基于 engine runtime 实际如何生成 URL、settings / bundle config 实际如何参与加载、CLI/library 产物实际如何存储文件来设计最短映射。preview server 的职责是让 engine 请求到的资源正常返回对应 library 文件；额外限制只能服务于路径安全和事实映射，不能阻碍事实存在的资源加载。
+- “基于事实”不等于给每个请求增加 server 自己发明的证明门槛。URL 来自 engine，文件来自 library，settings/config 来自 builder/asset-db；如果这三者不一致，应追溯 settings/config 或产物生成事实，而不是在 route 层加入扩展名猜测、bundle 猜测或 UUID 反推 gate。
+
+拆分问题项：
+
+1. Bundle 归属与运行时请求 URL 不一致。
+   - 事实：`207a3957-d7e1-4fdb-8903-c63948195ada@f9941` 属于 `product/config.json`，且 `/assets/product/import/20/207a3957-d7e1-4fdb-8903-c63948195ada@f9941.json` 可返回 200。
+   - 事实：浏览器实际请求 `/assets/resources/import/20/207a3957-d7e1-4fdb-8903-c63948195ada@f9941.json`，`resources/config.json` 不包含该 UUID，因此返回 404。
+   - 待查：为什么 `loadWithJson()` 后续依赖解析会落到 `resources`，而不是根据该依赖在 bundle config / asset-db / library facts 中的真实归属走 `product`。
+
+2. Native URL 白名单识别逻辑过窄。
+   - 事实：`8c1ebdc5-5bb8-48b2-a60f-e16fd6b0a624.manifest` 在 active root `library\cli\8c\` 下存在，但 `/assets/general/native/8c/8c1ebdc5-5bb8-48b2-a60f-e16fd6b0a624.manifest` 返回 404。
+   - 事实：当前 `getUuidFromNativeTail()` 只从 `.png` / `.jpg` / `.jpeg` 文件名，或路径中的独立 UUID segment 提取 UUID；`uuid.manifest`、`uuid.bin` 这类 native 文件不会被识别，导致 `isAssetDataBackedGeneralRequest()` 无法根据 `.assets-data.json` 放行。
+   - 旧版编辑器事实：旧版 preview server 的 `/assets/*/native/*` 和 `/assets/*/import/*` route 没有按扩展名从 tail 反推 UUID；它取 route tail，拼到 `Editor.Project.path/library` 或 internal library，文件存在就 `sendFile`。
+   - 当前实现解释：CLI runtime preview 增加 UUID 识别不是旧版编辑器行为，而是当前实现为了建立 fact-backed gate 加出来的限制。该限制没有直接来自 engine 加载事实；在 runtime preview 目标下，它已经阻碍真实存在的 library 文件返回。
+   - 修正原则：应先保证路径不能跳出允许的 library roots，然后按 engine 请求 tail 和当前 library 产物查文件。UUID / metadata / bundle config 可以用于诊断和溯源，但不应作为阻断真实 library 文件的前置条件，除非 engine/source 明确要求。
+
+状态：`open`
+
+### 6.8 `feature-c` source `.meta` 被 CLI 运行改写
+
+记录时间：2026-06-10
+
+人工反馈：
+
+- CLI 运行导致 `F:\ps_copy\p6\trunk\Project\GameClient\feature-c\assets\product\animation\a_bdmx_hit.anim.meta` 的 `files` 中 `.cconb` 变成了 `.bin`。
+
+当前已确认状态：
+
+- 读取该文件当前内容，`files` 为：
+
+```json
+[
+  ".bin"
+]
+```
+
+当前判断：
+
+- 这属于 source asset `.meta` 写入副作用风险，不能和 `library/cli`、`temp/cli` 这类预期输出混为一类。
+- 当前只确认了文件现状和人工反馈；如果要写成“由某次 CLI runtime preview 运行导致”，还需要该项目运行前后的 `.meta` diff 或文件 hash 证据。
+- 即使因果尚待验证，runtime preview 的原则也应明确：生成/刷新 `library`、`programming` 可以是预期输出；修改 `assets/**/*.meta` 不是预期副作用，除非有明确的 asset-db/importer 任务需要并且被显式记录。
+
+待查方向：
+
+- 查 `animation-clip` importer / AssetDB import 流程中何处决定 `meta.files` 使用 `.cconb` 还是 `.bin`。
+- 对比 editor 打开同项目与 CLI runtime preview 打开同项目时，该 `.anim.meta` 的 before/after。
+- 检查 CLI 启动 AssetDB 时是否触发了 importer schema migration 或 reimport，并确认是否可配置为不写回 source `.meta`。
 
 状态：`open`
 

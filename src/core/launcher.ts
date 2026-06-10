@@ -14,6 +14,12 @@ interface RuntimePreviewStageDiagnostics {
     stageError: (stage: string, error: unknown) => void;
 }
 
+type RuntimePreviewDiagnosticsGlobal = typeof globalThis & {
+    __cocosCliRuntimePreviewDiagnostics?: {
+        event: (line: string) => void;
+    };
+};
+
 /**
  * 启动器，主要用于整合各个模块的初始化和关闭流程
  * 默认支持几种启动方式：单独导入项目、单独启动项目、单独构建项目
@@ -153,16 +159,38 @@ export default class Launcher {
         const engineRoot = this.getEngineRoot();
         let serverUrl = '';
         let writeRuntimePreviewLog: ((line: string) => void) | null = null;
+        const previewStartedAt = Date.now();
+        const stageStartedAt = new Map<string, number>();
+        const runtimePreviewGlobal = globalThis as RuntimePreviewDiagnosticsGlobal;
+        const previousRuntimePreviewDiagnostics = runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics;
         const emitRuntimePreviewEvent = (line: string) => {
             console.log(`[runtime-preview] ${line}`);
             writeRuntimePreviewLog?.(line);
         };
+        runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics = {
+            event: emitRuntimePreviewEvent,
+        };
         const diagnostics: RuntimePreviewStageDiagnostics = {
-            stageStart: (stage) => emitRuntimePreviewEvent(`${stage}:start`),
-            stageDone: (stage) => emitRuntimePreviewEvent(`${stage}:done`),
+            stageStart: (stage) => {
+                stageStartedAt.set(stage, Date.now());
+                emitRuntimePreviewEvent(`${stage}:start`);
+            },
+            stageDone: (stage) => {
+                const startedAt = stageStartedAt.get(stage);
+                const durationPart = typeof startedAt === 'number'
+                    ? ` durationMs=${Date.now() - startedAt}`
+                    : '';
+                stageStartedAt.delete(stage);
+                emitRuntimePreviewEvent(`${stage}:done${durationPart}`);
+            },
             stageError: (stage, error) => {
                 const message = error instanceof Error ? error.message : String(error);
-                emitRuntimePreviewEvent(`${stage}:error ${message}`);
+                const startedAt = stageStartedAt.get(stage);
+                const durationPart = typeof startedAt === 'number'
+                    ? ` durationMs=${Date.now() - startedAt}`
+                    : '';
+                stageStartedAt.delete(stage);
+                emitRuntimePreviewEvent(`${stage}:error${durationPart} ${message}`);
             },
         };
         let preparePreviewSettings: Promise<void> | null = null;
@@ -195,17 +223,34 @@ export default class Launcher {
                 const startScene = typeof buildOptions?.startScene === 'string'
                     ? buildOptions.startScene
                     : options.scene;
-                return getPreviewSettings({
-                    ...(buildOptions ?? {}),
-                    server: serverUrl,
-                    startScene,
-                } as never);
+                const settingsStageStartedAt = Date.now();
+                emitRuntimePreviewEvent(`settings:build:start scene=${startScene ?? ''}`);
+                try {
+                    const result = await getPreviewSettings({
+                        ...(buildOptions ?? {}),
+                        server: serverUrl,
+                        startScene,
+                    } as never);
+                    const scriptCount = Object.keys(result.script2library ?? {}).length;
+                    const bundleCount = Array.isArray(result.bundleConfigs) ? result.bundleConfigs.length : 0;
+                    emitRuntimePreviewEvent([
+                        `settings:build:done durationMs=${Date.now() - settingsStageStartedAt}`,
+                        `scene=${startScene ?? ''}`,
+                        `scripts=${scriptCount}`,
+                        `bundles=${bundleCount}`,
+                    ].join(' '));
+                    return result;
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    emitRuntimePreviewEvent(`settings:build:error durationMs=${Date.now() - settingsStageStartedAt} scene=${startScene ?? ''} ${message}`);
+                    throw error;
+                }
             },
         });
         const emitRuntimePreviewSummary = (summary: Record<string, string>) => {
-            console.log('[runtime-preview] active-output:');
+            emitRuntimePreviewEvent('active-output:');
             for (const [key, value] of Object.entries(summary)) {
-                console.log(`[runtime-preview]   ${key}: ${value}`);
+                emitRuntimePreviewEvent(`  ${key}: ${value}`);
             }
         };
 
@@ -243,13 +288,22 @@ export default class Launcher {
         emitRuntimePreviewEvent('preview:preparing');
         try {
             await settingsProvider.getPreviewSettings(options.scene ? { startScene: options.scene } : undefined);
-            emitRuntimePreviewEvent('preview:ready');
+            emitRuntimePreviewEvent(`preview:ready durationMs=${Date.now() - previewStartedAt}`);
         } catch (error) {
             diagnostics.stageError('preview', error);
             throw error;
         }
 
-        return server;
+        return {
+            ...server,
+            close: async () => {
+                try {
+                    await server.close();
+                } finally {
+                    runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics = previousRuntimePreviewDiagnostics;
+                }
+            },
+        };
     }
 
     /**

@@ -97,6 +97,11 @@ describe('runtime preview real CLI generated output acceptance', () => {
       expect(normalizedStdout).toContain(`[runtime-preview] cliProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview]   internalLibraryRoot: ${slash(expectedInternalLibraryRoot)}`);
       expect(normalizedStdout).toContain('[runtime-preview]   logFilePath: ');
+      expect(normalizedStdout).toMatch(/\[runtime-preview\] engine:init:done durationMs=\d+/);
+      expect(normalizedStdout).toMatch(/\[runtime-preview\] asset-db:done durationMs=\d+/);
+      expect(normalizedStdout).toMatch(/\[runtime-preview\] builder:init:done durationMs=\d+/);
+      expect(normalizedStdout).toMatch(/\[runtime-preview\] settings:build:done durationMs=\d+ scene=/);
+      expect(normalizedStdout).toMatch(/\[runtime-preview\] preview:ready durationMs=\d+/);
       expect(activeOutputBlock).not.toContain('[runtime-preview]   projectProgrammingRoot:');
       expect(activeOutputBlock).not.toContain('[runtime-preview]   cliProgrammingRoot:');
       expect(normalizedStdout).not.toContain('.codex-tmp/reference-library');
@@ -163,6 +168,15 @@ describe('runtime preview real CLI generated output acceptance', () => {
       }
 
       const runtimeLog = await readFile(cli.logFilePath!, 'utf8');
+      expect(runtimeLog).toContain('active-output:');
+      expect(runtimeLog).toContain(`  url: ${cli.url}`);
+      expect(runtimeLog).toContain(`  libraryRoot: ${expectedProjectLibraryRoot}`);
+      expect(runtimeLog).toContain(`  programmingRoot: ${expectedProjectProgrammingRoot}`);
+      expect(runtimeLog).toMatch(/engine:init:done durationMs=\d+/);
+      expect(runtimeLog).toMatch(/asset-db:done durationMs=\d+/);
+      expect(runtimeLog).toMatch(/builder:init:done durationMs=\d+/);
+      expect(runtimeLog).toMatch(/settings:build:done durationMs=\d+ scene=/);
+      expect(runtimeLog).toMatch(/preview:ready durationMs=\d+/);
       const forbiddenLogHits = forbiddenServerLogPatterns.filter((pattern) => runtimeLog.includes(pattern));
       expect(forbiddenLogHits).toEqual([]);
 
