@@ -15,19 +15,21 @@ export class PreviewCommand extends BaseCommand {
             .option('--host <host>', 'Host for the runtime preview server', '127.0.0.1')
             .option('--runtime', 'Start the runtime preview server without opening a browser')
             .option('--scene <uuid>', 'Start scene uuid for runtime preview diagnostics')
-            .option('--settings-timeout-ms <number>', 'Runtime preview settings generation timeout in milliseconds', '120000')
+            .option('--settings-timeout-ms <number>', 'Runtime preview settings generation timeout in milliseconds')
             .action(async (options: any) => {
                 try {
                     const resolvedPath = this.validateProjectPath(options.project);
                     const port = parseInt(options.port, 10);
-                    const settingsTimeoutMs = parseInt(options.settingsTimeoutMs, 10);
+                    const settingsTimeoutMs = options.settingsTimeoutMs === undefined
+                        ? undefined
+                        : parseInt(options.settingsTimeoutMs, 10);
 
                     // 验证端口号
                     if (isNaN(port) || port < 1 || port > 65535) {
                         console.error(chalk.red('Error: Invalid port number. Port must be between 1 and 65535.'));
                         process.exit(1);
                     }
-                    if (isNaN(settingsTimeoutMs) || settingsTimeoutMs < 1) {
+                    if (settingsTimeoutMs !== undefined && (isNaN(settingsTimeoutMs) || settingsTimeoutMs < 1)) {
                         console.error(chalk.red('Error: Invalid settings timeout. Timeout must be a positive number.'));
                         process.exit(1);
                     }

@@ -220,7 +220,7 @@ Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-inf
 - `PreviewSettingsProvider` 可以复用或等价调用 `getPreviewSettings()`，但必须证明没有执行正常 build output copy、plugin build hooks、全量 asset copy 或完整 build pipeline。
 - settings generation 必须记录耗时，并在超过配置预算时输出明确诊断。
 - 可以在 server startup 后后台预热，也可以在第一次 `/settings.js` 前 lazy 生成；两种模式都不能递归扫描 `library/temp` 或复制 build artifacts。
-- 2026-06-08 Task 4 稳定性补充：`PreviewSettingsProvider` production 默认 timeout 保持 30 秒；`Launcher.startRuntimePreview()` 暴露 `settingsTimeoutMs` 给测试或显式调用方，real Launcher Vitest 使用 `120_000` 避免 full-suite 资源竞争把真实 settings generation 误判为功能失败。
+- 2026-06-10 稳定性修正：`PreviewSettingsProvider` production 默认不设置 settings timeout；`Launcher.startRuntimePreview()` 仍保留 `settingsTimeoutMs` 给显式调用方。默认无 timeout 是为了避免把合法的慢启动、AssetDB 启动、script compile 或 builder settings warm-up 误判为功能失败；需要失败保护的自动化测试应使用测试自身的进程/用例 timeout，而不是 production settings generation 默认 timeout。
 
 ### Old editor preview server route 对照
 

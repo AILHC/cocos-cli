@@ -59,9 +59,10 @@ const args = [
   host,
   '--port',
   String(port),
-  '--settings-timeout-ms',
-  '120000',
 ];
+if (options.settingsTimeoutMs !== undefined) {
+  args.push('--settings-timeout-ms', String(options.settingsTimeoutMs));
+}
 ```
 
 解析 stdout 时保留 `server:listening` URL，同时新增 `previewReady` 标记：

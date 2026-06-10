@@ -210,11 +210,11 @@ npm --prefix vitests test -- suites/runtime-preview/cli-generated-output-integra
 
 本轮证据：
 
-- CLI command：`node E:\own_space\engines\cocos-cli\dist\cli.js preview --project E:/own_space/cocos_work_lab_38x --runtime --host 127.0.0.1 --port 19601 --settings-timeout-ms 120000`
+- CLI command：`node E:\own_space\engines\cocos-cli\dist\cli.js preview --project E:/own_space/cocos_work_lab_38x --runtime --host 127.0.0.1 --port 19601`
 - `projectLibraryRoot=E:\own_space\cocos_work_lab_38x\library\cli`
 - `projectProgrammingRoot=E:\own_space\cocos_work_lab_38x\temp\cli\programming`
 - evidence summary：`E:\own_space\cocos_work_lab_38x\temp\runtime-preview-cli-generated-output-evidence.json`
-- server log：`E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260609-214155.log`
+- server log：`E:\own_space\cocos_work_lab_38x\temp\preview-logs\runtime-preview-20260610-105223.log`
 
 本轮三场景验收结果：
 
@@ -226,6 +226,24 @@ npm --prefix vitests test -- suites/runtime-preview/cli-generated-output-integra
 
 - 这证明当前小项目三复杂场景在真实 CLI generated `library/cli` 和 `temp/cli/programming` root 下可以通过 browser runtime smoke。
 - 这不等于所有资源类型、所有 bundle、所有 extension runtime request 都已覆盖；`editor-cli-output-consistency.test.ts` 仍把 CLI/editor output 差异分类为 `source-backed-split-library-layout`。
+
+### 5.1 settings generation 默认 timeout 修正
+
+记录时间：2026-06-10
+
+反馈问题：
+
+- settings generation 默认设置 timeout 会把合法的慢启动误判为失败。
+- runtime preview 首次 settings generation 不是单纯拼接 `settings.js`，它会触发 engine init、AssetDB startup、script compile、builder settings warm-up；默认 timeout 不应作为 production 行为。
+
+修复决策：
+
+- `PreviewSettingsProvider` 默认不设置 timeout，diagnostics 中 `timeoutMs=null`。
+- `preview --runtime` 命令不再给 `--settings-timeout-ms` 设置默认值。
+- 显式传入 `--settings-timeout-ms <number>` 时仍启用 timeout，用于调用方明确需要失败保护的场景。
+- 自动化测试的超时保护应使用测试进程/用例 timeout，而不是 production settings generation 默认 timeout。
+
+状态：`fixed`
 
 ## 6. 待修问题：启动日志与早期反馈
 

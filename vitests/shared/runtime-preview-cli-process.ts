@@ -11,6 +11,7 @@ export interface RuntimePreviewCliProcessOptions {
   host?: string;
   port?: number;
   scene?: string;
+  settingsTimeoutMs?: number;
   startupTimeoutMs?: number;
 }
 
@@ -99,11 +100,12 @@ export async function startRuntimePreviewCliProcess(
     host,
     '--port',
     String(port),
-    '--settings-timeout-ms',
-    '120000',
   ];
   if (options.scene) {
     args.push('--scene', options.scene);
+  }
+  if (options.settingsTimeoutMs !== undefined) {
+    args.push('--settings-timeout-ms', String(options.settingsTimeoutMs));
   }
 
   const env = {

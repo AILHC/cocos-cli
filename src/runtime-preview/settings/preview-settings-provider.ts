@@ -33,12 +33,10 @@ export interface PreviewSettingsProviderResult {
     diagnostics: {
         source: 'cli-getPreviewSettings';
         elapsedMs: number;
-        timeoutMs: number;
+        timeoutMs: number | null;
         normalBuildPipelineExecuted: false;
     };
 }
-
-const defaultTimeoutMs = 30_000;
 
 async function defaultLoadPreviewSettings(options?: Record<string, any>): Promise<CliPreviewSettingsResult> {
     const builder = await import('../../core/builder');
@@ -77,7 +75,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 export class PreviewSettingsProvider {
     private readonly loadPreviewSettings: LoadPreviewSettings;
     private readonly buildOptions?: Record<string, any>;
-    private readonly timeoutMs: number;
+    private readonly timeoutMs?: number;
     private readonly now: () => number;
     private activeResult: PreviewSettingsProviderResult | null = null;
     private cachedResults = new Map<string, PreviewSettingsProviderResult>();
@@ -85,7 +83,7 @@ export class PreviewSettingsProvider {
     constructor(options: PreviewSettingsProviderOptions = {}) {
         this.loadPreviewSettings = options.loadPreviewSettings ?? defaultLoadPreviewSettings;
         this.buildOptions = options.buildOptions;
-        this.timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
+        this.timeoutMs = options.timeoutMs;
         this.now = options.now ?? Date.now;
     }
 
@@ -109,7 +107,10 @@ export class PreviewSettingsProvider {
         }
 
         const start = this.now();
-        const cliResult = await withTimeout(this.loadPreviewSettings(buildOptions), this.timeoutMs);
+        const settingsPromise = this.loadPreviewSettings(buildOptions);
+        const cliResult = typeof this.timeoutMs === 'number'
+            ? await withTimeout(settingsPromise, this.timeoutMs)
+            : await settingsPromise;
         const elapsedMs = this.now() - start;
 
         const result: PreviewSettingsProviderResult = {
@@ -123,7 +124,7 @@ export class PreviewSettingsProvider {
             diagnostics: {
                 source: 'cli-getPreviewSettings',
                 elapsedMs,
-                timeoutMs: this.timeoutMs,
+                timeoutMs: this.timeoutMs ?? null,
                 normalBuildPipelineExecuted: false,
             },
         };

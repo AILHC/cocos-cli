@@ -45,7 +45,6 @@ describe('runtime preview settings provider', () => {
     }));
     const provider = new PreviewSettingsProvider({
       loadPreviewSettings,
-      timeoutMs: 1000,
       now: (() => {
         let time = 100;
         return () => time += 7;
@@ -69,6 +68,7 @@ describe('runtime preview settings provider', () => {
       remoteBundles: ['internal', 'main', 'resources'],
     });
     expect(result.diagnostics.elapsedMs).toBe(7);
+    expect(result.diagnostics.timeoutMs).toBeNull();
     expect(result.diagnostics.normalBuildPipelineExecuted).toBe(false);
     expect(result.diagnostics.source).toBe('cli-getPreviewSettings');
   });
