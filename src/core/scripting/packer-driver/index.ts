@@ -30,6 +30,7 @@ import { TypeScriptConfigBuilder } from '../intelligence';
 import { eventEmitter } from '../event-emitter';
 import { DBInfo } from '../@types/config-export';
 import path from 'path';
+import { shouldUseTentativePrerequisiteImportsMod } from './target-policy';
 
 const VERSION = '20';
 
@@ -226,7 +227,7 @@ export class PackerDriver {
                 quickPackLoaderContext,
                 logger,
                 engineIndexModule,
-                tentativePrerequisiteImportsMod: target.isEditor ?? false,
+                tentativePrerequisiteImportsMod: shouldUseTentativePrerequisiteImportsMod(targetId, target),
                 userImportMap: incrementalRecord.config.importMap ? {
                     json: incrementalRecord.config.importMap.json,
                     url: new URL(incrementalRecord.config.importMap.url),

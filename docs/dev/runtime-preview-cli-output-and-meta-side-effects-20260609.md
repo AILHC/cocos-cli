@@ -186,3 +186,45 @@ git -C E:\own_space\cocos_work_lab_38x diff --stat -- "*.meta"
 6. 如果 before/after `.meta` diff 新增或变化，才可归类为 CLI runtime preview meta write side effect。
 
 验收时必须把 `library/cli`、`temp/cli` 的生成与 `assets/**/*.meta` 写入分开统计。前者是当前 CLI preview 的预期 output；后者是 source asset metadata 副作用，不能默认为允许。
+
+## `feature-c` `.anim.meta` 扩展名被改写反馈
+
+记录时间：2026-06-10
+
+人工反馈：
+
+- CLI 运行导致 `F:\ps_copy\p6\trunk\Project\GameClient\feature-c\assets\product\animation\a_bdmx_hit.anim.meta` 的 `files` 中 `.cconb` 变成 `.bin`。
+
+当前文件状态：
+
+```json
+{
+  "ver": "2.0.4",
+  "importer": "animation-clip",
+  "imported": true,
+  "uuid": "59bc3751-4970-4a3d-80d2-658af44f0738",
+  "files": [
+    ".bin"
+  ],
+  "subMetas": {},
+  "userData": {
+    "name": "a_bdmx_hit"
+  }
+}
+```
+
+当前判断：
+
+- 这条反馈与小项目记录不同，涉及大项目 `feature-c` 的 source asset `.meta` 写入风险。
+- 当前只确认了该文件现状是 `.bin`；缺少同一运行窗口的 before/after 证据，因此不能在本文中直接写成已证明的 CLI 因果。
+- 但该现象属于必须纳入 runtime preview 验收的问题：CLI runtime preview 不应在未明确声明和记录的情况下改写 `assets/**/*.meta`，尤其不能把 editor 预期的 import payload 形态从 `.cconb` 改成 `.bin`。
+
+后续验证规则补充：
+
+1. 针对 `feature-c` 启动前记录目标 `.meta`：
+   - `git -C F:\ps_copy\p6\trunk\Project\GameClient\feature-c diff -- assets/product/animation/a_bdmx_hit.anim.meta`
+   - 文件 hash。
+2. 启动真实 dist CLI runtime preview。
+3. 等待 `preview:ready` 或明确失败。
+4. 停止进程后再次记录同一文件 diff/hash。
+5. 若 `.cconb` 到 `.bin` 的变动能在该窗口复现，继续追查 `animation-clip` importer、AssetDB 启动/reimport、CLI output 配置是否触发 source `.meta` 写回。

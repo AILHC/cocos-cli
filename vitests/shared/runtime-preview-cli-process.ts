@@ -110,6 +110,7 @@ export async function startRuntimePreviewCliProcess(
 
   const env = {
     ...process.env,
+    COCOS_CLI_TEST_PROJECT_ROOT: options.projectRoot,
     COCOS_CLI_TEST_ENGINE_ROOT: options.engineRoot,
   };
   if (options.editorLibraryRef) {

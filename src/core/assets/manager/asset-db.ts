@@ -31,11 +31,21 @@ interface IStartupDatabaseHandleInfo {
 
 type RefreshState = 'free' | 'busy' | 'wait';
 
+type RuntimePreviewDiagnosticsGlobal = typeof globalThis & {
+    __cocosCliRuntimePreviewDiagnostics?: {
+        event: (line: string) => void;
+    };
+};
+
 interface IWaitingTask {
     func: Function;
     args: any[];
     resolve?: Function;
     reject?: Function;
+}
+
+function emitRuntimePreviewAssetDbEvent(line: string) {
+    (globalThis as RuntimePreviewDiagnosticsGlobal).__cocosCliRuntimePreviewDiagnostics?.event(line);
 }
 
 interface IWaitingTaskInfo {
@@ -765,9 +775,15 @@ async function afterPreImport(db: assetdb.AssetDB) {
 }
 
 async function afterStartDB(dbInfoMap: Record<string, IAssetDBInfo>) {
+    let startedAt = Date.now();
+    emitRuntimePreviewAssetDbEvent('asset-db:effect-compile:start');
     await assetHandlerManager.compileEffect(true);
+    emitRuntimePreviewAssetDbEvent(`asset-db:effect-compile:done durationMs=${Date.now() - startedAt}`);
     // 启动数据库后，打开 effect 导入后的自动重新生成 effect.bin 开关
+    startedAt = Date.now();
+    emitRuntimePreviewAssetDbEvent('asset-db:effect-bin-watch:start');
     await assetHandlerManager.startAutoGenEffectBin();
+    emitRuntimePreviewAssetDbEvent(`asset-db:effect-bin-watch:done durationMs=${Date.now() - startedAt}`);
 
     // Sync all script assets to packer-driver after databases are started.
     //
@@ -780,10 +796,13 @@ async function afterStartDB(dbInfoMap: Record<string, IAssetDBInfo>) {
     // This batch sync mirrors the Editor's fetchAll() behavior: query all cc.Script assets
     // and notify packer-driver. _prerequisiteAssetMods is a Set, so duplicates are harmless.
     {
+        startedAt = Date.now();
+        emitRuntimePreviewAssetDbEvent('asset-db:script-sync:collect:start');
         const options: QueryAssetsOption = {
             ccType: 'cc.Script',
         };
         const assetInfos = globalThis.assetQuery.queryAssetInfos(options, ['meta', 'url', 'file', 'importer', 'type']) as IAssetInfo[];
+        emitRuntimePreviewAssetDbEvent(`asset-db:script-sync:collect:done durationMs=${Date.now() - startedAt} count=${assetInfos.length}`);
         const changes: AssetChangeInfo[] = assetInfos.map(assetInfo => ({
             type: AssetActionEnum.add,
             uuid: assetInfo.uuid,
@@ -792,11 +811,18 @@ async function afterStartDB(dbInfoMap: Record<string, IAssetDBInfo>) {
             userData: assetInfo.meta?.userData || {},
         }));
         if (changes.length > 0) {
+            startedAt = Date.now();
+            emitRuntimePreviewAssetDbEvent(`asset-db:script-compile:start count=${changes.length}`);
             try {
                 await scripting.compileScripts(changes);
+                emitRuntimePreviewAssetDbEvent(`asset-db:script-compile:done durationMs=${Date.now() - startedAt} count=${changes.length}`);
             } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                emitRuntimePreviewAssetDbEvent(`asset-db:script-compile:error durationMs=${Date.now() - startedAt} count=${changes.length} ${message}`);
                 console.error(error);
             }
+        } else {
+            emitRuntimePreviewAssetDbEvent('asset-db:script-compile:skip count=0');
         }
     }
     // 目前结构里，没有关闭数据库的逻辑
