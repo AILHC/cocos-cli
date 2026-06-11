@@ -159,6 +159,42 @@ HTTP 验证结果：
 
 该日志是判断 server 当前使用项目级 internal library 的直接证据。
 
+## Engine source `.meta` 污染根因
+
+旧 internal DB 配置同时带来另一个副作用：CLI 启动 runtime preview 时会把 engine editor assets 当作 internal AssetDB source 扫描和导入。
+
+修复前 internal DB 的关键配置为：
+
+```ts
+{
+    name: 'internal',
+    target: join(enginePath, 'editor/assets'),
+    readonly: true,
+    library: join(enginePath, 'editor/library'),
+}
+```
+
+根因链路：
+
+1. `target=enginePath/editor/assets` 使 CLI AssetDB 直接扫描 engine source assets。
+2. `@cocos/asset-db` 在启动或 dirty import 时会执行 importer，并在 import 后调用 `asset.save()` 写回 source `.meta`。
+3. `readonly: true` 只限制 asset operation 层的移动、删除、导入等用户操作，不阻止 AssetDB 启动 import 写 source `.meta`。
+4. image / sprite-frame importer 的默认 `SpriteFrameBaseAssetUserData` 中 `borderTop`、`borderBottom`、`borderLeft`、`borderRight` 都是 `0`。
+5. 当 internal image 被 dirty import 且旧 subMeta userData 没有完整保留时，engine editor asset 的九宫格信息会被默认值覆盖，例如 `default_ui/default_btn_normal.png.meta` 的四个 `border*` 从 `12` 变为 `0`。
+
+该问题的本质不是“不允许写 `.meta`”，而是 CLI 对 engine internal assets 的 source `.meta` 写回规则不应偏离 Editor 对同一 engine / 同一项目的生成规则；旧配置还把写回目标放在 engine source 目录，放大了污染范围。
+
+2026-06-11 已做复现验证：
+
+- 先还原 `D:\workspace\engines\cocos\3.8.6\editor\assets\default_ui`。
+- `default_btn_normal.png.meta` 的 `borderTop`、`borderBottom`、`borderLeft`、`borderRight` 回到 `12`。
+- 使用当前 CLI 重新启动 `preview --runtime` 到 `preview:ready`。
+- 启动日志显示 `internalLibraryRoot=E:\own_space\engines\cocos-test-projects\library`。
+- 再次检查 `editor/assets/default_ui`，没有新的 git diff；`default_btn_normal.png.meta` 的四个 `border*` 仍为 `12`。
+- 项目级 generated library 中 `20835ba4-6145-4fbc-a58a-051ce700aa3e@f9941.json` 的 `capInsets` 为 `[12, 12, 12, 12]`。
+
+结论：旧污染来自 engine-level internal DB import 写回；切到项目级 internal library 后，reset 再启动当前 preview 没有复现 `default_ui` 九宫格丢失。
+
 ## 缓存干扰事实
 
 在 server 已经返回完整 JSON 后，浏览器普通 reload 仍可能复用同 origin 下旧的 `content:null` JSON，继续出现旧的 `Texture2D._deserialize` 错误。
