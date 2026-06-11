@@ -7,6 +7,10 @@ import { GlobalConfig, GlobalPaths } from '../global';
 import scripting from './scripting';
 import { startupScene } from './scene';
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
+import { pathToFileURL } from 'url';
+import { resolveProjectExtensionAssetDbMounts } from './assets/extension-asset-db-mounts';
 
 interface RuntimePreviewStageDiagnostics {
     stageStart: (stage: string) => void;
@@ -19,6 +23,104 @@ type RuntimePreviewDiagnosticsGlobal = typeof globalThis & {
         event: (line: string) => void;
     };
 };
+
+function resolveRuntimePreviewInternalLibraryRoot(projectPath: string, engineRoot: string): string {
+    const projectInternalLibraryRoot = join(projectPath, 'library');
+    if (existsSync(join(projectInternalLibraryRoot, '.internal-data.json'))) {
+        return projectInternalLibraryRoot;
+    }
+    return join(engineRoot, 'editor', 'library');
+}
+
+async function inspectRuntimePreviewProgrammingArtifacts(options: {
+    projectRoot: string;
+    engineRoot: string;
+    programmingRoot: string;
+    emit: (line: string) => void;
+}): Promise<void> {
+    const recordsRoot = join(options.programmingRoot, 'packer-driver', 'targets', 'preview');
+    const [importMap, mainRecord] = await Promise.all([
+        readJsonFile<{ imports?: Record<string, string>; scopes?: Record<string, Record<string, string>> }>(
+            join(recordsRoot, 'import-map.json'),
+        ),
+        readJsonFile<{ modules?: Record<string, { chunkId?: string }> }>(
+            join(recordsRoot, 'main-record.json'),
+        ),
+    ]);
+    const modules = Object.keys(mainRecord.modules ?? {});
+    const staleModules = modules.filter((moduleUrl) => isStaleRuntimePreviewModuleUrl(
+        moduleUrl,
+        options.projectRoot,
+        options.engineRoot,
+    ));
+    if (staleModules.length > 0) {
+        options.emit([
+            'programming:stale-records:detected',
+            `count=${staleModules.length}`,
+            `sample=${staleModules.slice(0, 3).join(',')}`,
+        ].join(' '));
+    } else {
+        options.emit(`programming:stale-records:clear modules=${modules.length}`);
+    }
+
+    const prerequisiteImport = importMap.imports?.['cce:/internal/x/prerequisite-imports'];
+    const prerequisiteScope = prerequisiteImport ? importMap.scopes?.[prerequisiteImport] : undefined;
+    if (!prerequisiteImport || !prerequisiteScope) {
+        throw new Error('Runtime preview programming output is inconsistent: prerequisite import scope is missing.');
+    }
+    if (!prerequisiteImport.startsWith('./chunks/') || prerequisiteImport.split('/').includes('..')) {
+        throw new Error(`Runtime preview programming output is inconsistent: invalid prerequisite chunk ${prerequisiteImport}.`);
+    }
+
+    const prerequisiteChunkPath = join(recordsRoot, ...prerequisiteImport.slice('./'.length).split('/'));
+    const prerequisiteChunkSource = await readFile(prerequisiteChunkPath, 'utf8');
+    const requiredSpecifiers = collectRuntimePreviewUnresolvedSpecifiers(prerequisiteChunkSource);
+    const missingSpecifiers = requiredSpecifiers.filter((specifier) => !isRuntimePreviewChunkImport(prerequisiteScope[specifier]));
+    options.emit([
+        'programming:prerequisite-scope',
+        `required=${requiredSpecifiers.length}`,
+        `mapped=${Object.keys(prerequisiteScope).length}`,
+        `missing=${missingSpecifiers.length}`,
+    ].join(' '));
+    if (missingSpecifiers.length > 0) {
+        throw new Error(
+            `Runtime preview programming output is inconsistent: prerequisite scope is missing ${missingSpecifiers[0]}.`,
+        );
+    }
+}
+
+async function readJsonFile<T>(filePath: string): Promise<T> {
+    return JSON.parse(await readFile(filePath, 'utf8')) as T;
+}
+
+function isStaleRuntimePreviewModuleUrl(moduleUrl: string, projectRoot: string, engineRoot: string): boolean {
+    if (!moduleUrl.startsWith('file:///')) {
+        return false;
+    }
+    const normalizedUrl = moduleUrl.replace(/\\/g, '/');
+    if (!normalizedUrl.includes('/assets/') && !normalizedUrl.includes('/extensions/')) {
+        return false;
+    }
+    const projectRootUrl = pathToFileURL(resolve(projectRoot)).href.replace(/\/$/, '');
+    const engineRootUrl = pathToFileURL(resolve(engineRoot)).href.replace(/\/$/, '');
+    return !normalizedUrl.startsWith(`${projectRootUrl}/`) && !normalizedUrl.startsWith(`${engineRootUrl}/`);
+}
+
+function collectRuntimePreviewUnresolvedSpecifiers(source: string): string[] {
+    const specifiers = new Set<string>();
+    const pattern = /__unresolved_\d+/g;
+    let match: RegExpExecArray | null = null;
+    while ((match = pattern.exec(source))) {
+        specifiers.add(match[0]);
+    }
+
+    return Array.from(specifiers)
+        .sort((left, right) => Number(left.slice('__unresolved_'.length)) - Number(right.slice('__unresolved_'.length)));
+}
+
+function isRuntimePreviewChunkImport(value: unknown): value is string {
+    return typeof value === 'string' && /^\.\/chunks\/[^/]+\/[^/]+\.js$/.test(value);
+}
 
 /**
  * 启动器，主要用于整合各个模块的初始化和关闭流程
@@ -79,7 +181,11 @@ export default class Launcher {
     /**
      * 导入资源
      */
-    async import(options: { serverURL?: string; diagnostics?: RuntimePreviewStageDiagnostics } = {}) {
+    async import(options: {
+        serverURL?: string;
+        diagnostics?: RuntimePreviewStageDiagnostics;
+        clearRuntimePreviewProgrammingCache?: boolean;
+    } = {}) {
         if (this._import) {
             return;
         }
@@ -91,6 +197,17 @@ export default class Launcher {
 
         const { createProgrammingFacet } = await import('./scripting/programming/FacetInstance');
         await createProgrammingFacet(Engine.getInfo().typescript.path, scripting.projectPath, Engine.getConfig().includeModules);
+
+        if (options.clearRuntimePreviewProgrammingCache) {
+            options.diagnostics?.stageStart('programming:cache-clear');
+            try {
+                await scripting.clearCacheWithoutRebuild();
+                options.diagnostics?.stageDone('programming:cache-clear');
+            } catch (error) {
+                options.diagnostics?.stageError('programming:cache-clear', error);
+                throw error;
+            }
+        }
 
         // 启动以及初始化资源数据库
         const { initAssetDB, startAssetDB } = await import('./assets');
@@ -145,25 +262,42 @@ export default class Launcher {
         spawn(browserPath, [getServerUrl()], { stdio: 'ignore', detached: true });
     }
 
-    async startRuntimePreview(options: { port?: number; host?: string; scene?: string; settingsTimeoutMs?: number } = {}) {
+    async startRuntimePreview(options: {
+        port?: number;
+        host?: string;
+        scene?: string;
+        settingsTimeoutMs?: number;
+    } = {}) {
         const {
             getDefaultProjectProgrammingRoot,
             PreviewSettingsProvider,
             startRuntimePreviewServer,
         } = await import('../runtime-preview');
         const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF || join(this.projectPath, 'library', 'cli');
+        const extensionLibraryRoots = resolveProjectExtensionAssetDbMounts(this.projectPath).map((mount) => ({
+            name: mount.name,
+            root: mount.library,
+        }));
         const projectProgrammingRoot = process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF
             ? join(process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF, 'programming')
             : getDefaultProjectProgrammingRoot(this.projectPath);
         const cliProgrammingRoot = getDefaultProjectProgrammingRoot(this.projectPath);
         const engineRoot = this.getEngineRoot();
+        const internalLibraryRoot = resolveRuntimePreviewInternalLibraryRoot(this.projectPath, engineRoot);
         let serverUrl = '';
         let writeRuntimePreviewLog: ((line: string) => void) | null = null;
         const previewStartedAt = Date.now();
         const stageStartedAt = new Map<string, number>();
         const runtimePreviewGlobal = globalThis as RuntimePreviewDiagnosticsGlobal;
         const previousRuntimePreviewDiagnostics = runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics;
+        let assetDbScriptCompileErrorLine = '';
+        let assetDbScriptCompileDoneLine = '';
         const emitRuntimePreviewEvent = (line: string) => {
+            if (line.startsWith('asset-db:script-compile:error')) {
+                assetDbScriptCompileErrorLine = line;
+            } else if (line.startsWith('asset-db:script-compile:done')) {
+                assetDbScriptCompileDoneLine = line;
+            }
             console.log(`[runtime-preview] ${line}`);
             writeRuntimePreviewLog?.(line);
         };
@@ -198,7 +332,11 @@ export default class Launcher {
             if (!preparePreviewSettings) {
                 preparePreviewSettings = (async () => {
                     const engineServerUrl = serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`;
-                    await this.import({ serverURL: engineServerUrl, diagnostics });
+                    await this.import({
+                        serverURL: engineServerUrl,
+                        diagnostics,
+                        clearRuntimePreviewProgrammingCache: true,
+                    });
                     const { init: initBuilder } = await import('./builder');
                     diagnostics.stageStart('builder:init');
                     try {
@@ -258,9 +396,10 @@ export default class Launcher {
             projectRoot: this.projectPath,
             engineRoot,
             projectLibraryRoot,
+            extensionLibraryRoots,
             projectProgrammingRoot,
             cliProgrammingRoot,
-            internalLibraryRoot: join(engineRoot, 'editor', 'library'),
+            internalLibraryRoot,
             host: options.host,
             port: options.port,
             scene: options.scene,
@@ -277,8 +416,9 @@ export default class Launcher {
         emitRuntimePreviewSummary({
             url: server.url,
             libraryRoot: projectLibraryRoot,
+            extensionLibraryRoots: extensionLibraryRoots.map((entry) => `${entry.name}:${entry.root}`).join(';'),
             programmingRoot: projectProgrammingRoot,
-            internalLibraryRoot: join(engineRoot, 'editor', 'library'),
+            internalLibraryRoot,
             logFilePath: server.logFilePath,
         });
         emitRuntimePreviewEvent(`server:listening ${server.url}`);
@@ -288,6 +428,28 @@ export default class Launcher {
         emitRuntimePreviewEvent('preview:preparing');
         try {
             await settingsProvider.getPreviewSettings(options.scene ? { startScene: options.scene } : undefined);
+            if (assetDbScriptCompileErrorLine) {
+                emitRuntimePreviewEvent('asset-db:script-compile:report-only source=asset-db:script-compile:error');
+            }
+            if (!assetDbScriptCompileDoneLine) {
+                emitRuntimePreviewEvent('asset-db:script-compile:missing');
+            }
+            try {
+                await inspectRuntimePreviewProgrammingArtifacts({
+                    projectRoot: this.projectPath,
+                    engineRoot,
+                    programmingRoot: projectProgrammingRoot,
+                    emit: emitRuntimePreviewEvent,
+                });
+            } catch (error) {
+                if (!assetDbScriptCompileErrorLine) {
+                    throw error;
+                }
+                const message = error instanceof Error ? error.message : String(error);
+                emitRuntimePreviewEvent(
+                    `programming:inspection:report-only source=asset-db:script-compile:error error=${message}`,
+                );
+            }
             emitRuntimePreviewEvent(`preview:ready durationMs=${Date.now() - previewStartedAt}`);
         } catch (error) {
             diagnostics.stageError('preview', error);

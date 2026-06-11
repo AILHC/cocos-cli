@@ -534,7 +534,10 @@ export class BundleManager extends BuildTaskBase implements IBundleManager {
             // 加入项目设置中的物理材质
             if (this.options.physicsConfig.defaultMaterial) {
                 const asset = buildAssetLibrary.getAsset(this.options.physicsConfig.defaultMaterial);
-                launchBundle.addRootAsset(asset);
+                const builtinBundle = asset?.url.startsWith('db://internal')
+                    ? this.bundleMap[INTERNAL]
+                    : undefined;
+                (builtinBundle ?? launchBundle).addRootAsset(asset);
             }
         }
         console.debug(`  Number of all scenes: ${this.cache.scenes.length}`);

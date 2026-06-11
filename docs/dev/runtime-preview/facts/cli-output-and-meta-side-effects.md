@@ -9,7 +9,7 @@
 1. CLI 生成的 `library` / `programming` 与 Creator editor 生成产物的已知差异。
 2. 使用 CLI runtime preview 打开小项目 `E:\own_space\cocos_work_lab_38x` 时，项目 `.meta` 文件是否发生变化。
 
-本文不替代 `runtime-preview-architecture-facts-20260606.md`，只把当前可验证的 output 差异和 `.meta` 副作用集中记录。没有直接证据的因果关系不写成结论。
+本文不替代 `docs/dev/runtime-preview/facts/architecture.md`，只把当前可验证的 output 差异和 `.meta` 副作用集中记录。没有直接证据的因果关系不写成结论。
 
 ## 输入与证据
 
@@ -193,7 +193,7 @@ git -C E:\own_space\cocos_work_lab_38x diff --stat -- "*.meta"
 
 人工反馈：
 
-- CLI 运行导致 `F:\ps_copy\p6\trunk\Project\GameClient\feature-c\assets\product\animation\a_bdmx_hit.anim.meta` 的 `files` 中 `.cconb` 变成 `.bin`。
+- CLI 运行导致 `D:\ps_copy\p6\trunk\Project\GameClient\feature-c\assets\product\animation\a_bdmx_hit.anim.meta` 的 `files` 中 `.cconb` 变成 `.bin`。
 
 当前文件状态：
 
@@ -222,7 +222,7 @@ git -C E:\own_space\cocos_work_lab_38x diff --stat -- "*.meta"
 后续验证规则补充：
 
 1. 针对 `feature-c` 启动前记录目标 `.meta`：
-   - `git -C F:\ps_copy\p6\trunk\Project\GameClient\feature-c diff -- assets/product/animation/a_bdmx_hit.anim.meta`
+   - `git -C D:\ps_copy\p6\trunk\Project\GameClient\feature-c diff -- assets/product/animation/a_bdmx_hit.anim.meta`
    - 文件 hash。
 2. 启动真实 dist CLI runtime preview。
 3. 等待 `preview:ready` 或明确失败。

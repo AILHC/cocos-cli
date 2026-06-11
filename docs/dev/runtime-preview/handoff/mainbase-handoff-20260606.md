@@ -181,7 +181,7 @@ Semble 注意事项来自 `E:\own_space\ai-workflow-lab` 既有 PoC：
 文档建议路径：
 
 ```text
-E:\own_space\engines\cocos-cli\docs\dev\runtime-preview-architecture-facts-20260606.md
+E:\own_space\engines\cocos-cli\docs\dev\docs/dev/runtime-preview/facts/architecture.md
 ```
 
 必须覆盖：

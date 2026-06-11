@@ -53,9 +53,11 @@ function serializeConsoleMessage(message) {
 
 const startedAt = Date.now();
 const consoleMessages = [];
+const unhandledRejections = [];
 const pageErrors = [];
 const failedRequests = [];
 const badResponses = [];
+const unhandledRejectionPrefix = '[runtime-preview-unhandledrejection]';
 
 const browser = await chromium.launch({
   executablePath,
@@ -66,9 +68,22 @@ try {
   const page = await browser.newPage({
     viewport: { width: 1280, height: 720 },
   });
+  await page.addInitScript(() => {
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = event.reason;
+      const text = reason && (reason.stack || reason.message)
+        ? String(reason.stack || reason.message)
+        : String(reason);
+      console.error(`[runtime-preview-unhandledrejection] ${text}`);
+    });
+  });
 
   page.on('console', (message) => {
     if (message.type() === 'error' || message.type() === 'warning') {
+      if (message.type() === 'error' && message.text().includes(unhandledRejectionPrefix)) {
+        unhandledRejections.push(message.text());
+        return;
+      }
       consoleMessages.push(serializeConsoleMessage(message));
     }
   });
@@ -129,6 +144,7 @@ try {
     elapsedReadyMs: Date.now() - readyStartedAt,
     elapsedTotalMs: Date.now() - startedAt,
     consoleMessages,
+    unhandledRejections,
     pageErrors,
     failedRequests,
     badResponses,
@@ -143,12 +159,14 @@ try {
     ready,
     elapsedTotalMs: evidence.elapsedTotalMs,
     consoleMessages: consoleMessages.length,
+    unhandledRejections: unhandledRejections.length,
     pageErrors: pageErrors.length,
     failedRequests: failedRequests.length,
     sameOriginFailedRequests: failedRequests.filter((entry) => entry.sameOrigin).length,
     badResponses: badResponses.length,
     sameOriginBadResponses: badResponses.filter((entry) => entry.sameOrigin).length,
     consoleSample: consoleMessages.slice(0, 10).map((entry) => `[${entry.type}] ${entry.text}`),
+    unhandledRejectionSample: unhandledRejections.slice(0, 10),
     failedRequestSample: failedRequests.filter((entry) => entry.sameOrigin).slice(0, 10),
   }, null, 2));
 } finally {

@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { describe, expect, it, vi } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-preview-context';
@@ -237,7 +238,7 @@ describe('runtime preview preview-app required route contract', () => {
     expect((response.body as Buffer).length).toBeGreaterThan(0);
   });
 
-  it('serves preview-app general import URLs from bundle-config-backed library files', async () => {
+  it('serves preview-app general import URLs by direct library tail lookup', async () => {
     const paths = getFixturePaths();
     const { config, samples } = await buildEditorLibraryResourcesBundle(paths.editorLibraryRef, { buildFileIndex: false });
     const routeContext = {
@@ -274,7 +275,7 @@ describe('runtime preview preview-app required route contract', () => {
     expect(response.body.toString()).toContain('cc.JsonAsset');
   });
 
-  it('serves preview-app general import URLs for scene dependencies proven by AssetDB metadata', async () => {
+  it('serves preview-app general import URLs for scene dependency library files', async () => {
     const routeContext = createProductionLibraryRouteContext();
     const dependentRoutes = [
       '/assets/general/import/7d/7d8f9b89-4fd1-4c9f-a3ab-38ec7cded7ca@f9941.json',
@@ -289,7 +290,7 @@ describe('runtime preview preview-app required route contract', () => {
     }
   });
 
-  it('rejects unproven bundle names even when the uuid exists in a bundle config', async () => {
+  it('does not require bundle config proof for the URL namespace when the library tail exists', async () => {
     const paths = getFixturePaths();
     const { config, samples } = await buildEditorLibraryResourcesBundle(paths.editorLibraryRef, { buildFileIndex: false });
     const routeContext = {
@@ -321,7 +322,65 @@ describe('runtime preview preview-app required route contract', () => {
       `/assets/not-real/import/${samples.jsonAsset!.uuid.slice(0, 2)}/${samples.jsonAsset!.uuid}.json`,
     );
 
-    expect(response.statusCode).toBe(404);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.body.toString()).toContain('cc.JsonAsset');
+  });
+
+  it('queries import replacement extensions from explicit extension library roots', async () => {
+    const paths = getFixturePaths();
+    const uuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-extension-root-'));
+    const extensionLibraryRoot = join(tempRoot, 'cli-extensions', 'view-state-group');
+    await mkdir(join(extensionLibraryRoot, uuid.slice(0, 2)), { recursive: true });
+    await writeFile(join(extensionLibraryRoot, uuid.slice(0, 2), `${uuid}.ccon`), 'extension import payload');
+
+    const routeContext = {
+      ...createRouteContext(),
+      runtimeContext: createRuntimePreviewContext({
+        projectRoot: paths.projectRoot,
+        engineRoot: paths.engineRoot,
+        projectLibraryRoot: join(tempRoot, 'project-library'),
+        internalLibraryRoot: join(tempRoot, 'internal-library'),
+        projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+        cliProgrammingRoot: join(paths.projectRoot, 'temp', 'cli', 'programming'),
+        extensionLibraryRoots: [{ name: 'view-state-group', root: extensionLibraryRoot }],
+      }),
+    };
+
+    const response = await handleRuntimePreviewRequest(routeContext, `/query-extname/${uuid}`);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('.ccon');
+  });
+
+  it('serves production library URLs without settings generation', async () => {
+    const paths = getFixturePaths();
+    const uuid = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-production-library-'));
+    const projectLibraryRoot = join(tempRoot, 'project-library');
+    await mkdir(join(projectLibraryRoot, uuid.slice(0, 2)), { recursive: true });
+    await writeFile(join(projectLibraryRoot, uuid.slice(0, 2), `${uuid}.json`), '{"__type__":"cc.JsonAsset"}', 'utf8');
+
+    const response = await handleRuntimePreviewRequest({
+      runtimeContext: createRuntimePreviewContext({
+        projectRoot: tempRoot,
+        engineRoot: paths.engineRoot,
+        projectLibraryRoot,
+        internalLibraryRoot: join(tempRoot, 'internal-library'),
+        projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+        cliProgrammingRoot: join(paths.projectRoot, 'temp', 'cli', 'programming'),
+      }),
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings: async () => {
+          throw new Error('settings generation should not run for production library routes');
+        },
+      }),
+    }, `/assets/product/import/${uuid.slice(0, 2)}/${uuid}.json`);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.body.toString()).toContain('cc.JsonAsset');
   });
 
   it('serves preview-app general import URLs for internal builtin assets', async () => {

@@ -14,6 +14,11 @@ type RuntimePreviewReadyState = {
     limitation?: string;
 };
 
+type RuntimePreviewImportMap = {
+    imports?: Record<string, string>;
+    scopes?: Record<string, Record<string, string>>;
+};
+
 declare global {
     interface Window {
         __RUNTIME_PREVIEW_READY?: RuntimePreviewReadyState;
@@ -49,6 +54,7 @@ export async function main(ui: Ui, options: bootstrap.Options) {
     option.overrideSettings.launch.launchScene = '';
     // 等待引擎启动
     await cc.game.init(option);
+    await loadRuntimePreviewPrerequisiteImports();
     const readyResources = await loadRuntimePreviewReadyResources(cc);
     cc.assetManager.onAssetMissing(async (parentAsset: any, owner: any, propName: string, uuid: string) => {
         let assetPathOrUuid = uuid;
@@ -128,6 +134,63 @@ export async function main(ui: Ui, options: bootstrap.Options) {
     await new Promise((resolve) => {
         setTimeout(resolve, 100);
     });
+}
+
+async function loadRuntimePreviewPrerequisiteImports(): Promise<void> {
+    try {
+        await System.import('cce:/internal/x/prerequisite-imports');
+        await validateRuntimePreviewPrerequisiteImportMap();
+    } catch (error) {
+        console.error('[runtime-preview] prerequisite imports failed', error);
+        throw error;
+    }
+}
+
+async function validateRuntimePreviewPrerequisiteImportMap(): Promise<void> {
+    const importMapUrl = '/scripting/x/packer-driver/targets/preview/import-map.json';
+    const response = await fetch(importMapUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to load runtime preview import map: ${response.status}`);
+    }
+
+    const importMap = await response.json() as RuntimePreviewImportMap;
+    const prerequisiteChunk = importMap.imports?.['cce:/internal/x/prerequisite-imports'];
+    const prerequisiteScope = prerequisiteChunk ? importMap.scopes?.[prerequisiteChunk] : undefined;
+    if (!prerequisiteChunk || !prerequisiteScope) {
+        throw new Error('Runtime preview prerequisite import scope is missing.');
+    }
+
+    const importMapBase = new URL(importMapUrl, window.location.href);
+    const prerequisiteChunkUrl = new URL(prerequisiteChunk, importMapBase);
+    const chunkResponse = await fetch(prerequisiteChunkUrl.href);
+    if (!chunkResponse.ok) {
+        throw new Error(`Failed to load runtime preview prerequisite chunk: ${chunkResponse.status}`);
+    }
+
+    const prerequisiteChunkSource = await chunkResponse.text();
+    const requiredSpecifiers = collectRuntimePreviewUnresolvedSpecifiers(prerequisiteChunkSource);
+    for (const specifier of requiredSpecifiers) {
+        const chunkImport = prerequisiteScope[specifier];
+        if (!isRuntimePreviewChunkImport(chunkImport)) {
+            throw new Error(`Runtime preview prerequisite scope is missing ${specifier}.`);
+        }
+    }
+}
+
+function collectRuntimePreviewUnresolvedSpecifiers(source: string): string[] {
+    const specifiers = new Set<string>();
+    const pattern = /__unresolved_\d+/g;
+    let match: RegExpExecArray | null = null;
+    while ((match = pattern.exec(source))) {
+        specifiers.add(match[0]);
+    }
+
+    return Array.from(specifiers)
+        .sort((left, right) => Number(left.slice('__unresolved_'.length)) - Number(right.slice('__unresolved_'.length)));
+}
+
+function isRuntimePreviewChunkImport(value: unknown): value is string {
+    return typeof value === 'string' && /^\.\/chunks\/[^/]+\/[^/]+\.js$/.test(value);
 }
 
 async function loadRuntimePreviewReadyResources(cc: any): Promise<RuntimePreviewReadyResource[]> {

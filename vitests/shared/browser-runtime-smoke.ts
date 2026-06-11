@@ -22,6 +22,7 @@ export interface BrowserRuntimeSmokeResult {
   elapsedTotalMs: number;
   networkRequestCount: number;
   consoleErrors: BrowserConsoleMessage[];
+  unhandledRejections: string[];
   pageErrors: string[];
   failedRequests: BrowserNetworkFailure[];
   badResponses: BrowserNetworkResponse[];
@@ -47,6 +48,20 @@ interface DevtoolsPage {
 }
 
 type CdpEventHandler = (params: any) => void;
+
+const UNHANDLED_REJECTION_PREFIX = '[runtime-preview-unhandledrejection]';
+
+const unhandledRejectionListenerSource = `
+(() => {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    const text = reason && (reason.stack || reason.message)
+      ? String(reason.stack || reason.message)
+      : String(reason);
+    console.error('${UNHANDLED_REJECTION_PREFIX} ' + text);
+  });
+})();
+`;
 
 class CdpSession {
   private nextId = 1;
@@ -301,6 +316,7 @@ function classifyPreReadyFailure(
   fallbackMessage: string,
   evidence: {
     consoleErrors: BrowserConsoleMessage[];
+    unhandledRejections: string[];
     pageErrors: string[];
     failedRequests: BrowserNetworkFailure[];
     badResponses: BrowserNetworkResponse[];
@@ -323,6 +339,9 @@ function classifyPreReadyFailure(
     return new Error(`fail-route-contract: ${fallbackMessage}`);
   }
   if (evidence.pageErrors.length > 0) {
+    return new Error(`fail-browser-host-boundary: ${fallbackMessage}`);
+  }
+  if (evidence.unhandledRejections.length > 0) {
     return new Error(`fail-browser-host-boundary: ${fallbackMessage}`);
   }
   if (evidence.consoleErrors.length > 0) {
@@ -353,6 +372,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
   let session: CdpSession | null = null;
 
   const consoleErrors: BrowserConsoleMessage[] = [];
+  const unhandledRejections: string[] = [];
   const pageErrors: string[] = [];
   const failedRequests: BrowserNetworkFailure[] = [];
   const badResponses: BrowserNetworkResponse[] = [];
@@ -366,7 +386,12 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
 
     session.on('Runtime.consoleAPICalled', (params) => {
       if (params.type === 'error') {
-        consoleErrors.push({ type: params.type, text: consoleText(params) });
+        const text = consoleText(params);
+        if (text.includes(UNHANDLED_REJECTION_PREFIX)) {
+          unhandledRejections.push(text);
+        } else {
+          consoleErrors.push({ type: params.type, text });
+        }
       }
     });
     session.on('Runtime.exceptionThrown', (params) => {
@@ -404,6 +429,9 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       session.send('Network.enable'),
       session.send('Page.enable'),
     ]);
+    await session.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: unhandledRejectionListenerSource,
+    });
     await session.send('Page.navigate', { url: options.url });
 
     let ready: { ready: unknown; initialReady?: unknown; elapsedMs: number };
@@ -415,12 +443,14 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       const message = error instanceof Error ? error.message : String(error);
       throw classifyPreReadyFailure(`${message}\n${JSON.stringify({
         consoleErrors,
+        unhandledRejections,
         pageErrors,
         failedRequests,
         badResponses,
         networkRequestCount,
       }, null, 2)}`, {
         consoleErrors,
+        unhandledRejections,
         pageErrors,
         failedRequests,
         badResponses,
@@ -430,6 +460,9 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
 
     if (pageErrors.length > 0) {
       throw new Error(`fail-browser-host-boundary: page errors: ${pageErrors.join('\n')}`);
+    }
+    if (unhandledRejections.length > 0) {
+      throw new Error(`fail-browser-host-boundary: unhandled rejections: ${unhandledRejections.join('\n')}`);
     }
     if (consoleErrors.length > 0) {
       throw new Error(`fail-engine-adaptation: console errors: ${consoleErrors.map((entry) => entry.text).join('\n')}`);
@@ -448,6 +481,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       elapsedTotalMs: Date.now() - startedAt,
       networkRequestCount,
       consoleErrors,
+      unhandledRejections,
       pageErrors,
       failedRequests,
       badResponses,
@@ -463,6 +497,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       elapsedTotalMs: result.elapsedTotalMs,
       networkRequestCount,
       consoleErrorCount: consoleErrors.length,
+      unhandledRejectionCount: unhandledRejections.length,
       pageErrorCount: pageErrors.length,
       failedRequestCount: failedRequests.length,
       badResponseCount: badResponses.length,
@@ -482,6 +517,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       elapsedTotalMs: Date.now() - startedAt,
       networkRequestCount,
       consoleErrors,
+      unhandledRejections,
       pageErrors,
       failedRequests,
       badResponses,

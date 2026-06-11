@@ -36,8 +36,7 @@ System.register([], function (exports_1, context_1) {
             if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
         }
     };
-    var LEGACY_RENDER_MODE_WEBGL;
-    var LEGACY_RENDER_MODE_WEBGPU;
+    var LEGACY_RENDER_MODE_WEBGL, LEGACY_RENDER_MODE_WEBGPU;
     var __moduleName = context_1 && context_1.id;
     function main(ui, options) {
         return __awaiter(this, void 0, void 0, function () {
@@ -74,8 +73,11 @@ System.register([], function (exports_1, context_1) {
                     case 2:
                         // 等待引擎启动
                         _b.sent();
-                        return [4 /*yield*/, loadRuntimePreviewReadyResources(cc)];
+                        return [4 /*yield*/, loadRuntimePreviewPrerequisiteImports()];
                     case 3:
+                        _b.sent();
+                        return [4 /*yield*/, loadRuntimePreviewReadyResources(cc)];
+                    case 4:
                         readyResources = _b.sent();
                         cc.assetManager.onAssetMissing(function (parentAsset, owner, propName, uuid) { return __awaiter(_this, void 0, void 0, function () {
                             var assetPathOrUuid, errorInfo, info, error_1;
@@ -169,12 +171,12 @@ System.register([], function (exports_1, context_1) {
                                     }
                                 });
                             }); })];
-                    case 4:
+                    case 5:
                         _b.sent();
                         return [4 /*yield*/, new Promise(function (resolve) {
                                 setTimeout(resolve, 100);
                             })];
-                    case 5:
+                    case 6:
                         _b.sent();
                         return [2 /*return*/];
                 }
@@ -182,6 +184,88 @@ System.register([], function (exports_1, context_1) {
         });
     }
     exports_1("main", main);
+    function loadRuntimePreviewPrerequisiteImports() {
+        return __awaiter(this, void 0, void 0, function () {
+            var error_2;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 3, , 4]);
+                        return [4 /*yield*/, System.import('cce:/internal/x/prerequisite-imports')];
+                    case 1:
+                        _a.sent();
+                        return [4 /*yield*/, validateRuntimePreviewPrerequisiteImportMap()];
+                    case 2:
+                        _a.sent();
+                        return [3 /*break*/, 4];
+                    case 3:
+                        error_2 = _a.sent();
+                        console.error('[runtime-preview] prerequisite imports failed', error_2);
+                        throw error_2;
+                    case 4: return [2 /*return*/];
+                }
+            });
+        });
+    }
+    function validateRuntimePreviewPrerequisiteImportMap() {
+        return __awaiter(this, void 0, void 0, function () {
+            var importMapUrl, response, importMap, prerequisiteChunk, prerequisiteScope, importMapBase, prerequisiteChunkUrl, chunkResponse, prerequisiteChunkSource, requiredSpecifiers, _i, requiredSpecifiers_1, specifier, chunkImport;
+            var _a, _b;
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        importMapUrl = '/scripting/x/packer-driver/targets/preview/import-map.json';
+                        return [4 /*yield*/, fetch(importMapUrl)];
+                    case 1:
+                        response = _c.sent();
+                        if (!response.ok) {
+                            throw new Error("Failed to load runtime preview import map: ".concat(response.status));
+                        }
+                        return [4 /*yield*/, response.json()];
+                    case 2:
+                        importMap = _c.sent();
+                        prerequisiteChunk = (_a = importMap.imports) === null || _a === void 0 ? void 0 : _a['cce:/internal/x/prerequisite-imports'];
+                        prerequisiteScope = prerequisiteChunk ? (_b = importMap.scopes) === null || _b === void 0 ? void 0 : _b[prerequisiteChunk] : undefined;
+                        if (!prerequisiteChunk || !prerequisiteScope) {
+                            throw new Error('Runtime preview prerequisite import scope is missing.');
+                        }
+                        importMapBase = new URL(importMapUrl, window.location.href);
+                        prerequisiteChunkUrl = new URL(prerequisiteChunk, importMapBase);
+                        return [4 /*yield*/, fetch(prerequisiteChunkUrl.href)];
+                    case 3:
+                        chunkResponse = _c.sent();
+                        if (!chunkResponse.ok) {
+                            throw new Error("Failed to load runtime preview prerequisite chunk: ".concat(chunkResponse.status));
+                        }
+                        return [4 /*yield*/, chunkResponse.text()];
+                    case 4:
+                        prerequisiteChunkSource = _c.sent();
+                        requiredSpecifiers = collectRuntimePreviewUnresolvedSpecifiers(prerequisiteChunkSource);
+                        for (_i = 0, requiredSpecifiers_1 = requiredSpecifiers; _i < requiredSpecifiers_1.length; _i++) {
+                            specifier = requiredSpecifiers_1[_i];
+                            chunkImport = prerequisiteScope[specifier];
+                            if (!isRuntimePreviewChunkImport(chunkImport)) {
+                                throw new Error("Runtime preview prerequisite scope is missing ".concat(specifier, "."));
+                            }
+                        }
+                        return [2 /*return*/];
+                }
+            });
+        });
+    }
+    function collectRuntimePreviewUnresolvedSpecifiers(source) {
+        var specifiers = new Set();
+        var pattern = /__unresolved_\d+/g;
+        var match = null;
+        while ((match = pattern.exec(source))) {
+            specifiers.add(match[0]);
+        }
+        return Array.from(specifiers)
+            .sort(function (left, right) { return Number(left.slice('__unresolved_'.length)) - Number(right.slice('__unresolved_'.length)); });
+    }
+    function isRuntimePreviewChunkImport(value) {
+        return typeof value === 'string' && /^\.\/chunks\/[^/]+\/[^/]+\.js$/.test(value);
+    }
     function loadRuntimePreviewReadyResources(cc) {
         return __awaiter(this, void 0, void 0, function () {
             var request;

@@ -26,6 +26,25 @@ describe('runtime preview script import map and dependScripts linkage', () => {
     expect(Object.keys(records.importMap.imports ?? {}).length).toBeGreaterThan(0);
     expect(Object.keys(records.mainRecord.modules ?? {}).length).toBeGreaterThan(0);
     expect(Object.keys(records.assemblyRecord.chunks ?? {}).length).toBeGreaterThan(0);
+    const prerequisiteImport = records.importMap.imports?.['cce:/internal/x/prerequisite-imports'];
+    expect(prerequisiteImport).toMatch(/^\.\/chunks\/.*\.js$/);
+    const prerequisiteScope = records.importMap.scopes?.[prerequisiteImport!];
+    expect(Object.keys(prerequisiteScope ?? {}).length).toBeGreaterThan(0);
+    for (const [specifier, chunkImport] of Object.entries(prerequisiteScope ?? {})) {
+      expect(specifier).toMatch(/^__unresolved_\d+$/);
+      expect(chunkImport).toMatch(/^\.\/chunks\/[^/]+\/[^/]+\.js$/);
+    }
+    const prerequisiteChunkRequest = `/scripting/x/packer-driver/targets/preview/${prerequisiteImport!.slice('./'.length)}`;
+    const prerequisiteChunkFile = await resolveProgrammingRequest(context, prerequisiteChunkRequest);
+    expect(prerequisiteChunkFile?.absolutePath, prerequisiteChunkRequest).toBeTruthy();
+    expect(existsSync(prerequisiteChunkFile!.absolutePath), prerequisiteChunkRequest).toBe(true);
+    const prerequisiteChunkSource = await readFile(prerequisiteChunkFile!.absolutePath, 'utf8');
+    expect(prerequisiteChunkSource).toContain('System.register');
+    const prerequisiteChunkSpecifiers = new Set(prerequisiteChunkSource.match(/__unresolved_\d+/g) ?? []);
+    expect(prerequisiteChunkSpecifiers.size).toBeGreaterThan(0);
+    for (const specifier of prerequisiteChunkSpecifiers) {
+      expect(prerequisiteScope?.[specifier], specifier).toMatch(/^\.\/chunks\/[^/]+\/[^/]+\.js$/);
+    }
 
     const importMapFile = await resolveProgrammingRequest(
       context,
@@ -131,6 +150,7 @@ describe('runtime preview script import map and dependScripts linkage', () => {
     expect(importMap.imports?.['cce.env']).toBe(importMap.imports?.['cc/env']);
     expect(importMap.imports?.['cc/userland/macro']).toBe('./userland/macro');
     expect(importMap.imports?.cc).not.toBe('cce:/internal/x/cc');
+    expect(importMap.imports?.['@tbmp/mp-cloud-sdk']).toBeUndefined();
   });
 
   it('keeps global scripting imports traceable to current CLI ProgrammingFacet source', async () => {

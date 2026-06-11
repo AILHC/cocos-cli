@@ -223,6 +223,13 @@ class ScriptManager {
     }
 
     /**
+     * 清除缓存但不立即编译，供 runtime preview 在 AssetDB 全量 script sync 前使用。
+     */
+    async clearCacheWithoutRebuild(): Promise<void> {
+        await PackerDriver.getInstance().clearCacheWithoutRebuild();
+    }
+
+    /**
      * 更新数据库信息
      * @param dbInfos 数据库信息列表
      */

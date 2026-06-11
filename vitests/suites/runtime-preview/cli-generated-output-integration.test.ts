@@ -60,7 +60,8 @@ describe('runtime preview real CLI generated output acceptance', () => {
     const port = await findAvailablePort(19601, 50);
     const expectedProjectLibraryRoot = join(paths.projectRoot, 'library', 'cli');
     const expectedProjectProgrammingRoot = join(paths.projectRoot, 'temp', 'cli', 'programming');
-    const expectedInternalLibraryRoot = join(paths.engineRoot, 'editor', 'library');
+    const expectedInternalLibraryRoot = join(paths.projectRoot, 'library');
+    const expectedExtensionLibraryRoot = join(paths.projectRoot, 'library', 'cli-extensions', 'view-state-group');
     const evidenceSummaryFilePath = join(paths.projectRoot, 'temp', 'runtime-preview-cli-generated-output-evidence.json');
 
     const cli = await startRuntimePreviewCliProcess({
@@ -78,11 +79,19 @@ describe('runtime preview real CLI generated output acceptance', () => {
       expect(healthResponse.status).toBe(200);
       const health = await healthResponse.json() as {
         projectLibraryRoot: string;
+        extensionLibraryRoots: Array<{ name: string; root: string }>;
         projectProgrammingRoot: string;
         cliProgrammingRoot?: string;
       };
 
       expect(slash(health.projectLibraryRoot)).toBe(slash(expectedProjectLibraryRoot));
+      expect(health.extensionLibraryRoots.map((entry) => ({
+        name: entry.name,
+        root: slash(entry.root),
+      }))).toContainEqual({
+        name: 'view-state-group',
+        root: slash(expectedExtensionLibraryRoot),
+      });
       expect(slash(health.projectProgrammingRoot)).toBe(slash(expectedProjectProgrammingRoot));
       expect(slash(health.cliProgrammingRoot ?? '')).toBe(slash(expectedProjectProgrammingRoot));
 
@@ -92,6 +101,8 @@ describe('runtime preview real CLI generated output acceptance', () => {
       expect(normalizedStdout).toContain(`[runtime-preview]   url: ${cli.url}`);
       expect(normalizedStdout).toContain(`[runtime-preview] projectLibraryRoot=${slash(expectedProjectLibraryRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview]   libraryRoot: ${slash(expectedProjectLibraryRoot)}`);
+      expect(normalizedStdout).toContain(`[runtime-preview] extensionLibraryRoots=view-state-group:${slash(expectedExtensionLibraryRoot)}`);
+      expect(normalizedStdout).toContain(`[runtime-preview]   extensionLibraryRoots: view-state-group:${slash(expectedExtensionLibraryRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview] projectProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview]   programmingRoot: ${slash(expectedProjectProgrammingRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview] cliProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
@@ -171,6 +182,7 @@ describe('runtime preview real CLI generated output acceptance', () => {
       expect(runtimeLog).toContain('active-output:');
       expect(runtimeLog).toContain(`  url: ${cli.url}`);
       expect(runtimeLog).toContain(`  libraryRoot: ${expectedProjectLibraryRoot}`);
+      expect(runtimeLog).toContain(`  extensionLibraryRoots: view-state-group:${expectedExtensionLibraryRoot}`);
       expect(runtimeLog).toContain(`  programmingRoot: ${expectedProjectProgrammingRoot}`);
       expect(runtimeLog).toMatch(/engine:init:done durationMs=\d+/);
       expect(runtimeLog).toMatch(/asset-db:done durationMs=\d+/);
@@ -188,6 +200,7 @@ describe('runtime preview real CLI generated output acceptance', () => {
         logFilePath: cli.logFilePath,
         elapsedStartupMs: cli.elapsedStartupMs,
         projectLibraryRoot: expectedProjectLibraryRoot,
+        extensionLibraryRoots: [{ name: 'view-state-group', root: expectedExtensionLibraryRoot }],
         projectProgrammingRoot: expectedProjectProgrammingRoot,
         currentScene: sceneList.currentScene,
         sceneResults,

@@ -1,7 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectBrowserConsoleEvidence } from '../shared/playwright-console-listener';
+import {
+  collectBrowserConsoleEvidence,
+} from '../shared/playwright-console-listener';
+import { classifyRuntimePreviewStrictAcceptanceFailures } from '../shared/runtime-preview-acceptance';
 import {
   canListen,
   startRuntimePreviewCliProcess,
@@ -55,14 +58,14 @@ function parseSettingsJs(source: string): Record<string, any> {
 async function main(): Promise<void> {
   const scriptDir = dirname(fileURLToPath(import.meta.url));
   const repoRoot = resolve(scriptDir, '../..');
-  const projectRoot = process.env.COCOS_CLI_FEATURE_C_PROJECT_ROOT ?? 'F:/ps_copy/p6/trunk/Project/GameClient/feature-c';
+  const projectRoot = process.env.COCOS_CLI_FEATURE_C_PROJECT_ROOT ?? 'D:/ps_copy/p6/trunk/Project/GameClient/feature-c';
   const engineRoot = process.env.COCOS_CLI_FEATURE_C_ENGINE_ROOT ?? 'D:/workspace/engines/cocos/3.8.6';
   const host = process.env.COCOS_CLI_FEATURE_C_HOST ?? '127.0.0.1';
   const port = Number(process.env.COCOS_CLI_FEATURE_C_PORT ?? await findAvailablePort(19650, 50));
   const scene = process.env.COCOS_CLI_FEATURE_C_SCENE;
-  const startupTimeoutMs = Number(process.env.COCOS_CLI_FEATURE_C_STARTUP_TIMEOUT_MS ?? 240_000);
-  const readyTimeoutMs = Number(process.env.COCOS_CLI_FEATURE_C_READY_TIMEOUT_MS ?? 180_000);
-  const stableWindowMs = Number(process.env.COCOS_CLI_FEATURE_C_STABLE_WINDOW_MS ?? 15_000);
+  const startupTimeoutMs = Number(process.env.COCOS_CLI_FEATURE_C_STARTUP_TIMEOUT_MS ?? 600_000);
+  const readyTimeoutMs = Number(process.env.COCOS_CLI_FEATURE_C_READY_TIMEOUT_MS ?? 600_000);
+  const stableWindowMs = Number(process.env.COCOS_CLI_FEATURE_C_STABLE_WINDOW_MS ?? 300_000);
   const evidenceFilePath = process.env.COCOS_CLI_FEATURE_C_EVIDENCE
     ?? join(projectRoot, 'temp', 'runtime-preview-feature-c-playwright-console-evidence.json');
 
@@ -143,12 +146,21 @@ async function main(): Promise<void> {
     console.log(`[feature-c-diagnose] badResponses=${evidence.badResponses.length}`);
     console.log('[feature-c-diagnose] consoleSample:');
     console.log(summarizeMessages(evidence.consoleMessages).join('\n'));
+    const acceptanceFailures = classifyRuntimePreviewStrictAcceptanceFailures(evidence);
+    console.log(`[feature-c-diagnose] strictAcceptanceFailures=${acceptanceFailures.length}`);
+    for (const failure of acceptanceFailures) {
+      console.log(`[feature-c-diagnose] strictAcceptanceFailure=${failure}`);
+    }
 
     if (cli.logFilePath) {
       const previewLog = await readFile(cli.logFilePath, 'utf8').catch(() => '');
       const browserErrorLines = previewLog.split(/\r?\n/).filter((line) => line.includes('browser:preview-error'));
       console.log(`[feature-c-diagnose] previewLogBrowserErrors=${browserErrorLines.length}`);
       console.log(browserErrorLines.slice(-10).join('\n'));
+    }
+
+    if (acceptanceFailures.length > 0) {
+      throw new Error(`feature-c strict acceptance failed: ${acceptanceFailures.join(', ')}`);
     }
   } finally {
     await cli.close();

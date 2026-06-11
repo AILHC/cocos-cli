@@ -10,7 +10,7 @@
 
 ## 文档边界
 
-- `runtime-preview-architecture-facts-20260606.md` 只记录源码证据、产物事实、已确认结论和待验证项。
+- `docs/dev/runtime-preview/facts/architecture.md` 只记录源码证据、产物事实、已确认结论和待验证项。
 - 本文档记录架构决策、模块边界、route 分类、性能 contract 和测试策略。
 - `2026-06-06-runtime-preview-mainbase.md` 记录可执行步骤，不应复制大段事实表；事实变化先改 facts，再同步 design/plan 中的决策或任务。
 
