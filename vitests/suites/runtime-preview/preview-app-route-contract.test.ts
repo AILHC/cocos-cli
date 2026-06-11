@@ -7,6 +7,7 @@ import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-pr
 import { handleRuntimePreviewRequest } from '@runtime-preview/server/runtime-preview-routes';
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
+import type { RuntimePreviewHttpResponse } from '@runtime-preview/server/serve-on-demand-file';
 import {
   buildEditorLibraryInternalBundle,
   buildEditorLibraryResourcesBundle,
@@ -63,6 +64,20 @@ function createProductionLibraryRouteContext() {
   };
 }
 
+async function responseBodyText(response: RuntimePreviewHttpResponse): Promise<string> {
+  if (response.kind === 'file') {
+    return readFile(response.absolutePath, 'utf8');
+  }
+  return response.body.toString();
+}
+
+async function responseBodyBuffer(response: RuntimePreviewHttpResponse): Promise<Buffer> {
+  if (response.kind === 'file') {
+    return readFile(response.absolutePath);
+  }
+  return Buffer.isBuffer(response.body) ? response.body : Buffer.from(response.body);
+}
+
 describe('runtime preview preview-app required route contract', () => {
   it('serves production-entry-required scripting prerequisite routes', async () => {
     const routeContext = createRouteContext();
@@ -74,9 +89,10 @@ describe('runtime preview preview-app required route contract', () => {
 
     for (const route of requiredRoutes) {
       const response = await handleRuntimePreviewRequest(routeContext, route);
+      expect(response.kind, route).toBe('file');
       expect(response.statusCode, route).toBe(200);
       expect(response.headers['content-type'], route).toMatch(/application\/(javascript|json)/);
-      expect(response.body.toString().length, route).toBeGreaterThan(0);
+      expect((await responseBodyText(response)).length, route).toBeGreaterThan(0);
     }
   });
 
@@ -84,18 +100,20 @@ describe('runtime preview preview-app required route contract', () => {
     const routeContext = createRouteContext();
     const response = await handleRuntimePreviewRequest(routeContext, '/?debug=false');
 
+    expect(response.kind).toBe('body');
     expect(response.statusCode).toBe(200);
-    expect(response.body.toString()).toContain('id="btn-show-fps" class=""');
+    expect(await responseBodyText(response)).toContain('id="btn-show-fps" class=""');
   });
 
   it('serves scene list and serialized scene json from current project metadata facts', async () => {
     const routeContext = createRouteContext();
     const sceneListResponse = await handleRuntimePreviewRequest(routeContext, '/scene-list');
 
+    expect(sceneListResponse.kind).toBe('body');
     expect(sceneListResponse.statusCode).toBe(200);
     expect(sceneListResponse.headers['content-type']).toContain('application/json');
 
-    const sceneList = JSON.parse(sceneListResponse.body.toString()) as {
+    const sceneList = JSON.parse(await responseBodyText(sceneListResponse)) as {
       scenes: Array<{ uuid: string; url: string; name?: string; bundle?: string }>;
       currentScene?: string;
     };
@@ -104,15 +122,16 @@ describe('runtime preview preview-app required route contract', () => {
     expect(sceneList.scenes[0].url).toMatch(/^db:\/\/assets\/.*\.scene$/);
 
     const sceneResponse = await handleRuntimePreviewRequest(routeContext, `/scene/${sceneList.scenes[0].uuid}.json`);
+    expect(sceneResponse.kind).toBe('file');
     expect(sceneResponse.statusCode).toBe(200);
     expect(sceneResponse.headers['content-type']).toContain('application/json');
-    expect(sceneResponse.body.toString()).toContain('cc.SceneAsset');
+    expect(await responseBodyText(sceneResponse)).toContain('cc.SceneAsset');
   });
 
   it('uses a non-empty default scene for the production entry and scene selector state', async () => {
     const routeContext = createProductionLibraryRouteContext();
     const sceneListResponse = await handleRuntimePreviewRequest(routeContext, '/scene-list');
-    const sceneList = JSON.parse(sceneListResponse.body.toString()) as {
+    const sceneList = JSON.parse(await responseBodyText(sceneListResponse)) as {
       scenes: Array<{ uuid: string; url: string }>;
       currentScene?: string;
     };
@@ -122,13 +141,13 @@ describe('runtime preview preview-app required route contract', () => {
 
     const entryResponse = await handleRuntimePreviewRequest(routeContext, '/?debug=false');
     expect(entryResponse.statusCode).toBe(200);
-    expect(entryResponse.body.toString()).toContain(`/settings.js?scene=${sceneList.currentScene}`);
+    expect(await responseBodyText(entryResponse)).toContain(`/settings.js?scene=${sceneList.currentScene}`);
   });
 
   it('generates settings for the scene requested by settings.js query', async () => {
     const routeContext = createProductionLibraryRouteContext();
     const sceneListResponse = await handleRuntimePreviewRequest(routeContext, '/scene-list');
-    const sceneList = JSON.parse(sceneListResponse.body.toString()) as {
+    const sceneList = JSON.parse(await responseBodyText(sceneListResponse)) as {
       scenes: Array<{ uuid: string; url: string }>;
     };
     const requestedScene = sceneList.scenes[1]?.uuid ?? sceneList.scenes[0].uuid;
@@ -160,7 +179,7 @@ describe('runtime preview preview-app required route contract', () => {
       server: 'http://127.0.0.1:19530',
       startScene: requestedScene,
     });
-    expect(response.body.toString()).toContain(`"launchScene":"${requestedScene}"`);
+    expect(await responseBodyText(response)).toContain(`"launchScene":"${requestedScene}"`);
   });
 
   it('prefers current CLI AssetDB scene output when production root is project library', async () => {
@@ -179,7 +198,7 @@ describe('runtime preview preview-app required route contract', () => {
     expect(sceneRecord.url).toMatch(/^db:\/\/assets\/.*\.scene$/);
 
     const sceneListResponse = await handleRuntimePreviewRequest(routeContext, '/scene-list');
-    const sceneList = JSON.parse(sceneListResponse.body.toString()) as {
+    const sceneList = JSON.parse(await responseBodyText(sceneListResponse)) as {
       scenes: Array<{ uuid: string; url: string }>;
     };
 
@@ -192,7 +211,7 @@ describe('runtime preview preview-app required route contract', () => {
     const cliSceneJson = await readFile(join(paths.projectRoot, 'library', 'cli', sceneUuid.slice(0, 2), `${sceneUuid}.json`), 'utf8');
 
     expect(sceneResponse.statusCode).toBe(200);
-    expect(sceneResponse.body.toString()).toBe(cliSceneJson);
+    expect(await responseBodyText(sceneResponse)).toBe(cliSceneJson);
   });
 
   it('serves preview-app browser support and diagnostic routes', async () => {
@@ -206,11 +225,12 @@ describe('runtime preview preview-app required route contract', () => {
     for (const route of requiredRoutes) {
       const response = await handleRuntimePreviewRequest(routeContext, route);
       expect(response.statusCode, route).toBe(200);
-      expect(response.body.toString().length, route).toBeGreaterThan(0);
+      expect((await responseBodyText(response)).length, route).toBeGreaterThan(0);
       if (route === '/socket.io/socket.io.js') {
+        const body = await responseBodyText(response);
         expect(response.headers['content-type'], route).toContain('application/javascript');
-        expect(response.body.toString(), route).toContain('io');
-        expect(response.body.toString(), route).toContain('createNoopSocket');
+        expect(body, route).toContain('io');
+        expect(body, route).toContain('createNoopSocket');
       }
     }
   });
@@ -222,20 +242,20 @@ describe('runtime preview preview-app required route contract', () => {
       '/engine_external/?url=external%3Aemscripten%2Fmeshopt%2Fmeshopt_decoder.wasm.wasm',
     );
 
+    expect(response.kind).toBe('file');
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('application/wasm');
-    expect(Buffer.isBuffer(response.body)).toBe(true);
-    expect((response.body as Buffer).subarray(0, 4)).toEqual(Buffer.from([0x00, 0x61, 0x73, 0x6d]));
+    expect((await responseBodyBuffer(response)).subarray(0, 4)).toEqual(Buffer.from([0x00, 0x61, 0x73, 0x6d]));
   });
 
   it('serves builder-declared rendering effect settings from the project AssetDB output', async () => {
     const routeContext = createRouteContext();
     const response = await handleRuntimePreviewRequest(routeContext, '/src/effect.bin');
 
+    expect(response.kind).toBe('file');
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('application/octet-stream');
-    expect(Buffer.isBuffer(response.body)).toBe(true);
-    expect((response.body as Buffer).length).toBeGreaterThan(0);
+    expect((await responseBodyBuffer(response)).length).toBeGreaterThan(0);
   });
 
   it('serves preview-app general import URLs by direct library tail lookup', async () => {
@@ -270,9 +290,10 @@ describe('runtime preview preview-app required route contract', () => {
       `/assets/general/import/${samples.jsonAsset!.uuid.slice(0, 2)}/${samples.jsonAsset!.uuid}.json`,
     );
 
+    expect(response.kind).toBe('file');
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('application/json');
-    expect(response.body.toString()).toContain('cc.JsonAsset');
+    expect(await responseBodyText(response)).toContain('cc.JsonAsset');
   });
 
   it('serves preview-app general import URLs for scene dependency library files', async () => {
@@ -284,9 +305,10 @@ describe('runtime preview preview-app required route contract', () => {
 
     for (const route of dependentRoutes) {
       const response = await handleRuntimePreviewRequest(routeContext, route);
+      expect(response.kind, route).toBe('file');
       expect(response.statusCode, route).toBe(200);
       expect(response.headers['content-type'], route).toContain('application/json');
-      expect(response.body.toString().length, route).toBeGreaterThan(0);
+      expect((await responseBodyText(response)).length, route).toBeGreaterThan(0);
     }
   });
 
@@ -324,7 +346,7 @@ describe('runtime preview preview-app required route contract', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('application/json');
-    expect(response.body.toString()).toContain('cc.JsonAsset');
+    expect(await responseBodyText(response)).toContain('cc.JsonAsset');
   });
 
   it('queries import replacement extensions from explicit extension library roots', async () => {
@@ -350,8 +372,9 @@ describe('runtime preview preview-app required route contract', () => {
 
     const response = await handleRuntimePreviewRequest(routeContext, `/query-extname/${uuid}`);
 
+    expect(response.kind).toBe('body');
     expect(response.statusCode).toBe(200);
-    expect(response.body.toString()).toBe('.ccon');
+    expect(await responseBodyText(response)).toBe('.ccon');
   });
 
   it('serves production library URLs without settings generation', async () => {
@@ -378,9 +401,10 @@ describe('runtime preview preview-app required route contract', () => {
       }),
     }, `/assets/product/import/${uuid.slice(0, 2)}/${uuid}.json`);
 
+    expect(response.kind).toBe('file');
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('application/json');
-    expect(response.body.toString()).toContain('cc.JsonAsset');
+    expect(await responseBodyText(response)).toContain('cc.JsonAsset');
   });
 
   it('serves preview-app general import URLs for internal builtin assets', async () => {
@@ -416,8 +440,9 @@ describe('runtime preview preview-app required route contract', () => {
       `/assets/general/import/${physicsMaterialUuid.slice(0, 2)}/${physicsMaterialUuid}.json`,
     );
 
+    expect(response.kind).toBe('file');
     expect(response.statusCode).toBe(200);
-    expect(response.body.toString()).toContain('default-physics-material');
+    expect(await responseBodyText(response)).toContain('default-physics-material');
 
     const fontUuid = '0835f102-5471-47a3-9a76-01c07ac9cdb2';
     const fontResponse = await handleRuntimePreviewRequest(
@@ -425,9 +450,10 @@ describe('runtime preview preview-app required route contract', () => {
       `/assets/general/native/${fontUuid.slice(0, 2)}/${fontUuid}/OpenSans-Regular.ttf`,
     );
 
+    expect(fontResponse.kind).toBe('file');
     expect(fontResponse.statusCode).toBe(200);
     expect(fontResponse.headers['content-type']).toContain('font/ttf');
-    expect(Buffer.isBuffer(fontResponse.body)).toBe(true);
+    expect((await responseBodyBuffer(fontResponse)).length).toBeGreaterThan(0);
   });
 
   it('rejects unsupported engine external requests', async () => {

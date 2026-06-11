@@ -39,6 +39,7 @@ describe('runtime preview server startup', () => {
     const server = await startRuntimePreviewServer({
       projectRoot: paths.projectRoot,
       engineRoot: paths.engineRoot,
+      engineRootSource: 'test-env',
       projectLibraryRoot: paths.editorLibraryRef,
       extensionLibraryRoots: [
         { name: 'view-state-group', root: extensionLibraryRoot },
@@ -58,10 +59,11 @@ describe('runtime preview server startup', () => {
       ]);
       expect(server.startupLogLines).toContain(`projectRoot=${paths.projectRoot}`);
       expect(server.startupLogLines).toContain(`engineRoot=${paths.engineRoot}`);
+      expect(server.startupLogLines).toContain('engineRootSource=test-env');
       expect(server.startupLogLines).toContain(`projectLibraryRoot=${paths.editorLibraryRef}`);
       expect(server.startupLogLines).toContain(`extensionLibraryRoots=view-state-group:${extensionLibraryRoot}`);
       expect(server.startupLogLines).toContain(`projectProgrammingRoot=${join(paths.editorProgrammingRef, 'programming')}`);
-      expect(server.startupLogLines).toContain(`server:listening=${server.url}`);
+      expect(server.startupLogLines).toContain(`server:listening ${server.url}`);
       expect(server.logFilePath).toMatch(/runtime-preview-\d{8}-\d{6}\.log$/);
       expect(existsSync(server.logFilePath)).toBe(true);
 
@@ -71,6 +73,7 @@ describe('runtime preview server startup', () => {
         ok: true,
         projectRoot: paths.projectRoot,
         engineRoot: paths.engineRoot,
+        engineRootSource: 'test-env',
         extensionLibraryRoots: [
           { name: 'view-state-group', root: extensionLibraryRoot },
         ],
@@ -83,10 +86,12 @@ describe('runtime preview server startup', () => {
       const logSource = await readFile(server.logFilePath, 'utf8');
       expect(logSource).toContain(`projectRoot=${paths.projectRoot}`);
       expect(logSource).toContain(`engineRoot=${paths.engineRoot}`);
+      expect(logSource).toContain('engineRootSource=test-env');
       expect(logSource).toContain(`projectLibraryRoot=${paths.editorLibraryRef}`);
       expect(logSource).toContain(`extensionLibraryRoots=view-state-group:${extensionLibraryRoot}`);
       expect(logSource).toContain(`projectProgrammingRoot=${join(paths.editorProgrammingRef, 'programming')}`);
-      expect(logSource).toContain(`server:listening=${server.url}`);
+      expect(logSource).toContain(`server:listening ${server.url}`);
+      expect(logSource.match(/server:listening/g) ?? []).toHaveLength(1);
       expect(logSource).toMatch(/settings:generation:done durationMs=\d+/);
     } finally {
       await server.close();

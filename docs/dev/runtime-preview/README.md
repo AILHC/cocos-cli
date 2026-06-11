@@ -8,8 +8,9 @@
 - `D:\ps_copy\p6\trunk\Project\GameClient\feature-c` 已重新纳入核心流程专项验证。
 - 2026-06-11 最新 `diagnose:feature-c` 证据显示 core route / script / scene-ready 主链路已通过 strict acceptance：`readyTimedOut=false`、`pageErrors=0`、`failedRequests=0`、`badResponses=0`、`console.error=0`。
 - `settings.engine.builtinAssets` 必须包含 internal physics default material `ba21476f-2866-4f81-9c4d-6e359316e448`；该资源不能只挂到 `main` / `start-scene` launch bundle。
-- open issue：production `preview --runtime` 当前 `engineRoot` 解析退化到 `GlobalPaths.enginePath` / CLI 内置 `packages/engine`，没有从项目配置或 CLI 初始化链路解析；启动日志也存在 root summary 和 `server:listening` 重复输出。见 [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)。
+- production `preview --runtime` 的 `engineRoot` 解析和启动日志重复问题已按当前计划修复：项目配置 `cocos-cli.enginePath` 可作为 `project-config` 来源，`server:listening` 只输出一次。修复记录见 [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)。
 - 2026-06-11 `internal` AssetDB / runtime preview 应优先使用项目级 `library`；engine-level `editor/library` 中部分 internal Texture2D 为 `content:null`，会触发 `Texture2D._deserialize` 读取 `content.base` 报错。见 [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)。
+- 浏览器脚本加载顺序当前只记录事实，不执行并发化修改；HTTP file response 已迁移到 Express `sendFile()` validator 路径，body response 不新增 Express `ETag` / conditional `304`。见 [facts/browser-loading-and-cache-20260611.md](facts/browser-loading-and-cache-20260611.md)。
 - `assets/**/*.meta` 默认不应被 runtime preview 改写仍是后续专项；本轮核心流程整理不回滚、不归因现有 feature-c `.meta` 修改。
 
 ## 必读顺序
@@ -39,6 +40,8 @@
 - `/assets/<namespace>/(import|native)/<tail>` 中的 `<namespace>` 是 HTTP namespace，不是 physical library directory。
 - `preview-app` 在 `cc.game.init()` 后只导入 Cocos packer-driver 生成的 `cce:/internal/x/prerequisite-imports`，不按 scene 计算脚本依赖，不直接枚举加载所有 scope chunks。
 - platform-only CommonJS bare specifier 缺失由 packer-driver / QuickPack resolver 层 fallback 处理：只对 `moduleType === 'commonjs'` 且 `isBareSpecifier(specifier) === true` 的 resolver 失败生成 `data:` meta module，并写入 `resolution-detail-map.json`；不维护 runtime preview package allow-list，不提供 `--script-stub`。
+- runtime preview 默认遵循 CLI / PackerDriver / QuickPack 原有缓存与失效策略，不因开发机旧路径、旧 `engineRoot`、旧 `projectRoot` 或旧 resolver record 残留而默认清理编译缓存。此类缓存污染属于开发/迁移特殊情况，只能通过显式参数或人工诊断处理。
+- 测试不得把 fixture 污染、历史缓存污染或本机路径迁移包装成 production 默认语义；需要清理缓存的测试必须显式 opt-in，并断言该 opt-in 行为。
 - `diagnose:feature-c` 是 fail gate：`readyTimedOut`、`pageErrors`、`unhandledRejections`、同源 `failedRequests`、同源 `badResponses`、`console.error` 任一非空都必须失败。
 
 ## 路径迁移

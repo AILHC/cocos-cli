@@ -1,13 +1,24 @@
-import { readFile } from 'node:fs/promises';
 import type { ResolvedRuntimePreviewFile } from '../library/resolve-library-request';
 
-export interface RuntimePreviewHttpResponse {
+export type RuntimePreviewHttpResponse =
+    | RuntimePreviewBodyResponse
+    | RuntimePreviewFileResponse;
+
+export interface RuntimePreviewBodyResponse {
+    kind: 'body';
     statusCode: number;
     headers: Record<string, string>;
     body: string | Buffer;
 }
 
-function guessContentType(filePath: string): string {
+export interface RuntimePreviewFileResponse {
+    kind: 'file';
+    statusCode: number;
+    headers: Record<string, string>;
+    absolutePath: string;
+}
+
+export function guessContentType(filePath: string): string {
     const normalized = filePath.replace(/\\/g, '/');
     if (normalized.endsWith('.json')) {
         return 'application/json; charset=utf-8';
@@ -33,18 +44,20 @@ function guessContentType(filePath: string): string {
     return 'application/octet-stream';
 }
 
-export async function serveOnDemandFile(file: ResolvedRuntimePreviewFile): Promise<RuntimePreviewHttpResponse> {
+export function serveOnDemandFile(file: ResolvedRuntimePreviewFile): RuntimePreviewHttpResponse {
     return {
+        kind: 'file',
         statusCode: 200,
         headers: {
             'content-type': guessContentType(file.absolutePath),
         },
-        body: await readFile(file.absolutePath),
+        absolutePath: file.absolutePath,
     };
 }
 
 export function textResponse(statusCode: number, body: string, contentType = 'text/plain; charset=utf-8'): RuntimePreviewHttpResponse {
     return {
+        kind: 'body',
         statusCode,
         headers: {
             'content-type': contentType,

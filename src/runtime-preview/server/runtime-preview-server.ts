@@ -1,5 +1,6 @@
-import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import {
     createRuntimePreviewContext,
     type RuntimePreviewContext,
@@ -8,10 +9,12 @@ import {
 import { createRuntimePreviewLogger, type RuntimePreviewLogger } from '../logging/runtime-preview-logger';
 import { PreviewSettingsProvider } from '../settings/preview-settings-provider';
 import { handleRuntimePreviewRequest } from './runtime-preview-routes';
+import type { RuntimePreviewHttpResponse } from './serve-on-demand-file';
 
 export interface RuntimePreviewServerOptions {
     projectRoot: string;
     engineRoot: string;
+    engineRootSource?: string;
     projectLibraryRoot: string;
     extensionLibraryRoots?: RuntimePreviewExtensionLibraryRoot[];
     projectProgrammingRoot: string;
@@ -81,34 +84,32 @@ async function listenOnFetchReachablePort(server: Server, port: number, host: st
 
 const maxPreviewErrorBodyBytes = 64 * 1024;
 
-function readRequestBody(request: IncomingMessage): Promise<string> {
-    return new Promise((resolveBody, rejectBody) => {
-        const chunks: Buffer[] = [];
-        let totalBytes = 0;
-        let bodyTooLarge = false;
-        request.on('data', (chunk: Buffer) => {
-            if (bodyTooLarge) {
-                return;
+function sendRuntimePreviewResponse(
+    response: Response,
+    routeResponse: RuntimePreviewHttpResponse,
+    next: NextFunction,
+): void {
+    if (routeResponse.kind === 'file') {
+        for (const [name, value] of Object.entries(routeResponse.headers)) {
+            response.setHeader(name, value);
+        }
+        response.status(routeResponse.statusCode);
+        response.sendFile(routeResponse.absolutePath, { dotfiles: 'allow' }, (error) => {
+            if (error) {
+                next(error);
             }
+        });
+        return;
+    }
 
-            totalBytes += chunk.length;
-            if (totalBytes > maxPreviewErrorBodyBytes) {
-                bodyTooLarge = true;
-                return;
-            }
-            chunks.push(chunk);
-        });
-        request.on('end', () => {
-            if (bodyTooLarge) {
-                const error = new Error('Runtime preview request body is too large.');
-                error.name = 'RuntimePreviewRequestBodyTooLarge';
-                rejectBody(error);
-                return;
-            }
-            resolveBody(Buffer.concat(chunks).toString('utf8'));
-        });
-        request.on('error', rejectBody);
-    });
+    response.writeHead(routeResponse.statusCode, routeResponse.headers);
+    response.end(routeResponse.body);
+}
+
+function isBodyTooLargeError(error: unknown): boolean {
+    return !!error
+        && typeof error === 'object'
+        && (error as { type?: string }).type === 'entity.too.large';
 }
 
 export async function startRuntimePreviewServer(options: RuntimePreviewServerOptions): Promise<StartedRuntimePreviewServer> {
@@ -118,6 +119,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
     const context = createRuntimePreviewContext({
         projectRoot: options.projectRoot,
         engineRoot: options.engineRoot,
+        engineRootSource: options.engineRootSource,
         scene: options.scene,
         projectLibraryRoot: options.projectLibraryRoot,
         extensionLibraryRoots: options.extensionLibraryRoots,
@@ -148,6 +150,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
     const startupLogLines = [
         `projectRoot=${context.projectRoot}`,
         `engineRoot=${context.engineRoot}`,
+        `engineRootSource=${context.engineRootSource ?? ''}`,
         `projectLibraryRoot=${context.projectLibraryRoot}`,
         `extensionLibraryRoots=${extensionRootSummary}`,
         `projectProgrammingRoot=${context.projectProgrammingRoot}`,
@@ -158,10 +161,18 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         await logger.write(line);
     }
 
-    const server = createServer(async (request, response) => {
+    const app = express();
+    app.disable('x-powered-by');
+
+    app.post('/preview-error', express.text({
+        type: () => true,
+        limit: maxPreviewErrorBodyBytes,
+    }));
+
+    app.use(async (request: Request, response: Response, next: NextFunction) => {
         let pathname = '';
         try {
-            const requestUrl = new URL(request.url ?? '/', `http://${host}`);
+            const requestUrl = new URL(request.originalUrl || request.url || '/', `http://${host}`);
             pathname = requestUrl.pathname;
             if (pathname === '/__runtime-preview/health') {
                 response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -169,6 +180,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                     ok: true,
                     projectRoot: context.projectRoot,
                     engineRoot: context.engineRoot,
+                    engineRootSource: context.engineRootSource,
                     projectLibraryRoot: context.projectLibraryRoot,
                     extensionLibraryRoots: context.extensionLibraryRoots,
                     projectProgrammingRoot: context.projectProgrammingRoot,
@@ -178,38 +190,47 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 return;
             }
 
-            const requestBody = request.method === 'POST' && pathname === '/preview-error'
-                ? await readRequestBody(request)
-                : undefined;
             const routeResponse = await handleRuntimePreviewRequest({
                 runtimeContext: context,
                 settingsProvider: getSettingsProvider(),
                 capturedRuntimeUrls: options.capturedRuntimeUrls,
                 logger,
                 method: request.method,
-                body: requestBody,
-            }, request.url ?? '/');
-            response.writeHead(routeResponse.statusCode, routeResponse.headers);
-            response.end(routeResponse.body);
+                body: typeof request.body === 'string' ? request.body : undefined,
+            }, request.originalUrl || request.url || '/');
+            sendRuntimePreviewResponse(response, routeResponse, next);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (pathname === '/settings.js') {
                 console.error(`[runtime-preview] settings:generation:error ${message}`);
             }
-            if (error instanceof Error && error.name === 'RuntimePreviewRequestBodyTooLarge') {
-                response.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' });
-                response.end(message);
-                return;
-            }
-            response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-            response.end(message);
+            next(error);
         }
     });
+
+    app.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {
+        if (response.headersSent) {
+            next(error);
+            return;
+        }
+
+        if (isBodyTooLargeError(error)) {
+            response.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' });
+            response.end('Runtime preview request body is too large.');
+            return;
+        }
+
+        const message = error instanceof Error ? error.message : String(error);
+        response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end(message);
+    });
+
+    const server = createServer(app);
 
     const port = await listenOnFetchReachablePort(server, requestedPort, host);
     const url = `http://${host}:${port}`;
     serverUrl = url;
-    const listeningLine = `server:listening=${url}`;
+    const listeningLine = `server:listening ${url}`;
     startupLogLines.push(listeningLine);
     await logger.write(listeningLine);
     return {
