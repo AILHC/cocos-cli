@@ -8,6 +8,8 @@
 - `D:\ps_copy\p6\trunk\Project\GameClient\feature-c` 已重新纳入核心流程专项验证。
 - 2026-06-11 最新 `diagnose:feature-c` 证据显示 core route / script / scene-ready 主链路已通过 strict acceptance：`readyTimedOut=false`、`pageErrors=0`、`failedRequests=0`、`badResponses=0`、`console.error=0`。
 - `settings.engine.builtinAssets` 必须包含 internal physics default material `ba21476f-2866-4f81-9c4d-6e359316e448`；该资源不能只挂到 `main` / `start-scene` launch bundle。
+- open issue：production `preview --runtime` 当前 `engineRoot` 解析退化到 `GlobalPaths.enginePath` / CLI 内置 `packages/engine`，没有从项目配置或 CLI 初始化链路解析；启动日志也存在 root summary 和 `server:listening` 重复输出。见 [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)。
+- 2026-06-11 `internal` AssetDB / runtime preview 应优先使用项目级 `library`；engine-level `editor/library` 中部分 internal Texture2D 为 `content:null`，会触发 `Texture2D._deserialize` 读取 `content.base` 报错。见 [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)。
 - `assets/**/*.meta` 默认不应被 runtime preview 改写仍是后续专项；本轮核心流程整理不回滚、不归因现有 feature-c `.meta` 修改。
 
 ## 必读顺序
@@ -15,8 +17,10 @@
 1. [facts/architecture.md](facts/architecture.md)：当前事实、已否定假设和 2026-06-11 裁决。
 2. [design/core-flow.md](design/core-flow.md)：核心流程目标、边界、route 规则、script loading 和 strict acceptance。
 3. [plans/core-flow-implementation-20260610.md](plans/core-flow-implementation-20260610.md)：本轮执行计划和执行记录。
-4. [acceptance/matrix.md](acceptance/matrix.md)：当前验收矩阵。
-5. [acceptance/feedback-20260609.md](acceptance/feedback-20260609.md)：用户反馈、诊断 evidence 和未闭环问题。
+4. [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)：production engine root 解析退化和启动日志重复的修复计划。
+5. [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)：项目级 internal library 事实、缓存干扰和最小修复边界。
+6. [acceptance/matrix.md](acceptance/matrix.md)：当前验收矩阵。
+7. [acceptance/feedback-20260609.md](acceptance/feedback-20260609.md)：用户反馈、诊断 evidence 和未闭环问题。
 
 ## 模块说明
 
