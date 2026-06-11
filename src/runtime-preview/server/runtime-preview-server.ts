@@ -1,6 +1,10 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { join } from 'node:path';
-import { createRuntimePreviewContext, type RuntimePreviewContext } from '../context/runtime-preview-context';
+import {
+    createRuntimePreviewContext,
+    type RuntimePreviewContext,
+    type RuntimePreviewExtensionLibraryRoot,
+} from '../context/runtime-preview-context';
 import { createRuntimePreviewLogger, type RuntimePreviewLogger } from '../logging/runtime-preview-logger';
 import { PreviewSettingsProvider } from '../settings/preview-settings-provider';
 import { handleRuntimePreviewRequest } from './runtime-preview-routes';
@@ -9,6 +13,7 @@ export interface RuntimePreviewServerOptions {
     projectRoot: string;
     engineRoot: string;
     projectLibraryRoot: string;
+    extensionLibraryRoots?: RuntimePreviewExtensionLibraryRoot[];
     projectProgrammingRoot: string;
     cliProgrammingRoot?: string;
     internalLibraryRoot?: string;
@@ -115,6 +120,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         engineRoot: options.engineRoot,
         scene: options.scene,
         projectLibraryRoot: options.projectLibraryRoot,
+        extensionLibraryRoots: options.extensionLibraryRoots,
         projectProgrammingRoot: options.projectProgrammingRoot,
         cliProgrammingRoot: options.cliProgrammingRoot,
         internalLibraryRoot: options.internalLibraryRoot,
@@ -136,10 +142,14 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         }
         return settingsProvider;
     };
+    const extensionRootSummary = context.extensionLibraryRoots
+        .map((entry) => `${entry.name}:${entry.root}`)
+        .join(';');
     const startupLogLines = [
         `projectRoot=${context.projectRoot}`,
         `engineRoot=${context.engineRoot}`,
         `projectLibraryRoot=${context.projectLibraryRoot}`,
+        `extensionLibraryRoots=${extensionRootSummary}`,
         `projectProgrammingRoot=${context.projectProgrammingRoot}`,
         `cliProgrammingRoot=${context.cliProgrammingRoot ?? ''}`,
         `internalLibraryRoot=${context.internalLibraryRoot ?? ''}`,
@@ -160,6 +170,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                     projectRoot: context.projectRoot,
                     engineRoot: context.engineRoot,
                     projectLibraryRoot: context.projectLibraryRoot,
+                    extensionLibraryRoots: context.extensionLibraryRoots,
                     projectProgrammingRoot: context.projectProgrammingRoot,
                     cliProgrammingRoot: context.cliProgrammingRoot,
                     logFilePath: logger.logFilePath,

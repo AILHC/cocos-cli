@@ -172,7 +172,7 @@ Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-inf
 证据文件：
 
 - `src/runtime-preview/server/runtime-preview-routes.ts`
-- `docs/dev/runtime-preview-browser-entry-facts-20260607.md`
+- `docs/dev/runtime-preview/facts/browser-entry.md`
 - `vitests/suites/runtime-preview/browser-entry-contract.test.ts`
 - `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\docs\dev\reference\old_editor_preview_server\server.js`
 - `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\src\runtime-preview\runtime-preview-template.ts`
@@ -269,8 +269,8 @@ Context constructor 禁止读取全量 `.assets-data.json`、全量 `.assets-inf
 ### Frozen artifact metadata / records 结构
 
 证据文档：
-- `docs/dev/runtime-preview-reference-library-20260606.md`
-- `docs/dev/runtime-preview-reference-temp-programming-20260606.md`
+- `docs/dev/runtime-preview/facts/reference-library.md`
+- `docs/dev/runtime-preview/facts/reference-temp-programming.md`
 
 Frozen editor `library`：
 - 来源：`E:\own_space\cocos_work_lab_38x\library`。
@@ -417,3 +417,14 @@ Frozen editor `temp/programming`：
 - `/query-extname/<uuid>` 只回答 import payload extension，不参与 import/native 语义判断。
 - `resources.load` / HTTP contract 失败时，先排查 test harness、host boundary、runtime context、settings、resolver、CLI output shape；确认是 3.8.6 engine source 兼容缺口后，按计划中的 Engine source 适配规则小步修复。
 - 当前阶段允许修改 `D:\workspace\engines\cocos\3.8.6` 适配 runtime preview，不再逐项等待确认。参考顺序为 current engine source -> `E:\own_space\tmp-repos\runtime-preview-reference\engine-backup-current-20260606` -> `E:\own_space\engines\cocos4`，最终必须回到 3.8.6 验证。禁止手工复制/伪造 generated loader 或把 generated cache 当成 source patch。
+
+### 2026-06-11 当前裁决摘要
+
+- Library resolver 只消费 `RuntimePreviewContext` 显式传入的 roots：`projectLibraryRoot`、`extensionLibraryRoots[]`、`internalLibraryRoot`。resolver 内不得自行推导 `<projectRoot>/library/cli`、`<projectRoot>/library` 或 `<projectRoot>/library/cli-extensions/<name>`。
+- `/assets/<namespace>/(import|native)/<tail>` 中的 `<namespace>` 是 HTTP namespace / bundle config 语义，不是 physical library directory。server 只取 `<tail>` 到显式 roots 下做 direct file lookup。
+- `preview-app` 在 `cc.game.init()` 后、scene JSON load 前导入 Cocos packer-driver 生成的 `cce:/internal/x/prerequisite-imports`。这不是 scene dependency preloading，也不直接枚举 import 所有 scope chunks。
+- 2026-06-11 复盘：将 `@tbmp/mp-cloud-sdk` 设计成 `--script-stub` / 默认 known stub 是错误决策。正确机制是恢复 packer-driver / QuickPack resolver 层的 CommonJS bare specifier fallback：只对 `moduleType === 'commonjs'` 且 `isBareSpecifier(specifier) === true` 的 resolver 失败生成 `data:` meta module，并写入 `resolution-detail-map.json`。
+- runtime preview 不维护 package allow-list，不提供 `--script-stub`，不修改项目 `script.importMap`、`assets/**/*.meta`、`library` 产物或正常 build 配置。
+- `asset-db:script-compile:error` 在 runtime preview startup 中是 report-only；Launcher 输出 `asset-db:script-compile:report-only source=asset-db:script-compile:error` 后继续进入 `preview:ready` / browser diagnostics。strict acceptance 仍由 browser evidence 判定。
+- 2026-06-11 最新 `feature-c` strict gate 显示 core route / script / scene-ready 主链路通过 strict acceptance：`readyTimedOut=false`，`pageErrors=0`，`failedRequests=0`，`badResponses=0`，`previewLogBrowserErrors=0`，`console.error=0`。
+- `settings.engine.builtinAssets` 必须包含 internal physics default material `ba21476f-2866-4f81-9c4d-6e359316e448`。该资源由 `builtinResMgr.get('default-physics-material')` 消费，不能只加入 `main` / `start-scene` launch bundle；否则 browser 会报 `[Physics] PhysicsSystem initDefaultMaterial() Failed to load builtinMaterial.`。

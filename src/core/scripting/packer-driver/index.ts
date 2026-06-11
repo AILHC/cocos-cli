@@ -31,6 +31,7 @@ import { eventEmitter } from '../event-emitter';
 import { DBInfo } from '../@types/config-export';
 import path from 'path';
 import { shouldUseTentativePrerequisiteImportsMod } from './target-policy';
+import { installCommonJSBareSpecifierFallback } from './commonjs-bare-specifier-fallback';
 
 const VERSION = '20';
 
@@ -158,7 +159,6 @@ export class PackerDriver {
                 'cc/userland/macro',
                 ...getCCEModuleIDs(PackerDriver._cceModuleMap), // 设置编辑器导出的模块为外部模块
             ];
-
             modLoExternals.push(...statsQuery.getFeatureUnits().map(
                 (featureUnit) => `${featureUnitModulePrefix}${featureUnit}`));
 
@@ -195,6 +195,7 @@ export class PackerDriver {
                 logger,
                 verbose,
             });
+            installCommonJSBareSpecifierFallback(quickPack, logger);
 
             logger.debug('Loading cache');
             const t1 = performance.now();
@@ -367,6 +368,27 @@ export class PackerDriver {
         this._logger.debug('Request build after clearing...');
         await this.build([]);
         this._clearing = false;
+    }
+
+    public async clearCacheWithoutRebuild() {
+        if (this._clearing) {
+            this._logger.debug('Failed to clear cache without rebuild: previous clearing have not finished yet.');
+            return;
+        }
+        if (this.busy()) {
+            this._logger.error('Failed to clear cache without rebuild: the building is still working in progress.');
+            return;
+        }
+        this._clearing = true;
+        try {
+            for (const [name, target] of Object.entries(this._targets)) {
+                this._logger.debug(`Clear cache of target ${name}`);
+                await target.clearCache();
+            }
+            this._logger.debug('Runtime preview cache cleared without immediate build.');
+        } finally {
+            this._clearing = false;
+        }
     }
 
     public getQuickPackLoaderContext(targetName: TargetName) {
@@ -1055,12 +1077,12 @@ class PackTarget {
     }
 }
 
-interface IncrementalRecord {
-    version: string;
-    config: {
-        previewTarget?: string;
-    } & SharedSettings;
-}
+    interface IncrementalRecord {
+        version: string;
+        config: {
+            previewTarget?: string;
+        } & SharedSettings;
+    }
 
 function matchObject(lhs: unknown, rhs: unknown) {
     return matchLhs(lhs, rhs);

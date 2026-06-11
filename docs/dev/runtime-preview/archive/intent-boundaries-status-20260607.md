@@ -20,12 +20,12 @@
 
 相关现有文档：
 
-- `docs/dev/runtime-preview-mainbase-handoff-20260606.md`
-- `docs/dev/runtime-preview-architecture-facts-20260606.md`
-- `docs/dev/runtime-preview-cli-design-20260606.md`
-- `docs/dev/runtime-preview-old-implementation-review-20260606.md`
-- `docs/dev/runtime-preview-reference-library-20260606.md`
-- `docs/dev/runtime-preview-reference-temp-programming-20260606.md`
+- `docs/dev/runtime-preview/handoff/mainbase-handoff-20260606.md`
+- `docs/dev/runtime-preview/facts/architecture.md`
+- `docs/dev/runtime-preview/design/cli-runtime-preview.md`
+- `docs/dev/runtime-preview/archive/old-implementation-review-20260606.md`
+- `docs/dev/runtime-preview/facts/reference-library.md`
+- `docs/dev/runtime-preview/facts/reference-temp-programming.md`
 
 ## 需求意图
 
@@ -110,7 +110,7 @@
 | --- | --- | --- |
 | editor `library` 冻结 | 已完成 | `.codex-tmp/reference-library/cocos_work_lab_38x-editor-library-20260606` |
 | editor `temp/programming` 冻结 | 已完成 | `.codex-tmp/reference-temp/cocos_work_lab_38x-editor-programming-20260606` |
-| reference 文档 | 已完成 | `runtime-preview-reference-library-20260606.md`、`runtime-preview-reference-temp-programming-20260606.md` |
+| reference 文档 | 已完成 | `docs/dev/runtime-preview/facts/reference-library.md`、`docs/dev/runtime-preview/facts/reference-temp-programming.md` |
 | CLI output 对齐 | 未完成 | 当前测试分类为 `source-backed-split-library-layout`；已确认 CLI/engine source-backed layout 与 frozen editor project library layout 不同，不能声明完全一致 |
 
 ### 5. 短链路反馈优先，浏览器是最后集成测试

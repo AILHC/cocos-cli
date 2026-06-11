@@ -42,10 +42,23 @@ export interface BrowserConsoleEvidence {
   elapsedReadyMs: number;
   elapsedTotalMs: number;
   consoleMessages: BrowserConsoleMessageEvidence[];
+  unhandledRejections: string[];
   pageErrors: string[];
   failedRequests: BrowserRequestFailureEvidence[];
   badResponses: BrowserBadResponseEvidence[];
 }
+
+const UNHANDLED_REJECTION_PREFIX = '[runtime-preview-unhandledrejection]';
+
+const unhandledRejectionListener = () => {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    const text = reason && (reason.stack || reason.message)
+      ? String(reason.stack || reason.message)
+      : String(reason);
+    console.error(`[runtime-preview-unhandledrejection] ${text}`);
+  });
+};
 
 function findBrowserExecutable(): string {
   const candidates = [
@@ -129,6 +142,7 @@ export async function collectBrowserConsoleEvidence(options: BrowserConsoleEvide
   const startedAt = Date.now();
   let browser: Browser | null = null;
   const consoleMessages: BrowserConsoleMessageEvidence[] = [];
+  const unhandledRejections: string[] = [];
   const pageErrors: string[] = [];
   const failedRequests: BrowserRequestFailureEvidence[] = [];
   const badResponses: BrowserBadResponseEvidence[] = [];
@@ -141,9 +155,14 @@ export async function collectBrowserConsoleEvidence(options: BrowserConsoleEvide
     const page = await browser.newPage({
       viewport: { width: 1280, height: 720 },
     });
+    await page.addInitScript(unhandledRejectionListener);
 
     page.on('console', (message) => {
       if (message.type() === 'error' || message.type() === 'warning') {
+        if (message.type() === 'error' && message.text().includes(UNHANDLED_REJECTION_PREFIX)) {
+          unhandledRejections.push(message.text());
+          return;
+        }
         consoleMessages.push(serializeConsoleMessage(message));
       }
     });
@@ -183,6 +202,7 @@ export async function collectBrowserConsoleEvidence(options: BrowserConsoleEvide
       elapsedReadyMs: ready.elapsedMs,
       elapsedTotalMs: Date.now() - startedAt,
       consoleMessages,
+      unhandledRejections,
       pageErrors,
       failedRequests,
       badResponses,

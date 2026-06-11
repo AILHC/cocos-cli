@@ -60,7 +60,13 @@ async function queryImportReplacementExtension(context: RuntimePreviewContext, u
         return '';
     }
 
-    for (const root of [context.projectLibraryRoot, context.internalLibraryRoot].filter((value): value is string => Boolean(value))) {
+    const lookupRoots = Array.from(new Set([
+        context.projectLibraryRoot,
+        ...context.extensionLibraryRoots.map((entry) => entry.root),
+        context.internalLibraryRoot,
+    ].filter((value): value is string => Boolean(value))));
+
+    for (const root of lookupRoots) {
         const bucket = join(root, uuid.slice(0, 2));
         for (const extension of ['.cconb', '.ccon']) {
             try {
@@ -243,7 +249,11 @@ export async function handleRuntimePreviewRequest(
     }
 
     if (pathname === '/scripting/import-map-global') {
-        return textResponse(200, JSON.stringify(createRuntimePreviewGlobalImportMap()), 'application/json; charset=utf-8');
+        return textResponse(
+            200,
+            JSON.stringify(createRuntimePreviewGlobalImportMap()),
+            'application/json; charset=utf-8',
+        );
     }
 
     const pluginScriptPath = getPluginScriptRequestPath(pathname);
@@ -268,10 +278,8 @@ export async function handleRuntimePreviewRequest(
     }
 
     const capturedRuntimeUrls = context.capturedRuntimeUrls?.map((entry) => entry.url);
-    const bundleConfigs = capturedRuntimeUrls ? undefined : (await context.settingsProvider.getPreviewSettings()).bundleConfigs;
     const libraryFile = await resolveLibraryRequest(context.runtimeContext, pathname, {
         allowedRequestPaths: capturedRuntimeUrls,
-        bundleConfigs,
     });
     if (libraryFile) {
         return serveOnDemandFile(libraryFile);

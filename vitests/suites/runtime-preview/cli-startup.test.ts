@@ -20,6 +20,7 @@ function canListen(port: number): Promise<boolean> {
 describe('runtime preview server startup', () => {
   it('starts, reports health and roots, serves settings, and releases the port', async () => {
     const paths = getFixturePaths();
+    const extensionLibraryRoot = join(paths.projectRoot, 'library', 'cli-extensions', 'view-state-group');
     const settingsProvider = new PreviewSettingsProvider({
       loadPreviewSettings: async () => ({
         settings: {
@@ -39,6 +40,9 @@ describe('runtime preview server startup', () => {
       projectRoot: paths.projectRoot,
       engineRoot: paths.engineRoot,
       projectLibraryRoot: paths.editorLibraryRef,
+      extensionLibraryRoots: [
+        { name: 'view-state-group', root: extensionLibraryRoot },
+      ],
       projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
       host: '127.0.0.1',
       port: 0,
@@ -49,9 +53,13 @@ describe('runtime preview server startup', () => {
       expect(server.context.startupStrategy).toBe('lazy');
       expect(server.context.preloadedLibraryFileCount).toBe(0);
       expect(server.context.preloadedProgrammingFileCount).toBe(0);
+      expect(server.context.extensionLibraryRoots).toEqual([
+        { name: 'view-state-group', root: extensionLibraryRoot },
+      ]);
       expect(server.startupLogLines).toContain(`projectRoot=${paths.projectRoot}`);
       expect(server.startupLogLines).toContain(`engineRoot=${paths.engineRoot}`);
       expect(server.startupLogLines).toContain(`projectLibraryRoot=${paths.editorLibraryRef}`);
+      expect(server.startupLogLines).toContain(`extensionLibraryRoots=view-state-group:${extensionLibraryRoot}`);
       expect(server.startupLogLines).toContain(`projectProgrammingRoot=${join(paths.editorProgrammingRef, 'programming')}`);
       expect(server.startupLogLines).toContain(`server:listening=${server.url}`);
       expect(server.logFilePath).toMatch(/runtime-preview-\d{8}-\d{6}\.log$/);
@@ -63,6 +71,9 @@ describe('runtime preview server startup', () => {
         ok: true,
         projectRoot: paths.projectRoot,
         engineRoot: paths.engineRoot,
+        extensionLibraryRoots: [
+          { name: 'view-state-group', root: extensionLibraryRoot },
+        ],
       });
 
       const settings = await fetch(`${server.url}/settings.js`);
@@ -73,6 +84,7 @@ describe('runtime preview server startup', () => {
       expect(logSource).toContain(`projectRoot=${paths.projectRoot}`);
       expect(logSource).toContain(`engineRoot=${paths.engineRoot}`);
       expect(logSource).toContain(`projectLibraryRoot=${paths.editorLibraryRef}`);
+      expect(logSource).toContain(`extensionLibraryRoots=view-state-group:${extensionLibraryRoot}`);
       expect(logSource).toContain(`projectProgrammingRoot=${join(paths.editorProgrammingRef, 'programming')}`);
       expect(logSource).toContain(`server:listening=${server.url}`);
       expect(logSource).toMatch(/settings:generation:done durationMs=\d+/);

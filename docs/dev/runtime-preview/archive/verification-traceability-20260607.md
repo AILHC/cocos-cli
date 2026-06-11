@@ -53,9 +53,9 @@
 
 **Files:**
 
-- Create: `docs/dev/runtime-preview-acceptance-matrix-20260607.md`
-- Reference: `docs/dev/runtime-preview-intent-boundaries-status-20260607.md`
-- Reference: `docs/dev/runtime-preview-cli-design-20260606.md`
+- Create: `docs/dev/runtime-preview/acceptance/matrix.md`
+- Reference: `docs/dev/runtime-preview/archive/intent-boundaries-status-20260607.md`
+- Reference: `docs/dev/runtime-preview/design/cli-runtime-preview.md`
 
 - [x] **Step 1: 写验收矩阵文档**
 
@@ -105,7 +105,7 @@
 Run:
 
 ```powershell
-rtk git add docs/dev/runtime-preview-acceptance-matrix-20260607.md
+rtk git add docs/dev/runtime-preview/acceptance/matrix.md
 rtk git commit -m "docs(runtime-preview): add acceptance matrix"
 ```
 
@@ -119,8 +119,8 @@ Expected:
 
 **Files:**
 
-- Create: `docs/dev/runtime-preview-change-traceability-20260607.md`
-- Reference: `docs/dev/runtime-preview-intent-boundaries-status-20260607.md`
+- Create: `docs/dev/runtime-preview/archive/change-traceability-20260607.md`
+- Reference: `docs/dev/runtime-preview/archive/intent-boundaries-status-20260607.md`
 - Reference: engine repo `D:\workspace\engines\cocos\3.8.6`
 - Reference: CLI repo `E:\own_space\engines\cocos-cli`
 
@@ -167,7 +167,7 @@ Expected:
 Run:
 
 ```powershell
-rtk git add docs/dev/runtime-preview-change-traceability-20260607.md
+rtk git add docs/dev/runtime-preview/archive/change-traceability-20260607.md
 rtk git commit -m "docs(runtime-preview): add cli engine traceability ledger"
 ```
 
@@ -238,7 +238,7 @@ Expected:
 Run:
 
 ```powershell
-rtk git add vitests docs/dev/runtime-preview-acceptance-matrix-20260607.md
+rtk git add vitests docs/dev/runtime-preview/acceptance/matrix.md
 rtk git commit -m "test(runtime-preview): stabilize full suite"
 ```
 
@@ -257,7 +257,7 @@ Expected:
 - Inspect: `src/core/engine/index.ts`
 - Inspect: `src/core/builder/index.ts`
 - Test: `vitests/suites/runtime-preview/editor-cli-output-consistency.test.ts`
-- Docs: `docs/dev/runtime-preview-acceptance-matrix-20260607.md`
+- Docs: `docs/dev/runtime-preview/acceptance/matrix.md`
 
 - [x] **Step 1: 运行当前 consistency 测试**
 
@@ -604,13 +604,13 @@ rtk git commit -m "feat(runtime-preview): add startup diagnostics"
 - Inspect: current engine source under `D:\workspace\engines\cocos\3.8.6`
 - Inspect: old editor preview source under `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\docs\dev\reference`
 - Inspect: backup implementation under `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606`
-- Create or modify: `docs/dev/runtime-preview-browser-entry-facts-20260607.md`
+- Create or modify: `docs/dev/runtime-preview/facts/browser-entry.md`
 - Test: `vitests/suites/runtime-preview/browser-entry-contract.test.ts`
 - Modify as needed: `src/runtime-preview/server/runtime-preview-routes.ts`
 
 - [x] **Step 1: 建立 browser entry fact ledger**
 
-Create `docs/dev/runtime-preview-browser-entry-facts-20260607.md` with this table:
+Create `docs/dev/runtime-preview/facts/browser-entry.md` with this table:
 
 ```markdown
 | Entry / route | Fact source | What it proves | What it does not prove | Status |
@@ -654,7 +654,7 @@ Root preview page / preview-app must not:
 
 Current evidence:
 
-- The boundary is documented in `runtime-preview-browser-entry-facts-20260607.md`.
+- The boundary is documented in `docs/dev/runtime-preview/facts/browser-entry.md`.
 - Future root page and CLI template glue can only consume current runtime facts; official Creator preview-app source may keep its browser preview bootstrap override, and server routes must support that fact without guessing library URLs.
 
 - [x] **Step 3: Define ready signal ownership**
@@ -689,7 +689,7 @@ Current evidence:
 Run:
 
 ```powershell
-rtk git add docs/dev/runtime-preview-browser-entry-facts-20260607.md vitests/suites/runtime-preview src/runtime-preview
+rtk git add docs/dev/runtime-preview/facts/browser-entry.md vitests/suites/runtime-preview src/runtime-preview
 rtk git commit -m "docs(runtime-preview): record browser entry facts"
 ```
 
@@ -861,7 +861,7 @@ Dispatch senior review focused on:
 Commit:
 
 ```powershell
-rtk git add src/runtime-preview/preview-app workflow/build-runtime-preview-app.js package.json tsconfig.json static/runtime-preview src/runtime-preview/server vitests/suites/runtime-preview/browser-entry-contract.test.ts docs/dev/runtime-preview-verification-traceability-plan-20260607.md
+rtk git add src/runtime-preview/preview-app workflow/build-runtime-preview-app.js package.json tsconfig.json static/runtime-preview src/runtime-preview/server vitests/suites/runtime-preview/browser-entry-contract.test.ts docs/dev/runtime-preview/archive/verification-traceability-20260607.md
 rtk git commit -m "feat(runtime-preview): add preview app browser entry"
 ```
 
@@ -886,7 +886,7 @@ Completed:
 - Modify or create: `src/runtime-preview/programming/resolve-programming-request.ts`
 - Modify or create: `src/runtime-preview/server/preview-scene-routes.ts`
 - Modify or create: `src/runtime-preview/server/preview-error-routes.ts`
-- Create: `docs/dev/runtime-preview-preview-app-route-inventory-20260608.md`
+- Create: `docs/dev/runtime-preview/archive/preview-app-route-inventory-20260608.md`
 - Test: `vitests/suites/runtime-preview/browser-entry-contract.test.ts`
 - Test: `vitests/suites/runtime-preview/preview-app-route-contract.test.ts`
 
@@ -900,7 +900,7 @@ After Task 8B migrates preview-app source and static template, inspect current s
 - `static/runtime-preview/script.ejs`
 - `static/runtime-preview/toolbar.ejs`
 
-Create `docs/dev/runtime-preview-preview-app-route-inventory-20260608.md` with:
+Create `docs/dev/runtime-preview/archive/preview-app-route-inventory-20260608.md` with:
 
 ```markdown
 | Route or request source | Source file | Required by production entry | Fact owner | Implementation status |
@@ -931,7 +931,7 @@ The route inventory is the source for Task 8C tests. Do not add a route only bec
 
 Current evidence:
 
-- `docs/dev/runtime-preview-preview-app-route-inventory-20260608.md` records routes requested by migrated `preview-app` source and `static/runtime-preview` template.
+- `docs/dev/runtime-preview/archive/preview-app-route-inventory-20260608.md` records routes requested by migrated `preview-app` source and `static/runtime-preview` template.
 - The inventory separates production-entry-required, source-owned, diagnostic-only, optional/deferred, and browser-smoke-only evidence.
 
 - [x] **Step 2: 写 route contract test**
@@ -1033,7 +1033,7 @@ Current evidence:
 Commit:
 
 ```powershell
-rtk git add src/runtime-preview vitests/suites/runtime-preview docs/dev/runtime-preview-verification-traceability-plan-20260607.md
+rtk git add src/runtime-preview vitests/suites/runtime-preview docs/dev/runtime-preview/archive/verification-traceability-20260607.md
 rtk git commit -m "feat(runtime-preview): serve preview app required routes"
 ```
 
@@ -1186,7 +1186,7 @@ Completion evidence (2026-06-08):
 
 **Files:**
 
-- Create: `docs/dev/runtime-preview-small-project-acceptance-20260607.md`
+- Create: `docs/dev/runtime-preview/acceptance/small-project-acceptance-20260607.md`
 - Create: `vitests/shared/runtime-preview-cli-process.ts`
 - Create: `vitests/suites/runtime-preview/small-project-cli-integration.test.ts`
 - Reuse: `vitests/shared/browser-runtime-smoke.ts` after Task 8D
@@ -1326,7 +1326,7 @@ Run:
 ```powershell
 rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_space/cocos_work_lab_38x'; `$env:COCOS_CLI_TEST_ENGINE_ROOT='D:/workspace/engines/cocos/3.8.6'; `$env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-library/cocos_work_lab_38x-editor-library-20260606'; `$env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-temp/cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview/small-project-cli-integration.test.ts"
 rtk powershell -NoProfile -Command "`$env:COCOS_CLI_TEST_PROJECT_ROOT='E:/own_space/cocos_work_lab_38x'; `$env:COCOS_CLI_TEST_ENGINE_ROOT='D:/workspace/engines/cocos/3.8.6'; `$env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-library/cocos_work_lab_38x-editor-library-20260606'; `$env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF='E:/own_space/engines/cocos-cli/.codex-tmp/reference-temp/cocos_work_lab_38x-editor-programming-20260606'; npm --prefix vitests test -- suites/runtime-preview"
-rtk git add docs/dev/runtime-preview-small-project-acceptance-20260607.md vitests/shared/runtime-preview-cli-process.ts vitests/suites/runtime-preview/small-project-cli-integration.test.ts
+rtk git add docs/dev/runtime-preview/acceptance/small-project-acceptance-20260607.md vitests/shared/runtime-preview-cli-process.ts vitests/suites/runtime-preview/small-project-cli-integration.test.ts
 rtk git commit -m "test(runtime-preview): add small project cli integration acceptance"
 ```
 
