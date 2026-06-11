@@ -31,7 +31,7 @@ const AnimationHandler: AssetHandler = {
     },
     importer: {
         // 版本号如果变更，则会强制重新导入
-        version: '2.0.4',
+        version: '2.0.3',
         versionCode: 2,
 
         /**
@@ -78,9 +78,9 @@ const AnimationHandler: AssetHandler = {
                 // Compute hash
                 void clip.hash;
 
-                const { extension, data } = serializeForLibrary(clip);
+                const { data } = serializeForLibrary(clip);
 
-                await asset.saveToLibrary(extension, data as any);
+                await asset.saveToLibrary('.cconb', data as any);
 
                 const depends = getDependUUIDList(fileContent);
                 asset.setData('depends', depends);

@@ -3,7 +3,7 @@ import { IBuildCommandOption, Platform } from './builder/@types/protected';
 import utils from './base/utils';
 import { newConsole } from './base/console';
 import { startServer, getServerUrl } from '../server';
-import { GlobalConfig, GlobalPaths } from '../global';
+import { GlobalConfig } from '../global';
 import scripting from './scripting';
 import { startupScene } from './scene';
 import { spawn } from 'child_process';
@@ -11,6 +11,7 @@ import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { pathToFileURL } from 'url';
 import { resolveProjectExtensionAssetDbMounts } from './assets/extension-asset-db-mounts';
+import { resolveLauncherEngineRoot, type LauncherEngineRootResolution } from './launcher-engine-root';
 
 interface RuntimePreviewStageDiagnostics {
     stageStart: (stage: string) => void;
@@ -24,9 +25,14 @@ type RuntimePreviewDiagnosticsGlobal = typeof globalThis & {
     };
 };
 
+function writeRuntimePreviewConsoleLine(line: string) {
+    const rawConsole = (console as typeof console & { __rawConsole?: typeof console }).__rawConsole;
+    (rawConsole ?? console).log(`[runtime-preview] ${line}`);
+}
+
 function resolveRuntimePreviewInternalLibraryRoot(projectPath: string, engineRoot: string): string {
     const projectInternalLibraryRoot = join(projectPath, 'library');
-    if (existsSync(join(projectInternalLibraryRoot, '.internal-data.json'))) {
+    if (existsSync(projectInternalLibraryRoot)) {
         return projectInternalLibraryRoot;
     }
     return join(engineRoot, 'editor', 'library');
@@ -131,6 +137,7 @@ export default class Launcher {
 
     private _init = false;
     private _import = false;
+    private _engineRootResolution?: LauncherEngineRootResolution;
 
     constructor(projectPath: string) {
         this.projectPath = projectPath;
@@ -139,13 +146,14 @@ export default class Launcher {
         newConsole.record();
     }
 
-    private getEngineRoot() {
-        const testEngineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT;
-        const testProjectRoot = process.env.COCOS_CLI_TEST_PROJECT_ROOT;
-        if (testEngineRoot && testProjectRoot && resolve(this.projectPath) === resolve(testProjectRoot)) {
-            return testEngineRoot;
+    private async resolveEngineRoot() {
+        if (!this._engineRootResolution) {
+            this._engineRootResolution = await resolveLauncherEngineRoot(this.projectPath);
+            if (this._engineRootResolution.source === 'global-fallback') {
+                console.warn(`[runtime-preview] engineRoot:global-fallback ${this._engineRootResolution.engineRoot}`);
+            }
         }
-        return GlobalPaths.enginePath;
+        return this._engineRootResolution;
     }
 
     private async init(options: { serverURL?: string; diagnostics?: RuntimePreviewStageDiagnostics } = {}) {
@@ -169,7 +177,7 @@ export default class Launcher {
         const { initEngine } = await import('./engine');
         options.diagnostics?.stageStart('engine:init');
         try {
-            await initEngine(this.getEngineRoot(), this.projectPath, options.serverURL);
+            await initEngine((await this.resolveEngineRoot()).engineRoot, this.projectPath, options.serverURL);
             options.diagnostics?.stageDone('engine:init');
         } catch (error) {
             options.diagnostics?.stageError('engine:init', error);
@@ -193,7 +201,7 @@ export default class Launcher {
         await this.init({ serverURL: options.serverURL, diagnostics: options.diagnostics });
         // 在导入资源之前，初始化 scripting 模块，才能正常导入编译脚本
         const { Engine } = await import('./engine');
-        await scripting.initialize(this.projectPath, this.getEngineRoot(), Engine.getConfig().includeModules);
+        await scripting.initialize(this.projectPath, (await this.resolveEngineRoot()).engineRoot, Engine.getConfig().includeModules);
 
         const { createProgrammingFacet } = await import('./scripting/programming/FacetInstance');
         await createProgrammingFacet(Engine.getInfo().typescript.path, scripting.projectPath, Engine.getConfig().includeModules);
@@ -233,7 +241,7 @@ export default class Launcher {
         await initBuilder();
 
         // 启动场景进程，需要在 Builder 之后，因为服务器路由场景还没有做前缀约束匹配范围比较广
-        await startupScene(this.getEngineRoot(), this.projectPath);
+        await startupScene((await this.resolveEngineRoot()).engineRoot, this.projectPath);
     }
 
     async startPreview(port?: number) {
@@ -267,6 +275,7 @@ export default class Launcher {
         host?: string;
         scene?: string;
         settingsTimeoutMs?: number;
+        clearProgrammingCache?: boolean;
     } = {}) {
         const {
             getDefaultProjectProgrammingRoot,
@@ -282,7 +291,9 @@ export default class Launcher {
             ? join(process.env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF, 'programming')
             : getDefaultProjectProgrammingRoot(this.projectPath);
         const cliProgrammingRoot = getDefaultProjectProgrammingRoot(this.projectPath);
-        const engineRoot = this.getEngineRoot();
+        const engineRootResolution = await this.resolveEngineRoot();
+        const engineRoot = engineRootResolution.engineRoot;
+        const engineRootSource = engineRootResolution.source;
         const internalLibraryRoot = resolveRuntimePreviewInternalLibraryRoot(this.projectPath, engineRoot);
         let serverUrl = '';
         let writeRuntimePreviewLog: ((line: string) => void) | null = null;
@@ -298,7 +309,7 @@ export default class Launcher {
             } else if (line.startsWith('asset-db:script-compile:done')) {
                 assetDbScriptCompileDoneLine = line;
             }
-            console.log(`[runtime-preview] ${line}`);
+            writeRuntimePreviewConsoleLine(line);
             writeRuntimePreviewLog?.(line);
         };
         runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics = {
@@ -335,7 +346,7 @@ export default class Launcher {
                     await this.import({
                         serverURL: engineServerUrl,
                         diagnostics,
-                        clearRuntimePreviewProgrammingCache: true,
+                        clearRuntimePreviewProgrammingCache: options.clearProgrammingCache === true,
                     });
                     const { init: initBuilder } = await import('./builder');
                     diagnostics.stageStart('builder:init');
@@ -395,6 +406,7 @@ export default class Launcher {
         const server = await startRuntimePreviewServer({
             projectRoot: this.projectPath,
             engineRoot,
+            engineRootSource,
             projectLibraryRoot,
             extensionLibraryRoots,
             projectProgrammingRoot,
@@ -412,16 +424,17 @@ export default class Launcher {
             });
         };
 
-        server.startupLogLines.forEach((line) => console.log(`[runtime-preview] ${line}`));
+        server.startupLogLines.forEach(writeRuntimePreviewConsoleLine);
         emitRuntimePreviewSummary({
             url: server.url,
+            engineRoot,
+            engineRootSource,
             libraryRoot: projectLibraryRoot,
             extensionLibraryRoots: extensionLibraryRoots.map((entry) => `${entry.name}:${entry.root}`).join(';'),
             programmingRoot: projectProgrammingRoot,
             internalLibraryRoot,
             logFilePath: server.logFilePath,
         });
-        emitRuntimePreviewEvent(`server:listening ${server.url}`);
         if (options.scene) {
             emitRuntimePreviewEvent(`scene=${options.scene}`);
         }

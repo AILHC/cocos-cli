@@ -99,7 +99,7 @@ class AssetConfig {
             target: join(enginePath, 'editor/assets'),
             readonly: true,
             visible: true,
-            library: join(enginePath, 'editor/library'),
+            library: join(this._assetConfig.root, 'library'),
         }];
 
         for (const mount of resolveProjectExtensionAssetDbMounts(this._assetConfig.root)) {

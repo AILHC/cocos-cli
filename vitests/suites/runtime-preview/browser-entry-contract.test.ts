@@ -7,6 +7,7 @@ import { getFixturePaths } from '@shared/fixture-paths';
 import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-preview-context';
 import { handleRuntimePreviewRequest } from '@runtime-preview/server/runtime-preview-routes';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
+import type { RuntimePreviewHttpResponse } from '@runtime-preview/server/serve-on-demand-file';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, '../../..');
@@ -80,17 +81,26 @@ function createRouteContext() {
   return { runtimeContext, settingsProvider };
 }
 
+async function responseBodyText(response: RuntimePreviewHttpResponse): Promise<string> {
+  if (response.kind === 'file') {
+    return readFile(response.absolutePath, 'utf8');
+  }
+  return String(response.body);
+}
+
 describe('runtime preview browser entry contract', () => {
   it('serves the production root page and preview-app entry script', async () => {
     const routeContext = createRouteContext();
 
     const rootResponse = await handleRuntimePreviewRequest(routeContext, '/');
+    expect(rootResponse.kind).toBe('body');
     expect(rootResponse.statusCode).toBe(200);
     expect(rootResponse.headers['content-type']).toBe('text/html; charset=utf-8');
-    expect(String(rootResponse.body)).toContain('/settings.js');
-    expect(String(rootResponse.body)).toContain('System.import("/preview-app/index.js")');
+    expect(await responseBodyText(rootResponse)).toContain('/settings.js');
+    expect(await responseBodyText(rootResponse)).toContain('System.import("/preview-app/index.js")');
 
     const previewAppResponse = await handleRuntimePreviewRequest(routeContext, '/preview-app/index.js');
+    expect(previewAppResponse.kind).toBe('file');
     expect(previewAppResponse.statusCode).toBe(200);
     expect(previewAppResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
   });
@@ -99,9 +109,10 @@ describe('runtime preview browser entry contract', () => {
     const routeContext = createRouteContext();
 
     const settingsResponse = await handleRuntimePreviewRequest(routeContext, '/settings.js');
+    expect(settingsResponse.kind).toBe('body');
     expect(settingsResponse.statusCode).toBe(200);
     expect(settingsResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
-    expect(String(settingsResponse.body)).toContain('window._CCSettings = ');
+    expect(await responseBodyText(settingsResponse)).toContain('window._CCSettings = ');
   });
 
   it('rejects encoded backslash traversal from runtime preview static subdirectories', async () => {

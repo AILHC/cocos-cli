@@ -1,10 +1,23 @@
 import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { captureJsonAssetHttpRuntimeUrls } from '@shared/http-url-capture';
 import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-preview-context';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import { handleRuntimePreviewRequest } from '@runtime-preview/server/runtime-preview-routes';
+import type { RuntimePreviewHttpResponse } from '@runtime-preview/server/serve-on-demand-file';
+
+async function responseBodyText(response: RuntimePreviewHttpResponse): Promise<string> {
+  if (response.kind === 'file') {
+    return readFile(response.absolutePath, 'utf8');
+  }
+  return String(response.body);
+}
+
+async function responseBodyJson<T = any>(response: RuntimePreviewHttpResponse): Promise<T> {
+  return JSON.parse(await responseBodyText(response)) as T;
+}
 
 describe('runtime preview HTTP route contract', () => {
   it('serves settings, bundle config, captured import URL, query-extname, and scripts on demand', async () => {
@@ -61,22 +74,26 @@ describe('runtime preview HTTP route contract', () => {
     expect(capturedQueryExtname?.probe).toBe('http-base');
 
     const settingsResponse = await handleRuntimePreviewRequest(routeContext, '/settings.js');
+    expect(settingsResponse.kind).toBe('body');
     expect(settingsResponse.statusCode).toBe(200);
     expect(settingsResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
-    expect(String(settingsResponse.body)).toContain('window._CCSettings = ');
+    expect(await responseBodyText(settingsResponse)).toContain('window._CCSettings = ');
 
     const configResponse = await handleRuntimePreviewRequest(routeContext, '/assets/resources/config.json');
+    expect(configResponse.kind).toBe('body');
     expect(configResponse.statusCode).toBe(200);
-    expect(JSON.parse(String(configResponse.body)).name).toBe('resources');
+    expect((await responseBodyJson(configResponse)).name).toBe('resources');
 
     const indexResponse = await handleRuntimePreviewRequest(routeContext, '/assets/resources/index.js');
+    expect(indexResponse.kind).toBe('body');
     expect(indexResponse.statusCode).toBe(200);
     expect(indexResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
-    expect(String(indexResponse.body)).toContain('Runtime preview dummy bundle index for resources');
+    expect(await responseBodyText(indexResponse)).toContain('Runtime preview dummy bundle index for resources');
 
     const importResponse = await handleRuntimePreviewRequest(routeContext, capturedImport!.url);
+    expect(importResponse.kind).toBe('file');
     expect(importResponse.statusCode).toBe(200);
-    expect(JSON.parse(String(importResponse.body)).__type__).toBe('cc.JsonAsset');
+    expect((await responseBodyJson(importResponse)).__type__).toBe('cc.JsonAsset');
 
     const uncapturedNativeResponse = await handleRuntimePreviewRequest(
       routeContext,
@@ -91,36 +108,40 @@ describe('runtime preview HTTP route contract', () => {
     expect(uncapturedRemoteImportResponse.statusCode).toBe(404);
 
     const queryExtnameResponse = await handleRuntimePreviewRequest(routeContext, capturedQueryExtname!.url);
+    expect(queryExtnameResponse.kind).toBe('body');
     expect(queryExtnameResponse.statusCode).toBe(200);
-    expect(String(queryExtnameResponse.body)).toBe('');
+    expect(await responseBodyText(queryExtnameResponse)).toBe('');
 
     const cconbExtnameResponse = await handleRuntimePreviewRequest(
       routeContext,
       '/query-extname/8c76e1e2-a206-4662-aa79-42c0c858d647',
     );
     expect(cconbExtnameResponse.statusCode).toBe(200);
-    expect(String(cconbExtnameResponse.body)).toBe('.cconb');
+    expect(await responseBodyText(cconbExtnameResponse)).toBe('.cconb');
 
     const scriptResponse = await handleRuntimePreviewRequest(
       routeContext,
       '/scripting/x/packer-driver/targets/preview/import-map.json',
     );
+    expect(scriptResponse.kind).toBe('file');
     expect(scriptResponse.statusCode).toBe(200);
-    expect(JSON.parse(String(scriptResponse.body)).imports).toBeTruthy();
+    expect((await responseBodyJson(scriptResponse)).imports).toBeTruthy();
 
     const systemJsResponse = await handleRuntimePreviewRequest(routeContext, '/scripting/systemjs/system.js');
+    expect(systemJsResponse.kind).toBe('file');
     expect(systemJsResponse.statusCode).toBe(200);
     expect(systemJsResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
-    expect(String(systemJsResponse.body)).toContain('System');
+    expect(await responseBodyText(systemJsResponse)).toContain('System');
 
     const macroResponse = await handleRuntimePreviewRequest(routeContext, '/scripting/userland/macro');
     expect(macroResponse.statusCode).toBe(200);
     expect(macroResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
 
     const importMapGlobalResponse = await handleRuntimePreviewRequest(routeContext, '/scripting/import-map-global');
+    expect(importMapGlobalResponse.kind).toBe('body');
     expect(importMapGlobalResponse.statusCode).toBe(200);
     expect(importMapGlobalResponse.headers['content-type']).toBe('application/json; charset=utf-8');
-    const globalImportMap = JSON.parse(String(importMapGlobalResponse.body));
+    const globalImportMap = await responseBodyJson(importMapGlobalResponse);
     expect(globalImportMap.imports.cc).toBe('q-bundled:///virtual/cc.js');
     expect(globalImportMap.imports['cc/env']).toBe('cc/editor/populate-internal-constants');
     expect(globalImportMap.imports['cc/userland/macro']).toBe('./userland/macro');
@@ -129,9 +150,10 @@ describe('runtime preview HTTP route contract', () => {
       routeContext,
       '/plugins/test_cases/test_active_event_proccer/test_active_event_proccer.js',
     );
+    expect(pluginResponse.kind).toBe('file');
     expect(pluginResponse.statusCode).toBe(200);
     expect(pluginResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
-    expect(String(pluginResponse.body)).toContain('System.register');
+    expect(await responseBodyText(pluginResponse)).toContain('System.register');
 
     const relativePluginSettingsProvider = new PreviewSettingsProvider({
       loadPreviewSettings: async () => ({
@@ -147,7 +169,7 @@ describe('runtime preview HTTP route contract', () => {
       '/plugins/test_cases/test_active_event_proccer/test_active_event_proccer.js',
     );
     expect(relativePluginResponse.statusCode).toBe(200);
-    expect(String(relativePluginResponse.body)).toContain('System.register');
+    expect(await responseBodyText(relativePluginResponse)).toContain('System.register');
 
     const nonJavaScriptPluginSettingsProvider = new PreviewSettingsProvider({
       loadPreviewSettings: async () => ({
@@ -178,7 +200,7 @@ describe('runtime preview HTTP route contract', () => {
 
     const missingResponse = await handleRuntimePreviewRequest(routeContext, '/not-a-runtime-route');
     expect(missingResponse.statusCode).toBe(404);
-    expect(String(missingResponse.body)).toContain('No runtime preview route handled');
+    expect(await responseBodyText(missingResponse)).toContain('No runtime preview route handled');
     expect(runtimeContext.preloadedLibraryFileCount).toBe(0);
     expect(runtimeContext.preloadedProgrammingFileCount).toBe(0);
   }, 120_000);
@@ -206,7 +228,8 @@ describe('runtime preview HTTP route contract', () => {
     };
 
     const response = await handleRuntimePreviewRequest(routeContext, capturedImport!.url);
+    expect(response.kind).toBe('file');
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(String(response.body)).__type__).toBe('cc.JsonAsset');
+    expect((await responseBodyJson(response)).__type__).toBe('cc.JsonAsset');
   }, 120_000);
 });

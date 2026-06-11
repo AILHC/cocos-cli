@@ -6,6 +6,7 @@ export interface RuntimePreviewExtensionLibraryRoot {
 export interface RuntimePreviewContextOptions {
     projectRoot: string;
     engineRoot: string;
+    engineRootSource?: string;
     scene?: string;
     projectLibraryRoot: string;
     extensionLibraryRoots?: RuntimePreviewExtensionLibraryRoot[];

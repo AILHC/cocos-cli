@@ -90,6 +90,8 @@ describe('asset import config sync', () => {
         expect(runtime.assetConfig.data.globList).toEqual(['!**/*.tmp', '!**/*.bak']);
         expect(runtime.assetConfig.data.restoreAssetDBFromCache).toBe(true);
         expect(runtime.assetConfig.data.createTemplateRoot).toBe(join(TestGlobalEnv.projectRoot, customTemplateRoot));
+        expect(runtime.assetConfig.data.assetDBList.find((assetDB) => assetDB.name === 'internal')?.library)
+            .toBe(join(TestGlobalEnv.projectRoot, 'library'));
         expect((runtime.assetDBManager as any).constructor.useCache).toBe(true);
         expect(runtime.assetDBManager.assetDBInfo.assets.globList).toEqual(['!**/*.tmp', '!**/*.bak']);
     });

@@ -16,6 +16,7 @@ export class PreviewCommand extends BaseCommand {
             .option('--runtime', 'Start the runtime preview server without opening a browser')
             .option('--scene <uuid>', 'Start scene uuid for runtime preview diagnostics')
             .option('--settings-timeout-ms <number>', 'Runtime preview settings generation timeout in milliseconds')
+            .option('--clear-programming-cache', 'Clear runtime preview programming cache before startup script sync')
             .action(async (options: any) => {
                 try {
                     const resolvedPath = this.validateProjectPath(options.project);
@@ -42,6 +43,7 @@ export class PreviewCommand extends BaseCommand {
                             host: options.host,
                             scene: options.scene,
                             settingsTimeoutMs,
+                            clearProgrammingCache: options.clearProgrammingCache === true,
                         });
                     } else {
                         await launcher.startPreview(port);

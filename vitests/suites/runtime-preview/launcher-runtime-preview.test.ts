@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { captureJsonAssetHttpRuntimeUrls, captureRepresentativeHttpRuntimeUrls } from '@shared/http-url-capture';
@@ -13,6 +14,69 @@ const execFileAsync = promisify(execFile);
 const diagnosticSceneUuid = '5d1de01c-5229-4d34-bde3-2c90372f88d9';
 
 describe('runtime preview production asset routes', () => {
+  it('resolves project package enginePath through Launcher without test env overrides', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-launcher-project-config-'));
+    const configuredEngineRoot = 'D:/workspace/engines/cocos/3.8.6';
+    await writeFile(join(projectRoot, 'package.json'), JSON.stringify({
+      name: 'runtime-preview-project-config-fixture',
+      type: '3d',
+      version: '3.8.6',
+      uuid: '00000000-0000-4000-8000-000000000002',
+      creator: {
+        version: '3.8.6',
+      },
+      'cocos-cli': {
+        enginePath: configuredEngineRoot,
+      },
+    }, null, 2));
+
+    const repoRoot = join(process.cwd(), '..');
+    const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
+    const code = `
+      import Launcher from './src/core/launcher.ts';
+
+      void (async () => {
+        const launcher = new Launcher(process.env.RUNTIME_PREVIEW_PROJECT_CONFIG_ROOT);
+        const result = await launcher.resolveEngineRoot();
+        process.stdout.write('RESULT ' + JSON.stringify(result) + '\\n');
+      })().catch((error) => {
+        process.stderr.write(String(error && (error.stack || error.message || error)) + '\\n');
+        process.exit(1);
+      });
+    `;
+
+    let stdout = '';
+    try {
+      ({ stdout } = await execFileAsync(process.execPath, [tsxCli, '-e', code], {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          RUNTIME_PREVIEW_PROJECT_CONFIG_ROOT: projectRoot,
+          COCOS_CLI_TEST_PROJECT_ROOT: '',
+          COCOS_CLI_TEST_ENGINE_ROOT: '',
+          COCOS_CLI_TEST_EDITOR_LIBRARY_REF: '',
+          COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF: '',
+        },
+        timeout: 30_000,
+      }));
+    } catch (error: any) {
+      throw new Error([
+        error?.message,
+        'stdout:',
+        error?.stdout ?? '',
+        'stderr:',
+        error?.stderr ?? '',
+      ].join('\n'));
+    }
+
+    const resultLine = stdout.trim().split(/\r?\n/).find((line) => line.startsWith('RESULT '));
+    expect(resultLine).toBeTruthy();
+    expect(JSON.parse(resultLine!.slice('RESULT '.length))).toEqual({
+      engineRoot: resolve(configuredEngineRoot),
+      source: 'project-config',
+    });
+  });
+
   it('serves an engine-captured asset import URL without test-only capturedRuntimeUrls', async () => {
     const paths = getFixturePaths();
     const capturedUrls = await captureJsonAssetHttpRuntimeUrls();
@@ -61,6 +125,7 @@ describe('runtime preview production asset routes', () => {
 
       const nativeResponse = await fetch(`${server.url}${capturedImport!.url.replace('/import/', '/native/')}`);
       expect(nativeResponse.status).toBe(200);
+      await nativeResponse.arrayBuffer();
 
       const unconfiguredImportResponse = await fetch(
         `${server.url}${capturedImport!.url.replace(
@@ -69,6 +134,7 @@ describe('runtime preview production asset routes', () => {
         )}`,
       );
       expect(unconfiguredImportResponse.status).toBe(404);
+      await unconfiguredImportResponse.text();
 
       expect(server.context.preloadedLibraryFileCount).toBe(0);
       expect(server.context.preloadedProgrammingFileCount).toBe(0);
@@ -130,6 +196,7 @@ describe('runtime preview production asset routes', () => {
       const response = await fetch(`${server.url}${capturedNative!.url}`);
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toContain('image/png');
+      await response.arrayBuffer();
 
       const unconfiguredExistingNativeRelativePath = '08/0868af97-c788-44fb-a472-5b6e27a05f81.png';
       expect(existsSync(join(paths.editorLibraryRef, unconfiguredExistingNativeRelativePath))).toBe(true);
@@ -137,11 +204,13 @@ describe('runtime preview production asset routes', () => {
         `${server.url}/assets/resources/native/${unconfiguredExistingNativeRelativePath}`,
       );
       expect(unconfiguredExistingNativeResponse.status).toBe(200);
+      await unconfiguredExistingNativeResponse.arrayBuffer();
 
       const configuredUuidWrongNativeExtensionResponse = await fetch(
         `${server.url}${capturedNative!.url.replace(/\.(?:png|jpg|jpeg)$/, '.json')}`,
       );
       expect(configuredUuidWrongNativeExtensionResponse.status).toBe(200);
+      await configuredUuidWrongNativeExtensionResponse.text();
     } finally {
       await server.close();
     }
@@ -233,11 +302,11 @@ describe('runtime preview production asset routes', () => {
     expect(stdout.indexOf('[runtime-preview] engine:init:start')).toBeLessThan(stdout.indexOf('AFTER_START'));
     expect(stdout.indexOf('[runtime-preview] preview:ready')).toBeLessThan(stdout.indexOf('AFTER_START'));
     expect(stdout).toContain('[runtime-preview] server:listening ');
+    expect(stdout.match(/\[runtime-preview\] server:listening/g) ?? []).toHaveLength(1);
+    expect(stdout).toContain('[runtime-preview]   engineRootSource: test-env');
     expect(stdout).toContain('[runtime-preview] preview:preparing');
     expect(stdout).toContain('[runtime-preview] engine:init:start');
     expect(stdout).toContain('[runtime-preview] engine:init:done');
-    expect(stdout).toContain('[runtime-preview] programming:cache-clear:start');
-    expect(stdout).toContain('[runtime-preview] programming:cache-clear:done');
     expect(stdout).toContain('[runtime-preview] asset-db:start');
     expect(stdout).toContain('[runtime-preview] asset-db:script-compile:done');
     expect(stdout).toContain('[runtime-preview] asset-db:done');
@@ -245,9 +314,10 @@ describe('runtime preview production asset routes', () => {
     expect(stdout).toContain('[runtime-preview] builder:init:done');
     expect(stdout).toContain('[runtime-preview] programming:prerequisite-scope');
     expect(stdout).toContain('[runtime-preview] preview:ready');
-    expect(stdout.indexOf('[runtime-preview] programming:cache-clear:start')).toBeLessThan(stdout.indexOf('[runtime-preview] asset-db:start'));
     expect(stdout.indexOf('[runtime-preview] asset-db:script-compile:done')).toBeLessThan(stdout.indexOf('[runtime-preview] preview:ready'));
     expect(stdout).not.toContain('[runtime-preview] asset-db:script-compile:error');
+    expect(stdout).not.toContain('[runtime-preview] programming:cache-clear:start');
+    expect(stdout).not.toContain('[runtime-preview] programming:cache-clear:done');
     const result = JSON.parse(resultLine!.slice('RESULT '.length)) as {
       serverUrl: string;
       healthStatus: number;
@@ -288,8 +358,6 @@ describe('runtime preview production asset routes', () => {
     expect(logSource).toContain('preview:preparing');
     expect(logSource).toContain('engine:init:start');
     expect(logSource).toContain('engine:init:done');
-    expect(logSource).toContain('programming:cache-clear:start');
-    expect(logSource).toContain('programming:cache-clear:done');
     expect(logSource).toContain('asset-db:start');
     expect(logSource).toContain('asset-db:script-compile:done');
     expect(logSource).toContain('asset-db:done');
@@ -298,6 +366,66 @@ describe('runtime preview production asset routes', () => {
     expect(logSource).toContain('programming:prerequisite-scope');
     expect(logSource).toContain('preview:ready');
     expect(logSource).not.toContain('asset-db:script-compile:error');
+    expect(logSource).not.toContain('programming:cache-clear:start');
+    expect(logSource).not.toContain('programming:cache-clear:done');
+  }, 120_000);
+
+  it('clears runtime preview programming cache only when explicitly requested', async () => {
+    const paths = getFixturePaths();
+    const repoRoot = join(process.cwd(), '..');
+    const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
+    const code = `
+      import Launcher from './src/core/launcher.ts';
+
+      void (async () => {
+        const launcher = new Launcher(process.env.COCOS_CLI_TEST_PROJECT_ROOT);
+        const server = await launcher.startRuntimePreview({
+          host: '127.0.0.1',
+          port: 0,
+          scene: '${diagnosticSceneUuid}',
+          settingsTimeoutMs: 120_000,
+          clearProgrammingCache: true,
+        });
+
+        try {
+          process.stdout.write('RESULT ' + JSON.stringify({
+            serverUrl: server.url,
+            logFilePath: server.logFilePath,
+          }) + '\\n');
+        } finally {
+          await server.close();
+        }
+      })().catch((error) => {
+        process.stderr.write(String(error && (error.stack || error.message || error)) + '\\n');
+        process.exit(1);
+      });
+    `;
+
+    const { stdout } = await execFileAsync(process.execPath, [tsxCli, '-e', code], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        COCOS_CLI_TEST_PROJECT_ROOT: paths.projectRoot,
+        COCOS_CLI_TEST_ENGINE_ROOT: paths.engineRoot,
+      },
+      timeout: 120_000,
+    });
+    const resultLine = stdout.trim().split(/\r?\n/).find((line) => line.startsWith('RESULT '));
+    expect(resultLine).toBeTruthy();
+    expect(stdout).toContain('[runtime-preview] programming:cache-clear:start');
+    expect(stdout).toContain('[runtime-preview] programming:cache-clear:done');
+    expect(stdout.indexOf('[runtime-preview] programming:cache-clear:start')).toBeLessThan(stdout.indexOf('[runtime-preview] asset-db:start'));
+    expect(stdout).toContain('[runtime-preview] preview:ready');
+
+    const result = JSON.parse(resultLine!.slice('RESULT '.length)) as {
+      serverUrl: string;
+      logFilePath: string;
+    };
+    expect(result.serverUrl).toContain('http://');
+    const logSource = await readFile(result.logFilePath, 'utf8');
+    expect(logSource).toContain('programming:cache-clear:start');
+    expect(logSource).toContain('programming:cache-clear:done');
+    expect(logSource).toContain('preview:ready');
   }, 120_000);
 
   it('reports runtime preview script compile errors without blocking preview ready', async () => {
