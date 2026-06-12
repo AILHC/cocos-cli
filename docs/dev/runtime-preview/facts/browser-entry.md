@@ -2,7 +2,7 @@
 
 记录时间：2026-06-08
 
-本文只冻结 browser entry 事实，不设计新的 URL mapping。当前结论是：Creator 3.8.6 `preview-app` 源码和备份分支中的 CLI adapted static template 已经接入当前 CLI，root `/` 和 `/preview-app/*` 已成为 production browser entry。真实 browser smoke 仍不能声明完成，因为 preview-app required routes、ready signal 和稳定观察窗口尚未闭环。
+本文只冻结 browser entry 事实，不设计新的 URL mapping。当前结论是：Creator 3.8.6 `preview-app` 源码和备份分支中的 CLI adapted static template 已经接入当前 CLI，root `/` 和 `/preview-app/*` 已成为 production browser entry。`browser-runtime-smoke.test.ts` 已有 production root ready signal 局部证据；小项目真实 CLI child process 集成仍未通过，不能把 browser smoke 泛化为 runtime preview 全量完成。
 
 ## Fact Ledger
 
@@ -21,7 +21,7 @@
 | 备份分支 `runtime-preview-template.ts` | `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\src\runtime-preview\runtime-preview-template.ts` | 之前 CLI 适配尝试过项目 `preview-template/index.ejs`、static runtime-preview index、`settings.js` render data。它证明业务意图和旧尝试边界。 | 不作为当前 route 或 URL mapping 权威；其中错误实现不能被复制为事实。 | `backup-intent-reference` |
 | 备份分支 `preview-app-resolver.ts` / browser contract tests | `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\src\runtime-preview\preview-app-resolver.ts`、`E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\src\runtime-preview\test\runtime-preview-browser-contract.test.ts` | 之前实现尝试过 preview-app resolver、DOM/browser contract 和 `System.import("/preview-app/index.js")` 启动形态。 | 不证明当前 CLI 已有可用 preview-app build output；不证明该 contract 与 current engine/runtime facts 匹配。 | `backup-intent-reference` |
 | Engine/runtime consumed facts | `D:\workspace\engines\cocos\3.8.6\cocos\asset\asset-manager\*.ts`、`docs/dev/runtime-preview/facts/architecture.md` | Browser page 必须消费 `/settings.js`、bundle config、scripting routes，并让 engine runtime 根据 settings/config 生成 import/native/pack/redirect URL。 | 不允许 CLI server/template glue 自行重写 `assets.importBase`、`assets.nativeBase`、bundle config、internal route 或 captured runtime URL。 | `active-runtime-facts` |
-| `window.__RUNTIME_PREVIEW_READY` | 当前 CLI `src/runtime-preview/**`、备份/旧实现检索 | 当前 production source 没有该 ready signal contract。 | 不证明可以用 network idle、固定 sleep 或打开瞬间无错误替代 ready signal。 | `missing-contract` |
+| `window.__RUNTIME_PREVIEW_READY` | `src/runtime-preview/preview-app/src/main.ts`、`vitests/shared/browser-runtime-smoke.ts`、`vitests/suites/runtime-preview/browser-runtime-smoke.test.ts` | 当前 production preview-app 会在 runtime smoke 目标路径设置 ready signal；2026-06-12 focused run 中 `browser-runtime-smoke.test.ts` 通过。 | 不证明小项目真实 CLI child process 集成已通过；不证明 feature-c strict E2E 可以用该小项目 smoke 替代。 | `active-production-contract` |
 | Diagnostic browser route | 当前 CLI `src/runtime-preview/**` | 当前没有显式 diagnostic route，例如 `/__runtime-preview/browser-smoke`。 | 未来若加入 diagnostic route，它只能证明 browser host/network/route subset，不能替代 production root preview completion。 | `not-implemented` |
 
 ## Root Page / Preview-App Boundary
@@ -51,8 +51,8 @@ Root page / CLI template glue must not:
 | `test-injection` | Browser test injects it only after verifying required HTTP/runtime facts. | Supports early browser host/network validation only; matrix status stays `partial`。 |
 | `diagnostic-harness` | Dedicated diagnostic route sets it for a bounded route subset. | Supports diagnostic smoke only; cannot be documented as root preview. |
 
-当前状态是 `missing-contract`。因此 Task 8D 真实 browser smoke 必须等 Task 8C 按 preview-app/template 实际请求确认 required routes 后再继续。
+当前状态是 `active-production-contract`。`browser-runtime-smoke.test.ts` 可证明 production root 的局部 browser ready 和稳定观察窗口；小项目真实 CLI child process 集成、feature-c strict E2E 和其它 route 触发范围仍必须分别验收，不能互相替代。
 
 ## Current Decision
 
-当前不直接实现 browser smoke。下一步不是二选一，也不是新造 diagnostic page；必须先按 Task 8C 建立 preview-app/template route inventory，并按事实补齐 required routes。diagnostic route 如果后续需要，只能作为独立诊断入口，不能替代 production preview。
+当前不新增 diagnostic browser route。下一步不是新造 diagnostic page，而是继续把 browser smoke、small-project CLI integration 和 feature-c strict E2E 分开记录：局部 browser smoke 通过不等于真实 CLI child process 集成通过；diagnostic route 如果后续需要，只能作为独立诊断入口，不能替代 production preview。

@@ -399,7 +399,7 @@ Frozen editor `temp/programming`：
 - `src/core/engine/index.ts` 在 Windows absolute path 下使用 `import(join(enginePath, 'package.json'))` 会失败；已改为 `fs-extra.readJSON(join(enginePath, 'package.json'))`，避免 ESM/source runner 与 compiled CommonJS 的行为差异。`settings-generation.test.ts` 通过真实 `tsx` child process 验证 `Engine.init(D:\workspace\engines\cocos\3.8.6)` 能读取真实 package version。
 - `src/core/launcher.ts` 已将 test engine root 选择收敛为 `getEngineRoot()`，用于 `initEngine()`、`scripting.initialize()`、`startupScene()` 和 `startRuntimePreview()` 的 runtime context；只有同时设置 `COCOS_CLI_TEST_ENGINE_ROOT`、`COCOS_CLI_TEST_PROJECT_ROOT` 且当前 `Launcher.projectPath` 匹配 test project root 时才覆盖 `GlobalPaths.enginePath`，避免测试前半段初始化到错误 engine root，同时降低 env 泄漏影响普通 production 命令的风险。
 - 真实 `Launcher.startRuntimePreview()` 已推进到 engine preload 阶段，但当前 engine root 只有 `bin/.cache/dev-cli/web/loader.js`，缺少 `bin/.cache/dev-cli/editor/loader.js`，`cc-module` 的 `EngineLoader.createEngineLoader()` 因此无法加载 `editor/loader`。
-- 按当前计划约束，生成或修改 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor/**` 属于修改 engine root 产物，执行前需要用户确认。确认前不能把真实 `getPreviewSettings()` E2E 或真实 `Launcher.startRuntimePreview()` 声明为完成。
+- 历史 blocker：当时 `D:\workspace\engines\cocos\3.8.6\bin\.cache\dev-cli\editor/**` 缺失，生成或修改 engine generated cache 前需要用户确认。该条是历史诊断记录，不覆盖下面的当前边界规则。
 - 已验证：`npm --prefix vitests test -- suites/runtime-preview/editor-cli-output-consistency.test.ts suites/runtime-preview/settings-generation.test.ts` 通过；该通过结果包含明确 blocker 诊断，不等于 Step 1/2 真实闭环已完成。
 
 2026-06-07 Task 15 Step 7 诊断结果：
@@ -416,7 +416,9 @@ Frozen editor `temp/programming`：
 - Request-time resolver 只能处理 engine/runtime 已发出的请求：normalize request、查 route fact source、按有限候选 path 检查存在性、返回文件或诊断。
 - `/query-extname/<uuid>` 只回答 import payload extension，不参与 import/native 语义判断。
 - `resources.load` / HTTP contract 失败时，先排查 test harness、host boundary、runtime context、settings、resolver、CLI output shape；确认是 3.8.6 engine source 兼容缺口后，按计划中的 Engine source 适配规则小步修复。
-- 当前阶段允许修改 `D:\workspace\engines\cocos\3.8.6` 适配 runtime preview，不再逐项等待确认。参考顺序为 current engine source -> `E:\own_space\tmp-repos\runtime-preview-reference\engine-backup-current-20260606` -> `E:\own_space\engines\cocos4`，最终必须回到 3.8.6 验证。禁止手工复制/伪造 generated loader 或把 generated cache 当成 source patch。
+- 当前阶段允许修改 `D:\workspace\engines\cocos\3.8.6` 的 engine source 以适配 runtime preview，不再对每个 source patch 逐项等待确认。参考顺序为 current engine source -> `E:\own_space\tmp-repos\runtime-preview-reference\engine-backup-current-20260606` -> `E:\own_space\engines\cocos4`，最终必须回到 3.8.6 验证。
+- 禁止手工复制、伪造或直接编辑 generated cache / generated output 来伪造通过，例如 `bin/.cache/dev-cli/**`、`library/**`、`temp/**`。只有通过 engine / CLI 正常 build 或 import 链路生成的 cache 才能作为验证结果存在。
+- 专项验证如果必须临时改 generated cache / generated output，必须在执行前单独确认，并在 facts / plan 中记录路径、原因、回滚方式和不作为 production 默认策略的边界。
 
 ### 2026-06-11 当前裁决摘要
 
@@ -424,7 +426,7 @@ Frozen editor `temp/programming`：
 - `/assets/<namespace>/(import|native)/<tail>` 中的 `<namespace>` 是 HTTP namespace / bundle config 语义，不是 physical library directory。server 只取 `<tail>` 到显式 roots 下做 direct file lookup。
 - `preview-app` 在 `cc.game.init()` 后、scene JSON load 前导入 Cocos packer-driver 生成的 `cce:/internal/x/prerequisite-imports`。这不是 scene dependency preloading，也不直接枚举 import 所有 scope chunks。
 - 2026-06-11 复盘：将 `@tbmp/mp-cloud-sdk` 设计成 `--script-stub` / 默认 known stub 是错误决策。正确机制是恢复 packer-driver / QuickPack resolver 层的 CommonJS bare specifier fallback：只对 `moduleType === 'commonjs'` 且 `isBareSpecifier(specifier) === true` 的 resolver 失败生成 `data:` meta module，并写入 `resolution-detail-map.json`。
-- runtime preview 不维护 package allow-list，不提供 `--script-stub`，不修改项目 `script.importMap`、`assets/**/*.meta`、`library` 产物或正常 build 配置。
+- runtime preview 不维护 package allow-list，不提供 `--script-stub`，不修改项目 `script.importMap` 或正常 build 配置。CLI / AssetDB importer 可以写回 source `.meta`，但写回结果必须与 Editor 3.8.6 保持一致；不能用 runtime preview 专用逻辑写出偏离 Editor 的 `.meta`。
 - `asset-db:script-compile:error` 在 runtime preview startup 中是 report-only；Launcher 输出 `asset-db:script-compile:report-only source=asset-db:script-compile:error` 后继续进入 `preview:ready` / browser diagnostics。strict acceptance 仍由 browser evidence 判定。
 - 2026-06-11 最新 `feature-c` strict gate 显示 core route / script / scene-ready 主链路通过 strict acceptance：`readyTimedOut=false`，`pageErrors=0`，`failedRequests=0`，`badResponses=0`，`previewLogBrowserErrors=0`，`console.error=0`。
 - `settings.engine.builtinAssets` 必须包含 internal physics default material `ba21476f-2866-4f81-9c4d-6e359316e448`。该资源由 `builtinResMgr.get('default-physics-material')` 消费，不能只加入 `main` / `start-scene` launch bundle；否则 browser 会报 `[Physics] PhysicsSystem initDefaultMaterial() Failed to load builtinMaterial.`。
