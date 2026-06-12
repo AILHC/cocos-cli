@@ -15,13 +15,14 @@
 
 ## 必读顺序
 
-1. [facts/architecture.md](facts/architecture.md)：当前事实、已否定假设和 2026-06-11 裁决。
-2. [design/core-flow.md](design/core-flow.md)：核心流程目标、边界、route 规则、script loading 和 strict acceptance。
-3. [plans/core-flow-implementation-20260610.md](plans/core-flow-implementation-20260610.md)：本轮执行计划和执行记录。
-4. [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)：production engine root 解析退化和启动日志重复的修复计划。
-5. [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)：项目级 internal library 事实、缓存干扰和最小修复边界。
-6. [acceptance/matrix.md](acceptance/matrix.md)：当前验收矩阵。
-7. [acceptance/feedback-20260609.md](acceptance/feedback-20260609.md)：用户反馈、诊断 evidence 和未闭环问题。
+1. [issues.md](issues.md)：当前反馈问题、状态、事实入口、计划入口和验收入口。
+2. [acceptance/matrix.md](acceptance/matrix.md)：当前验收矩阵。
+3. [facts/architecture.md](facts/architecture.md)：当前事实、已否定假设和 2026-06-11 裁决。
+4. [design/core-flow.md](design/core-flow.md)：核心流程目标、边界、route 规则、script loading 和 strict acceptance。注意：该文件当前存在编码损坏，读取时必须和 `issues.md`、`facts/`、`plans/` 中的最新裁决交叉确认。
+5. [plans/core-flow-implementation-20260610.md](plans/core-flow-implementation-20260610.md)：本轮执行计划和执行记录。
+6. [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)：production engine root 解析退化和启动日志重复的修复计划。
+7. [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)：项目级 internal library 事实、缓存干扰和最小修复边界。
+8. [acceptance/feedback-20260609.md](acceptance/feedback-20260609.md)：历史反馈闭环长文；新问题状态以 [issues.md](issues.md) 为索引。
 
 ## 模块说明
 
@@ -33,6 +34,15 @@
 | `acceptance/` | 验收矩阵、验收反馈和 evidence 摘要。 |
 | `handoff/` | 交接记录和新会话启动信息。 |
 | `archive/` | 历史审查、旧边界、旧执行计划和专项记录；不代表当前裁决，除非当前事实文档显式引用。 |
+
+## 记录规范
+
+- 反馈问题、待修事项和后续专项必须先进入 [issues.md](issues.md)，并分配 `RP-ISSUE-xxx`。
+- `facts/` 只记录源码、真实产物、日志、可重复验证结果和由这些事实推出的裁决。
+- `plans/` 只记录执行方案、执行记录、验证命令和阶段性 implementation notes；计划完成后必须回填 [issues.md](issues.md)。
+- `acceptance/matrix.md` 只记录验收项、通过条件、证据和状态；不要把长篇问题历史写进 matrix。
+- `acceptance/feedback-20260609.md` 保留历史反馈闭环细节；新增反馈不再直接追加到该文件，除非需要扩展原有验收证据。
+- `archive/` 是历史参考，不作为当前实现依据；只有被 [issues.md](issues.md) 或 `facts/` 显式引用时才参与当前判断。
 
 ## 当前核心规则
 
