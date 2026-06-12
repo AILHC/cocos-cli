@@ -1,250 +1,255 @@
-﻿# Runtime Preview 鏍稿績娴佺▼璁捐鑽夋
+# Runtime Preview 核心流程设计
 
-璁板綍鏃堕棿锛?026-06-10
+记录时间：2026-06-10
+编码修复：2026-06-12
 
-鏈枃鍙畾涔夋湰杞€滆鏍稿績棰勮娴佺▼璺戦€氣€濈殑璁捐銆佽竟鐣屻€佹祴璇曞拰楠屾敹鏍囧噯銆傛湰鏂囦笉澶勭悊 `assets/**/*.meta` 鍐欏叆鍓綔鐢紱璇ラ棶棰樹繚鐣欏湪宸叉湁鍙嶉鏂囨。涓紝鍚庣画鍗曠嫭澶勭悊銆?
-## 鐩爣
+本文定义 production `preview --runtime` 核心预览流程的目标、边界、route 规则、script loading、ready 语义、测试策略和 strict acceptance。本文不处理 `assets/**/*.meta` 默认写入副作用；该问题记录在 [issues.md](../issues.md) 的 `RP-ISSUE-008`。
 
-璁╃湡瀹?production preview entry 璺戦€氾細
+## 目标
+
+让真实 production preview entry 跑通：
 
 ```bat
 node E:\own_space\engines\cocos-cli\dist\cli.js preview --runtime --project D:\ps_copy\p6\trunk\Project\GameClient\feature-c --host 127.0.0.1 --port 19530
 ```
 
-娴忚鍣ㄦ墦寮€锛?
+浏览器打开：
+
 ```text
 http://127.0.0.1:19530/?scene=4c721bfe-0b6e-46c2-97f0-644adfdcba31
 ```
 
-蹇呴』瀹屾垚锛?
-1. server 鍚姩骞惰緭鍑?`server:listening`銆?2. CLI 榛樿 preview settings warm-up 瀹屾垚骞惰緭鍑?`preview:ready`銆?3. browser production root page 鍚姩 preview-app銆?4. current Cocos preview bootstrap 鎸夌幇鏈?import-map / loader 娴佺▼鍔犺浇鑴氭湰锛涙湰杞笉鏂板 scene script dependency preloading銆?5. scene 鍔犺浇瀹屾垚骞舵墽琛?`runSceneImmediate()`銆?6. 椤甸潰璁剧疆 `window.__RUNTIME_PREVIEW_READY`銆?7. ready 鍚庣ǔ瀹氳瀵熺獥鍙ｅ唴娌℃湁鍚屾簮璧勬簮璇锋眰澶辫触銆乸age error銆乽nhandled rejection 鎴?`console.error`銆?
-## 闈炵洰鏍?
-- 鏈疆涓嶅鐞?`assets/**/*.meta` 鏄惁琚?AssetDB/importer 鏀瑰啓銆?- 鏈疆涓嶄慨鏀?`preview-app` 鐨?`assets/general/import`銆乣assets/general/native` bootstrap 琛屼负銆?- 鏈疆涓嶉€氳繃纭紪鐮?feature-c UUID銆乻cene UUID 鎴栧叿浣撴姤閿?URL 淇闂銆?- 鏈疆涓嶅仛鍚姩鏃堕€掑綊鎵弿 `library`銆乣temp`銆乣assets` 鎴?generated output銆?- 鏈疆涓嶆妸鏃?editor preview server 鐨?route 瀹炵幇澶嶅埗涓烘潈濞侀€昏緫銆?
-## 宸茬‘璁や簨瀹?
-### preview-app general base 鏄簮鐮佷簨瀹?
-褰撳墠 preview-app 鍦ㄦ祻瑙堝櫒鍚姩鏃惰缃細
+必须完成：
+
+1. server 启动并输出 `server:listening`。
+2. CLI 默认 preview settings warm-up 完成并输出 `preview:ready`。
+3. browser production root page 启动 preview-app。
+4. current Cocos preview bootstrap 按现有 import-map / loader 流程加载脚本；本轮不新增 scene script dependency preloading。
+5. scene 加载完成并执行 `runSceneImmediate()`。
+6. 页面设置 `window.__RUNTIME_PREVIEW_READY`。
+7. ready 后稳定观察窗口内没有同源资源请求失败、page error、unhandled rejection 或 `console.error`。
+
+## 非目标
+
+- 本轮不处理 `assets/**/*.meta` 是否被 AssetDB / importer 改写。
+- 本轮不修改 `preview-app` 的 `assets/general/import`、`assets/general/native` bootstrap 行为。
+- 本轮不通过硬编码 feature-c UUID、scene UUID 或具体报错 URL 修复问题。
+- 本轮不做启动时递归扫描 `library`、`temp`、`assets` 或 generated output。
+- 本轮不把旧 editor preview server 的 route 实现复制为当前权威逻辑。
+- 本轮不把测试环境污染、旧路径、旧 `engineRoot`、旧 `projectRoot` 或旧 resolver record 残留变成 production 默认策略。
+
+## 已确认事实
+
+### preview-app general base 是源码事实
+
+当前 preview-app 在浏览器启动时设置：
 
 ```ts
 option.overrideSettings.assets.importBase = 'assets/general/import';
 option.overrideSettings.assets.nativeBase = 'assets/general/native';
 ```
 
-澶囦唤鐨?preview-app source 涓篃瀛樺湪鍚屾牱閫昏緫銆傚洜姝ゆ湰杞繀椤绘寜璇ヨ涓鸿璁?server route銆備笉鑳藉垹闄よ繖娈碉紝涔熶笉鑳芥敼涓虹洿鎺ヤ娇鐢?`settings.assets.importBase/nativeBase`銆?
-### URL namespace 涓嶇瓑浜?library 鐗╃悊鐩綍
+备份 preview-app source 中也存在同样逻辑。因此本轮必须按该行为设计 server route。不能删除这段，也不能改为直接使用 `settings.assets.importBase/nativeBase`。
 
-`docs/dev/runtime-preview/facts/architecture.md` 宸茶褰曪細褰撳墠 CLI project library root 鏄?`<project>/library/cli`锛岃祫婧愭枃浠舵槸 uuid/hash bucket layout锛沞ngine runtime 鐢熸垚鐨?`/assets/<namespace>/(import|native)/<tail>` 涓紝`<namespace>` 鏄?HTTP URL namespace / bundle config 璇箟锛屼笉鏄?`library/cli` 涓嬬殑鐩綍銆?
-鍥犳鏈璁″彧鎶?`<tail>` 浣滀负 library 鐩稿璺緞銆俙import` / `native` 鏄?engine 宸茬敓鎴愮殑 HTTP route segment锛屼笉鏄?physical directory锛屼篃涓嶅弬涓庢嫾鎺?disk path锛?
+### URL namespace 不等于 library 物理目录
+
+[../facts/architecture.md](../facts/architecture.md) 已记录：当前 CLI project library root 是 `<project>/library/cli`，资源文件是 uuid/hash bucket layout。engine runtime 生成的 `/assets/<namespace>/(import|native)/<tail>` 中，`<namespace>` 是 HTTP URL namespace / bundle config 语义，不是 `library/cli` 下的目录。
+
+因此本设计只把 `<tail>` 作为 library 相对路径。`import` / `native` 是 engine 已生成的 HTTP route segment，不是 physical directory，也不参与拼接 disk path。
+
 ```text
 /assets/general/import/20/<uuid>@<version>.json
 => resolve(context.projectLibraryRoot, '20/<uuid>@<version>.json')
 ```
 
-涓嶅厑璁告槧灏勪负锛?
+禁止映射为：
+
 ```text
 resolve(context.projectLibraryRoot, 'general/import/20/<uuid>@<version>.json')
 resolve(context.projectLibraryRoot, 'product/import/20/<uuid>@<version>.json')
 resolve(context.projectLibraryRoot, 'resources/import/20/<uuid>@<version>.json')
 ```
 
-### resolver 涓嶆嫢鏈?project library 榛樿璺緞瑙勫垯
+### resolver 不拥有 project library 默认路径规则
 
-`LibraryRequestResolver` 鍙鐞嗗凡缁忎紶鍏?`RuntimePreviewContext` 鐨?root銆傚畠涓嶅厑璁歌嚜琛岃拷鍔狅細
+`LibraryRequestResolver` 只处理已经传入 `RuntimePreviewContext` 的 roots。它不能自行追加或猜测：
 
 ```text
 <projectRoot>/library/cli
 <projectRoot>/library
 ```
 
-濡傛灉 production 闇€瑕佷娇鐢?`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\library\cli`锛屽垯鍚姩閾捐矾蹇呴』鍦ㄥ垱寤?`RuntimePreviewContext` 鍓嶈В鏋愬ソ锛屽苟浣滀负 `context.projectLibraryRoot` 浼犲叆銆?
-extension library 鍚岀悊銆傚惎鍔ㄩ摼璺繀椤绘牴鎹?AssetDB mount 瑙ｆ瀽鍑?extension output root锛屽苟鏄惧紡浼犲叆 context锛屼緥濡傦細
+如果 production 需要使用 `D:\ps_copy\p6\trunk\Project\GameClient\feature-c\library\cli`，启动链路必须在创建 `RuntimePreviewContext` 前解析好，并作为 `context.projectLibraryRoot` 传入。
+
+extension library 同理。启动链路必须根据 AssetDB mount 解析出 extension output root，并显式传入 context，例如：
 
 ```ts
 extensionLibraryRoots: Array<{ name: string; root: string }>
 ```
 
-`LibraryRequestResolver` 涓嶈兘鑷鎷兼帴 `<projectRoot>/library/cli-extensions/<name>`銆?
-### ready 蹇呴』鎷嗗垎
+`LibraryRequestResolver` 不能自行拼接 `<projectRoot>/library/cli-extensions/<name>`。
 
-| 鍚嶇О | 瑙﹀彂浣嶇疆 | 璇佹槑鍐呭 | 涓嶈瘉鏄?|
+### ready 必须拆分
+
+| 名称 | 触发位置 | 证明内容 | 不证明 |
 | --- | --- | --- | --- |
-| `server:listening` | HTTP server listen 鎴愬姛 | socket 宸茬洃鍚?| settings銆丄ssetDB銆乻cript銆乻cene 鍙敤 |
-| `preview:ready` | CLI 榛樿 settings warm-up 瀹屾垚 | 榛樿 preview settings 宸茬敓鎴?| 娴忚鍣?scene 宸插姞杞?|
-| `browser scene ready` | preview-app 璁剧疆 `window.__RUNTIME_PREVIEW_READY` | scene load callback 宸叉墽琛岋紝`runSceneImmediate()` 宸插洖璋?| ready 鍚庝笉浼氬啀鍑虹幇寮傛 runtime error |
+| `server:listening` | HTTP server listen 成功 | socket 已监听 | settings、AssetDB、script、scene 可用 |
+| `preview:ready` | CLI 默认 settings warm-up 完成 | 默认 preview settings 已生成，engine / AssetDB / builder 主链路已跑通 | 浏览器 scene 已加载 |
+| `browser scene ready` | preview-app 设置 `window.__RUNTIME_PREVIEW_READY` | scene load callback 已执行，`runSceneImmediate()` 已回调 | ready 后不会再出现异步 runtime error |
 
-绋冲畾瑙傚療绐楀彛浠?`browser scene ready` 鍚庡紑濮嬭鏃躲€?
-## Route 璁捐
+稳定观察窗口从 `browser scene ready` 后开始计时。
+
+### 编译错误不等于启动失败
+
+`asset-db:script-compile:error` 在 runtime preview startup 中是 report-only。Launcher 可以继续进入 `preview:ready`，但 strict acceptance 仍必须由 browser evidence 判定。
+
+CommonJS bare specifier resolver 失败由 packer-driver / QuickPack fallback 处理。runtime preview 不维护 package allow-list，不提供 `--script-stub`。
+
+### 缓存策略默认对齐 CLI
+
+runtime preview 默认遵循 CLI / PackerDriver / QuickPack 原有缓存与失效策略。开发机缓存污染、路径迁移、旧 `engineRoot`、旧 `projectRoot` 或旧 resolver record 残留只能通过显式参数或人工诊断处理，不能反向改变 production 默认策略。
+
+## Route 设计
 
 ### import/native library file route
 
-閫傜敤鑼冨洿锛?
+#### 输入
+
 ```text
 /assets/<namespace>/import/<tail>
 /assets/<namespace>/native/<tail>
 ```
 
-鍏朵腑 `<namespace>` 鍖呮嫭 `general`銆乣resources`銆乣product`銆乪xtension bundle name 鎴栧叾浠?engine runtime 瀹為檯鐢熸垚鐨?bundle namespace銆?
-`/assets/general/import/*` 涓?`/assets/general/native/*` 鏄?preview-app general asset base锛屼笉鏄?`resources` bundle 鐨勫埆鍚嶏紝涔熶笉鏄?`product` bundle 鐨勫埆鍚嶃€傞潪 `general` namespace 涔熷繀椤绘寜鍚屼竴 library file route 瑙勫垯澶勭悊锛屼笉鑳藉綊绫讳负鈥滄湰杞笉澶勭悊鈥濄€?
-#### 杈撳叆
+`<namespace>` 是 engine URL namespace。`<tail>` 是 engine 已生成的 library 相对路径。
 
-璇锋眰蹇呴』鍖归厤锛?
-```text
-/assets/<namespace>/import/<tail>
-/assets/<namespace>/native/<tail>
-```
+#### 二元判断规则
 
-绀轰緥锛?
-```text
-/assets/general/import/20/207a3957-d7e1-4fdb-8903-c63948195ada@f9941.json
-/assets/general/native/8c/8c1ebdc5-5bb8-48b2-a60f-e16fd6b0a624.manifest
-```
+1. URL path 必须匹配 `/assets/<namespace>/(import|native)/<tail>`。
+2. `<tail>` 允许为空；空 tail 只是一个请求事实，resolver 应按统一路径安全规则处理，而不是在设计层预先拒绝。
+3. resolver 只在 `context.projectLibraryRoot`、`context.extensionLibraryRoots[]`、`context.internalLibraryRoot` 中查找。
+4. 命中真实文件则返回 file response。
+5. 未命中真实文件则返回 404，并记录 diagnostic。
 
-#### 浜屽厓鍒ゆ柇瑙勫垯
+#### 禁止行为
 
-1. route 涓嶅尮閰?`/assets/<namespace>/(import|native)/*`锛氫笉鐢?library file route 澶勭悊銆?2. route 鍙湁 `/assets/<namespace>/import`銆乣/assets/<namespace>/import/`銆乣/assets/<namespace>/native` 鎴?`/assets/<namespace>/native/`锛氫笉杩涘叆 library file lookup銆傝 URL 涓嶅搴斿叿浣?library 鏂囦欢锛涘鏋?engine runtime 瀹為檯璇锋眰杩欑 base URL锛岃褰?unsupported route evidence 骞跺崌绾у垎鏋愶紝涓嶈兘鎶?library root 鐩綍浣滀负鍝嶅簲銆?3. 鍙粠 WHATWG `URL.pathname` 鎴彇 raw tail锛泀uery/hash 涓嶅弬涓?tail銆?4. 瀵?raw tail 鎵ц涓€娆?`decodeURIComponent`锛沝ecode 澶辫触鍒欐嫆缁濄€?5. decoded tail 鍖呭惈 `\`銆丯UL銆佺┖ path segment銆乣.`銆乣..`銆乄indows drive letter銆乁NC prefix 鎴?absolute path锛氭嫆缁濄€?6. 鍊欓€?root 鍙厑璁?context 鏄惧紡浼犲叆鐨?root锛?   - `context.projectLibraryRoot`
-   - `context.extensionLibraryRoots[].root`
-   - `context.internalLibraryRoot`
-7. 瀵规瘡涓潪绌?root 璁＄畻锛?
-```text
-rootAbs = resolve(root)
-candidate = resolve(rootAbs, tail)
-relative = path.relative(rootAbs, candidate)
-```
+- 禁止根据 URL namespace 推导物理目录。
+- 禁止在 resolver 内部扫描外部固定 root 列表。
+- 禁止启动时递归索引整个 `library` 或 `temp`。
+- 禁止用硬编码 bundle name、UUID、scene UUID 或报错 URL 补洞。
+- 禁止把不存在的资源伪造为空文件或成功响应。
 
-8. 濡傛灉 `relative === ''`銆乣relative.startsWith('..')` 鎴?`path.isAbsolute(relative)`锛氭嫆缁濊 candidate銆?9. 瀵?`candidate` 鎵ц涓€娆?`stat()`銆?10. 濡傛灉 `candidate` 鏄幇鏈夋枃浠讹細杩斿洖璇ユ枃浠躲€?11. 濡傛灉鎵€鏈?candidate 閮戒笉鏄幇鏈夋枃浠讹細杩斿洖 404銆?
-#### 绂佹琛屼负
+### 非 general bundle route
 
-- 绂佹鏍规嵁 UUID 鐚?bundle銆?- 绂佹鎶?`resources` 鏀瑰啓鎴?`product`銆?- 绂佹鎶?`<namespace>` 鎷艰繘 physical library path銆?- 绂佹淇敼鎵╁睍鍚嶃€?- 绂佹鏋氫妇 root 涓嬬殑鏂囦欢銆?- 绂佹閫掑綊鎵弿 root銆?- 绂佹鎸夌浉浼兼枃浠跺悕 fallback銆?- 绂佹鍥犱负 `.assets-data.json` 鎴?bundle config 娌℃湁 proof 灏辨嫆缁濊矾寰勫畨鍏ㄤ笖鐪熷疄瀛樺湪鐨?library file route 鏂囦欢銆?- 绂佹鍦?resolver 鍐呰拷鍔?`<projectRoot>/library/cli` 鎴?`<projectRoot>/library`銆?- 绂佹鍦?resolver 鍐呰拷鍔?`<projectRoot>/library/cli-extensions/<name>`銆?
-#### diagnostics
+对 `product`、`resources`、`internal`、extension bundle 等非 `general` namespace，处理规则和 `general` 相同：namespace 不参与 disk path 拼接，resolver 只消费 engine 已经生成的 `<tail>` 和 context 显式传入的 roots。
 
-`.assets-data.json`銆乣.internal-data.json`銆乪xtension metadata 鍜?`bundleConfigs` 鍙敤浜庢棩蹇楀拰璇佹嵁瑙ｉ噴锛屼笉浣滀负 library file route 杩斿洖鏂囦欢鐨勫繀瑕佹潯浠躲€?
-杩欓噷涓嶆槸鈥滄牴鎹?URL 鎵弿 root鈥濄€俇RL 宸茬敱 engine runtime 鐢熸垚锛宻erver 鍙妸 URL 涓殑 `<tail>` 浣滀负宸茬粡纭畾鐨?library 鐩稿璺緞锛屽湪宸茶В鏋愬ソ鐨?root 涓婂仛涓€娆?direct file lookup銆?
-鏃ュ織瀛楁搴旇嚦灏戝寘鍚細
+如果某个 bundle 的资源实际位于 extension library，则必须通过 `extensionLibraryRoots[]` 提供 root；如果某个 internal 资源实际位于项目级 `library`，则必须通过 `internalLibraryRoot` 指向项目级 `library`。
 
-```text
-requestPath
-artifactKind=import|native
-tail
-projectLibraryRoot
-extensionLibraryRoots
-internalLibraryRoot
-resolvedRoot
-resolvedFile
-metadataUrl
-metadataBundleGuess
-decision=served|rejected|not-found
-reason
-```
-
-`metadataBundleGuess` 鍙兘琛ㄧず璇婃柇鎺ㄦ柇锛屼緥濡?`db://assets/product/...` 鎺ㄦ柇鍑?source 浣嶄簬 `product` 鐩綍锛涗笉鑳介┍鍔?route 鏀瑰啓銆?
-### 闈?general bundle route
-
-闈?`general` bundle route 鏈疆蹇呴』澶勭悊锛岃鍒欏涓嬶細
-
-- `/assets/<bundle>/config.json`銆乣/assets/<bundle>/config.<version>.json`锛氱敱 bundle config provider 杩斿洖銆?- `/assets/<bundle>/index.js`銆乣/assets/<bundle>/index.<version>.js`锛氱敱 bundle index / script provider 杩斿洖銆?- `/assets/<bundle>/import/<tail>`锛氭寜 import/native library file route direct lookup銆?- `/assets/<bundle>/native/<tail>`锛氭寜 import/native library file route direct lookup銆?
-`<bundle>` 鍙綔涓?HTTP namespace銆佹棩蹇楀瓧娈靛拰 bundle config 鍏宠仈瀛楁锛屼笉鎷艰繘 physical library path銆?
-pack / redirect / nativeDep 涓嶇敱 server 鎵嬪啓杩戜技 URL銆傚彧瑕?engine runtime 鏍规嵁 bundle config 鎴?asset metadata 鍙戝嚭浜?`/assets/<namespace>/(import|native)/<tail>`锛宻erver 灏辨寜缁熶竴 library file route 鏈嶅姟銆傚鏋?feature-c E2E 瑙﹀彂 pack / redirect / nativeDep URL 涓斿け璐ワ紝璇ュけ璐ユ槸鏈疆 blocker銆?
 ## Script loading
 
-鏈疆涓嶅疄鐜?prerequisite script dependency preloading銆?
-鍏蜂綋瑁佸喅锛?
-1. 涓嶄富鍔ㄨ绠?scene 渚濊禆鍝簺 scripts銆?2. 涓嶅湪 preview server 鎴?preview-app 涓噸寤?Cocos script dependency graph銆?3. 涓嶆妸 `dependScripts` dynamic import 浣滀负 `cc.game.init()` 鎴?scene load 鐨勫墠缃畻娉曘€?4. 鑴氭湰鍔犺浇浜ょ粰 current Cocos preview bootstrap銆乮mport-map銆丼ystemJS / module loader 娴佺▼銆?5. `dependScripts`銆乣script2library`銆乣main-record`銆乣assembly-record` 鍜?`import-map` 鍙綔涓哄け璐ヨ瘖鏂瘉鎹紝涓嶄綔涓烘湰杞柊澧炲姞杞界畻娉曘€?
-楠屾敹涓嶉€氳繃鈥滆剼鏈鍔犺浇鎴愬姛鈥濊瘉鏄庢纭€э紝鑰岄€氳繃 browser runtime 鐨勫疄闄呯粨鏋滆瘉鏄庯細scene ready銆乶etwork error銆乸age error銆乽nhandled rejection 鍜?`console.error`銆?
-## Browser ready 璇箟
+runtime preview 不按 scene 计算脚本依赖，也不主动枚举加载所有 scope chunks。
 
-`window.__RUNTIME_PREVIEW_READY` 鍙兘鍦ㄤ互涓嬫潯浠跺叏閮ㄦ弧瓒冲悗璁剧疆锛?
-1. `/settings.js` 宸插姞杞藉苟琚?preview-app 娑堣垂銆?2. engine 鍜?SystemJS required routes 宸插姞杞姐€?3. current Cocos preview bootstrap 宸茶繘鍏?scene load 闃舵銆?4. 濡傛灉 URL 鎴?settings 鎸囧畾 scene锛宻cene load 鎴愬姛銆?5. `cc.director.runSceneImmediate()` 鐨?callback 宸叉墽琛屻€?
-ready payload 鑷冲皯鍖呭惈锛?
+preview-app 在 `cc.game.init()` 后只导入 Cocos packer-driver 生成的：
+
+```text
+cce:/internal/x/prerequisite-imports
+```
+
+该模块由 Cocos programming output / import-map / loader 负责展开。runtime preview 只负责提供 import-map、SystemJS、macro、chunks、project scripts、`script2library` 等 HTTP route。
+
+如果 generated prerequisite module 自身无法导入，说明 programming / import-map route 链路断裂，应 fail-fast。单个脚本内部的 platform-only dependency 恢复由 packer-driver / QuickPack resolver 层处理，runtime preview 不维护业务 package allow-list。
+
+## Browser ready 语义
+
+`window.__RUNTIME_PREVIEW_READY` 必须由 preview-app 在 scene load callback 和 `runSceneImmediate()` 后设置。ready payload 至少应包含：
+
 ```ts
 {
   scene: string;
-  timestamp: number;
+  elapsedMs: number;
 }
 ```
 
-濡傛灉褰撳墠瀹炵幇淇濈暀 `resources` marker 瀛楁锛屼篃鍙互缁х画甯︿笂锛屼絾涓嶈兘鐢?resource marker 鏇夸唬 scene ready銆?
-## 娴嬭瘯绛栫暐
+strict acceptance 不能只等待 DOM load、`server:listening` 或 `preview:ready`。这些信号都早于 scene runtime ready。
+
+## 测试策略
 
 ### 1. Resolver contract
 
-鏂板鎴栦慨鏀?Vitest锛岃鐩栦互涓嬩簩鍏冪敤渚嬶細
+覆盖：
 
-| Case | 杈撳叆 | 棰勬湡 |
-| --- | --- | --- |
-| general import existing file | `/assets/general/import/20/<uuid>@f9941.json` | 200 |
-| general native manifest existing file | `/assets/general/native/8c/<uuid>.manifest` | 200 |
-| general native bin existing file | `/assets/general/native/98/<uuid>.bin` | 200 |
-| non-general import existing file | `/assets/product/import/20/<uuid>@f9941.json` | 200 |
-| extension root existing file | `/assets/<extension-bundle>/import/aa/<uuid>.json` and file only exists in `context.extensionLibraryRoots[]` | 200 |
-| import base without tail | `/assets/general/import/` | 涓嶈繘鍏?library file lookup锛涗笉寰楄繑鍥?root 鐩綍 |
-| traversal | `/assets/general/import/../secret.json` | 400 鎴?404锛屼絾涓嶅緱璇绘枃浠?|
-| encoded traversal | `/assets/general/import/%2e%2e/secret.json` | 400 鎴?404锛屼絾涓嶅緱璇绘枃浠?|
-| missing file | 瀹夊叏 tail 浣嗘枃浠朵笉瀛樺湪 | 404 |
-| root not passed | `context.projectLibraryRoot` 涓虹┖涓?internal 鏈懡涓?| 404 |
+- namespace 不参与 disk path。
+- resolver 只使用 context roots。
+- project library、extension library、internal library 的明确 root。
+- missing file 返回 404。
+- 空 tail 走统一路径安全和文件命中规则。
 
-娴嬭瘯鏋勯€?`RuntimePreviewContext` 鏃跺繀椤绘樉寮忎紶鍏?`projectLibraryRoot` / `extensionLibraryRoots` / `internalLibraryRoot`锛屼笉鑳戒緷璧?resolver 鑷鎺ㄥ `<projectRoot>/library/cli` 鎴?`<projectRoot>/library/cli-extensions/<name>`銆?
 ### 2. Existing runtime-preview suite
 
-蹇呴』閫氳繃锛?
-```bat
-npm run build
-npm --prefix vitests test -- suites/runtime-preview
-```
+继续覆盖：
 
-璇ユ祴璇曠敤浜庤瘉鏄庡皬椤圭洰鍜屽凡鏈?HTTP / browser contract 娌℃湁鍥為€€銆?
+- `/settings.js` 来自 `PreviewSettingsProvider`。
+- `/scripting/*` route 服务真实 programming output。
+- `/assets/*/(import|native)/*` route 服务真实 library output。
+- `/preview-error` 记录 browser error。
+- `/__runtime-preview/health` 输出当前 roots 和 server 状态。
+- Express file response 的 `ETag` / `Last-Modified` / conditional `304`。
+
 ### 3. feature-c exact scene E2E
 
-鍚姩锛?
-```bat
-node E:\own_space\engines\cocos-cli\dist\cli.js preview --runtime --project D:\ps_copy\p6\trunk\Project\GameClient\feature-c --host 127.0.0.1 --port 19530
+验收 URL：
+
+```text
+http://127.0.0.1:19530/?scene=4c721bfe-0b6e-46c2-97f0-644adfdcba31
 ```
 
-鐩戝惉锛?
-```bat
-set COCOS_CLI_LISTEN_PREVIEW_URL=http://127.0.0.1:19530/?scene=4c721bfe-0b6e-46c2-97f0-644adfdcba31
-set COCOS_CLI_LISTEN_READY_TIMEOUT_MS=600000
-set COCOS_CLI_LISTEN_STABLE_WINDOW_MS=300000
-set COCOS_CLI_LISTEN_EVIDENCE=D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\runtime-preview-exact-scene-4c721bfe-browser-evidence.json
-npm --prefix E:\own_space\engines\cocos-cli\vitests run listen:preview-url
-```
+必须监听：
 
-濡傛灉闇€瑕侀噸鏂板惎鍔ㄥ苟鑷姩璇婃柇锛?
-```bat
-set COCOS_CLI_FEATURE_C_ENGINE_ROOT=D:/workspace/engines/cocos/3.8.6
-set COCOS_CLI_FEATURE_C_PROJECT_ROOT=D:/ps_copy/p6/trunk/Project/GameClient/feature-c
-set COCOS_CLI_FEATURE_C_SCENE=4c721bfe-0b6e-46c2-97f0-644adfdcba31
-set COCOS_CLI_FEATURE_C_STARTUP_TIMEOUT_MS=600000
-set COCOS_CLI_FEATURE_C_READY_TIMEOUT_MS=600000
-set COCOS_CLI_FEATURE_C_STABLE_WINDOW_MS=300000
-npm --prefix E:\own_space\engines\cocos-cli\vitests run diagnose:feature-c
-```
+- `pageerror`
+- `unhandledrejection`
+- `console.error`
+- same-origin failed request
+- same-origin HTTP >= 400 response
+- `/preview-error` 回传
 
-## 楠屾敹鏍囧噯
+ready 后继续观察稳定窗口。稳定窗口内任一 strict field 非空都判失败。
 
-### 蹇呴』閫氳繃
+## 验收标准
 
-1. `npm run build` 閫氳繃銆?2. `npm --prefix vitests test -- suites/runtime-preview` 閫氳繃銆?3. feature-c exact scene 鍑虹幇 `window.__RUNTIME_PREVIEW_READY`銆?4. ready payload 涓?`scene` 绛変簬鐩爣 scene uuid銆?5. ready 鍓嶆病鏈?`pageerror`銆乣unhandledrejection` 鎴栧悓婧愯祫婧?404/500銆?6. ready 鍚?300s 鍐咃細
-   - 鍚屾簮 `failedRequests.length === 0`
-   - 鍚屾簮 `badResponses.length === 0`
-   - `pageErrors.length === 0`
-   - `unhandledRejections.length === 0`
-7. ready 鍚?300s 鍐呮病鏈?`console.error`銆?8. server log 涓病鏈夛細
-   - `settings:generation:error`
-   - `route:error`
-   - `UnhandledPromiseRejection`
-   - `RuntimePreviewRequestBodyTooLarge`
-9. 涔嬪墠宸茬煡鐨?native 璇锋眰涓嶅啀 404锛?   - `/assets/general/native/8c/8c1ebdc5-5bb8-48b2-a60f-e16fd6b0a624.manifest`
-   - `/assets/general/native/98/9804400a-5e5d-4dc7-a564-33ef97537007.bin`
+### 必须通过
 
-### 鍙互鏆備笉闃绘柇锛屼絾蹇呴』璁板綍
+- `preview --runtime` 使用 production entry 启动。
+- stdout 输出 `server:listening`、`preview:preparing`、`preview:ready`。
+- `engineRoot` 来自项目配置或 CLI 初始化链路；测试环境只允许显式 test env override。
+- 浏览器设置 `window.__RUNTIME_PREVIEW_READY`。
+- strict evidence 中：
+  - `readyTimedOut=false`
+  - `pageErrors=0`
+  - `unhandledRejections=0`
+  - same-origin `failedRequests=0`
+  - same-origin `badResponses=0`
+  - `console.error=0`
 
-浠ヤ笅鎯呭喌濡傛灉鍑虹幇锛屼笉鐩存帴鍒ゆ湰杞け璐ワ紝浣嗗繀椤诲湪 evidence 鍜屾枃妗ｄ腑璁板綍鍘熷洜锛?
-- 闈炲悓婧愮涓夋柟璇锋眰澶辫触銆?- `console.warn`銆?
-鏈疆榛樿涓嶆斁琛?console / error 璇婃柇銆傝嫢蹇呴』鏀捐鏌愭潯璇婃柇锛屽繀椤诲湪 evidence 涓褰曚负 `acceptedDiagnostics[]`锛屾瘡鏉″寘鍚?`pattern`銆乣reason`銆乣source` 鍜屽悗缁鐞嗚褰曘€傝祫婧?route銆乻cene ready銆佸悓婧?404/500銆乣pageerror`銆乣unhandledrejection` 鍜?`console.error` 涓嶈繘鍏?accepted diagnostics銆?
-### 蹇呴』鍒ゅけ璐?
-- 娌℃湁 `browser scene ready`銆?- ready 鍓嶆垨 ready 鍚庡嚭鐜?`pageerror`銆乣unhandledrejection` 鎴?`console.error`銆?- ready 鍚庝粛鍑虹幇鍚屾簮璧勬簮 404/500銆?- route 閫氳繃纭紪鐮?UUID 鎴?scene 鐗瑰垽鎵嶉€氳繃銆?- resolver 渚濊禆 `<projectRoot>/library/cli` 鎴?`<projectRoot>/library` 杩欑鍐呴儴鎺ㄥ璺緞銆?- resolver 渚濊禆 `<projectRoot>/library/cli-extensions/<name>` 杩欑鍐呴儴鎺ㄥ璺緞銆?
-## 瀹炴柦椤哄簭
+### 可以暂不阻断，但必须记录
 
-1. 鍥哄寲 resolver contract test锛屽厛璁╁綋鍓嶅疄鐜版毚闇插け璐ャ€?2. 淇敼 `resolve-library-request.ts` 鐨?import/native library file route锛岀粺涓€鏀寔 `general` 涓庨潪 `general` namespace锛屽彧浣跨敤 context 鏄惧紡 root銆?3. 澧炲姞 route diagnostics 鏃ュ織銆?4. 鍚姩閾捐矾瑙ｆ瀽骞朵紶鍏?`extensionLibraryRoots`銆?5. 璺?`npm run build` 鍜?runtime-preview suite銆?6. 璺?feature-c exact scene E2E銆?7. 鎶?evidence 鎽樿鍥炲啓鍒?`docs/dev/runtime-preview/acceptance/feedback-20260609.md` 鎴栨柊鐨勯獙鏀惰褰曘€?
-## 褰撳墠寰呯‘璁ら」
+- `asset-db:script-compile:error`：report-only，不阻塞 `preview:ready`，但必须输出日志并进入 evidence。
+- 浏览器脚本加载性能：当前只记录，不做并发化修改。
+- `assets/**/*.meta` 默认改写：独立专项，不纳入本 strict gate。
+- `.cconb` 二进制与 Editor 不完全一致：独立后续观察。
 
-1. root 鏌ユ壘椤哄簭銆傚綋鍓嶆帹鑽愶細project first銆乪xtension roots second銆乮nternal third銆?2. ready 鍚庣ǔ瀹氳瀵熺獥鍙ｆ槸鍚︾淮鎸?300s銆傚畠涓嶆槸鑴氭湰鍔犺浇璇佹槑锛屽彧鏄?runtime 绋冲畾鎬ц瀵熴€?
+### 必须判失败
+
+- 浏览器没有到达 `window.__RUNTIME_PREVIEW_READY`。
+- ready 后出现 page error、unhandled rejection、同源 failed request、同源 bad response 或 `console.error`。
+- route 通过硬编码 UUID、scene、bundle name 或报错 URL 才能成功。
+- resolver 未使用 context root，而是自行扫描或推导外部路径。
+- production 默认清理 programming cache。
+
+## 当前结论
+
+截至 2026-06-12：
+
+- `feature-c` 核心流程 strict acceptance 已通过，记录见 [../issues.md](../issues.md) 的 `RP-ISSUE-001`。
+- `engineRoot` 解析、启动日志重复、默认清理 programming cache、script compile report-only、internal library root、Express file validator 已分别收口到对应 issue。
+- runtime preview 仍不能声明全量完成。未闭环项包括：source `.meta` 默认改写、编译性能指标、extension runtime trigger、pack / redirect / remote route trigger、小项目真实 CLI child process 集成验收。
+
+新增或更新相关问题时，先写入 [../issues.md](../issues.md)，再补 facts / plans / acceptance。

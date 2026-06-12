@@ -18,7 +18,7 @@
 1. [issues.md](issues.md)：当前反馈问题、状态、事实入口、计划入口和验收入口。
 2. [acceptance/matrix.md](acceptance/matrix.md)：当前验收矩阵。
 3. [facts/architecture.md](facts/architecture.md)：当前事实、已否定假设和 2026-06-11 裁决。
-4. [design/core-flow.md](design/core-flow.md)：核心流程目标、边界、route 规则、script loading 和 strict acceptance。注意：该文件当前存在编码损坏，读取时必须和 `issues.md`、`facts/`、`plans/` 中的最新裁决交叉确认。
+4. [design/core-flow.md](design/core-flow.md)：核心流程目标、边界、route 规则、script loading 和 strict acceptance。
 5. [plans/core-flow-implementation-20260610.md](plans/core-flow-implementation-20260610.md)：本轮执行计划和执行记录。
 6. [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)：production engine root 解析退化和启动日志重复的修复计划。
 7. [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)：项目级 internal library 事实、缓存干扰和最小修复边界。
