@@ -25,7 +25,7 @@ interface CachedBundleConfigDiagnostics {
   }>;
 }
 
-async function readSmallProjectCachedBundleConfigs(projectRoot: string): Promise<CachedBundleConfig[]> {
+async function readProjectCachedBundleConfigs(projectRoot: string): Promise<CachedBundleConfig[]> {
   const gameCachesRoot = join(projectRoot, 'temp', 'writablePath', 'gamecaches');
   if (!existsSync(gameCachesRoot)) {
     return [];
@@ -57,9 +57,9 @@ async function readSmallProjectCachedBundleConfigs(projectRoot: string): Promise
   return configs;
 }
 
-async function inspectSmallProjectCachedBundleConfigDiagnostics(projectRoot: string): Promise<CachedBundleConfigDiagnostics> {
+async function inspectProjectCachedBundleConfigDiagnostics(projectRoot: string): Promise<CachedBundleConfigDiagnostics> {
   const gameCachesRoot = join(projectRoot, 'temp', 'writablePath', 'gamecaches');
-  const configs = await readSmallProjectCachedBundleConfigs(projectRoot);
+  const configs = await readProjectCachedBundleConfigs(projectRoot);
   return {
     gameCachesRootExists: existsSync(gameCachesRoot),
     configSummaries: configs.map((config) => ({
@@ -129,7 +129,7 @@ describe('HTTP-base engine URL capture probe', () => {
     ]);
   });
 
-  it('documents that representative HTTP-base resource capture does not trigger the small-project extension asset-db domain', async () => {
+  it('documents that representative HTTP-base resource capture does not trigger the main test-project extension asset-db domain', async () => {
     const capturedRuntimeUrls = await captureRepresentativeHttpRuntimeUrls();
 
     expect(capturedRuntimeUrls.length).toBeGreaterThan(0);
@@ -137,9 +137,9 @@ describe('HTTP-base engine URL capture probe', () => {
     expect(capturedRuntimeUrls.some((entry) => entry.url.includes('cli-extensions'))).toBe(false);
   }, 120_000);
 
-  it('records non-authoritative small-project cached bundle config diagnostics when present', async () => {
+  it('records non-authoritative project cached bundle config diagnostics when present', async () => {
     const paths = getFixturePaths();
-    const diagnostics = await inspectSmallProjectCachedBundleConfigDiagnostics(paths.projectRoot);
+    const diagnostics = await inspectProjectCachedBundleConfigDiagnostics(paths.projectRoot);
 
     expect(typeof diagnostics.gameCachesRootExists).toBe('boolean');
     expect(Array.isArray(diagnostics.configSummaries)).toBe(true);

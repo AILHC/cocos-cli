@@ -44,6 +44,16 @@
 - `acceptance/feedback-20260609.md` 保留历史反馈闭环细节；新增反馈不再直接追加到该文件，除非需要扩展原有验收证据。
 - `archive/` 是历史参考，不作为当前实现依据；只有被 [issues.md](issues.md) 或 `facts/` 显式引用时才参与当前判断。
 
+## 测试项目规范
+
+- 主测试项目统一使用 `E:\own_space\engines\cocos-test-projects`。
+- 主要核心功能、基础流程、资源类型、AssetDB import、library 产物、runtime preview 基础能力，都优先在该项目上验证。
+- 主测试项目中的可控回归 fixture 可以覆盖从历史小项目和真实项目中抽取出的最小问题：例如 `extensions/ViewStateGroup` 用于 extension asset-db，`assets/cases/scripting/commonjs-bare-specifier` 用于 CommonJS bare specifier fallback。
+- `D:\ps_copy\p6\trunk\Project\GameClient\feature-c` 是真实项目复杂场景验证线，用于覆盖业务项目、复杂依赖、复杂脚本、真实配置和大项目集成问题。
+- `E:\own_space\cocos_work_lab_38x` 不再作为当前 runtime preview 主测试项目；历史文档中引用它的内容只作为历史 reference 或旧 fixture，不作为当前测试规范。
+- 新增测试、计划和验收文档必须明确所用项目属于 `主测试项目`、`真实项目复杂场景` 还是 `历史 reference/fixture`。
+- `facts/source-meta-editor-baseline-20260611.md` 记录了 `E:\own_space\engines\cocos-test-projects` 作为主测试项目时的分支、Editor baseline 副本、CLI 配置适配和可终止 import 流程经验；新增规范应抽取这些经验，不复制流水账。
+
 ## 当前核心规则
 
 - Library resolver 只消费 `RuntimePreviewContext` 显式传入的 roots：`projectLibraryRoot`、`extensionLibraryRoots[]`、`internalLibraryRoot`。
