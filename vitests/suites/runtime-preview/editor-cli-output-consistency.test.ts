@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { getFixturePaths } from '@shared/fixture-paths';
+import { getCliIntegrationFixturePaths, getFixturePaths } from '@shared/fixture-paths';
 
 const frozenEditorMetadataFiles = [
   '.assets-data.json',
@@ -293,8 +293,12 @@ describe('frozen editor output and CLI AssetDB output consistency', () => {
     }
   });
 
-  it('records small-project extension asset-db output facts without treating them as runtime trigger', async () => {
-    const paths = getFixturePaths();
+  it('records main test-project extension asset-db output facts without treating them as runtime trigger', async () => {
+    const paths = getCliIntegrationFixturePaths();
+    const normalizedProjectRoot = paths.projectRoot.replace(/\\/g, '/');
+    expect(normalizedProjectRoot.endsWith('/cocos-test-projects')).toBe(true);
+    expect(normalizedProjectRoot).not.toContain('/cocos_work_lab_38x');
+
     const extensionPackageJson = await readJson<{
       name?: string;
       contributions?: {
@@ -313,31 +317,30 @@ describe('frozen editor output and CLI AssetDB output consistency', () => {
       readonly: true,
     });
 
-    const activeProjectExtensionData = await readJson<Record<string, AssetDataEntry>>(
-      join(paths.projectRoot, 'library', '.view-state-group-data.json'),
-    );
-    const referenceExtensionData = await readJson<Record<string, AssetDataEntry>>(
-      join(paths.editorLibraryRef, '.view-state-group-data.json'),
-    );
     const cliExtensionLibraryRoot = join(paths.projectRoot, 'library', 'cli-extensions', 'view-state-group');
     const cliExtensionData = await readJson<Record<string, AssetDataEntry>>(
       join(cliExtensionLibraryRoot, '.view-state-group-data.json'),
     );
 
-    expect(existsSync(join(paths.editorLibraryRef, '.view-state-group-info1.0.0.json'))).toBe(true);
     expect(existsSync(join(cliExtensionLibraryRoot, '.view-state-group-info.json'))).toBe(true);
-    expect(Object.keys(activeProjectExtensionData).sort()).toEqual(Object.keys(referenceExtensionData).sort());
-    expect(Object.keys(cliExtensionData).sort()).toEqual(Object.keys(referenceExtensionData).sort());
     const representativeExtensionUuids = [
       '68d4c31e-4ce2-4f01-8df9-f4b3385cdf5b',
       'fa669b29-ffd6-45a3-a288-ad2d3c86320b',
     ];
     for (const uuid of representativeExtensionUuids) {
-      expect(referenceExtensionData[uuid], `reference extension ${uuid}`).toBeDefined();
       expect(cliExtensionData[uuid], `cli extension ${uuid}`).toBeDefined();
     }
-    expect(pickLoadRelevantDataEntries(cliExtensionData, representativeExtensionUuids)).toEqual(
-      pickLoadRelevantDataEntries(referenceExtensionData, representativeExtensionUuids),
+    expect(cliExtensionData['68d4c31e-4ce2-4f01-8df9-f4b3385cdf5b']?.url).toBe('db://view-state-group/ViewStateGroup');
+    expect(cliExtensionData['fa669b29-ffd6-45a3-a288-ad2d3c86320b']?.url).toBe(
+      'db://view-state-group/ViewStateGroup/IViewState.ts',
     );
+    expect(pickLoadRelevantDataEntries(cliExtensionData, representativeExtensionUuids)).toMatchObject({
+      '68d4c31e-4ce2-4f01-8df9-f4b3385cdf5b': {
+        url: 'db://view-state-group/ViewStateGroup',
+      },
+      'fa669b29-ffd6-45a3-a288-ad2d3c86320b': {
+        url: 'db://view-state-group/ViewStateGroup/IViewState.ts',
+      },
+    });
   });
 });

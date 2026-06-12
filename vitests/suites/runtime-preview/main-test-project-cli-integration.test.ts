@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { getFixturePaths } from '@shared/fixture-paths';
+import { getCliIntegrationFixturePaths } from '@shared/fixture-paths';
 import { runBrowserRuntimeSmoke } from '@shared/browser-runtime-smoke';
 import {
   canListen,
@@ -13,10 +13,10 @@ interface PreviewSceneRecord {
   url: string;
 }
 
-const complexSceneUuids = [
-  '668efa31-4841-4cbc-bbae-33255599d478',
-  '465d8fb0-d260-4256-a785-651bf2ebf7d1',
-  'ec470553-bc56-4c2c-91aa-c7016f677e3e',
+const mainProjectSceneUuids = [
+  'd3fc11bc-05dc-4e60-bc4f-f682fa74e8b6',
+  '4437972c-9b71-4af0-aae3-251f640ee42a',
+  'ac48432f-ab9a-4c4c-89f6-11053a95abe4',
 ];
 
 const serverLogFailurePatterns = [
@@ -28,10 +28,10 @@ const serverLogFailurePatterns = [
 ];
 
 function selectRequiredScenes(scenes: PreviewSceneRecord[]): PreviewSceneRecord[] {
-  return complexSceneUuids.map((uuid) => {
+  return mainProjectSceneUuids.map((uuid) => {
     const scene = scenes.find((entry) => entry.uuid === uuid);
     if (!scene) {
-      throw new Error(`fail-small-project-input: required scene is missing from /scene-list: ${uuid}`);
+      throw new Error(`fail-main-test-project-input: required scene is missing from /scene-list: ${uuid}`);
     }
     return scene;
   });
@@ -48,12 +48,15 @@ async function findAvailablePort(startPort: number, attempts: number): Promise<n
   throw new Error(`No available runtime preview test port in range ${startPort}-${startPort + attempts - 1}.`);
 }
 
-describe('runtime preview small-project CLI integration acceptance', () => {
-  it('starts the real CLI runtime preview server and loads three complex scenes without browser or server log errors', async () => {
-    const paths = getFixturePaths();
+describe('runtime preview main test-project CLI integration acceptance', () => {
+  it('starts the real CLI runtime preview server and loads three main test-project scenes without browser or server log errors', async () => {
+    const paths = getCliIntegrationFixturePaths();
     const repoRoot = join(process.cwd(), '..');
     const port = await findAvailablePort(19531, 50);
-    const evidenceSummaryFilePath = join(paths.projectRoot, 'temp', 'runtime-preview-small-project-cli-evidence.json');
+    const normalizedProjectRoot = paths.projectRoot.replace(/\\/g, '/');
+    expect(normalizedProjectRoot.endsWith('/cocos-test-projects')).toBe(true);
+    expect(normalizedProjectRoot).not.toContain('/cocos_work_lab_38x');
+    const evidenceSummaryFilePath = join(paths.projectRoot, 'temp', 'runtime-preview-main-test-project-cli-evidence.json');
 
     const cli = await startRuntimePreviewCliProcess({
       repoRoot,
@@ -63,6 +66,7 @@ describe('runtime preview small-project CLI integration acceptance', () => {
       editorProgrammingRef: paths.editorProgrammingRef,
       host: '127.0.0.1',
       port,
+      scene: mainProjectSceneUuids[0],
       startupTimeoutMs: 120_000,
     });
 
@@ -93,28 +97,29 @@ describe('runtime preview small-project CLI integration acceptance', () => {
       };
       const selectedScenes = selectRequiredScenes(sceneList.scenes);
       expect(sceneList.currentScene).toBeTruthy();
+      const initialScene = selectedScenes[0];
 
-      const defaultEntryResponse = await fetch(`${cli.url}/?debug=false`);
+      const defaultEntryResponse = await fetch(`${cli.url}/?scene=${encodeURIComponent(initialScene.uuid)}&debug=false`);
       expect(defaultEntryResponse.status).toBe(200);
-      expect(await defaultEntryResponse.text()).toContain(`/settings.js?scene=${sceneList.currentScene}`);
+      expect(await defaultEntryResponse.text()).toContain(`/settings.js?scene=${initialScene.uuid}`);
 
       const defaultSmoke = await runBrowserRuntimeSmoke({
-        url: `${cli.url}/?debug=false`,
+        url: `${cli.url}/?scene=${encodeURIComponent(initialScene.uuid)}&debug=false`,
         runtimeServerOrigin: cli.url,
         readyTimeoutMs: 120_000,
         stableWindowMs: 10_000,
-        evidenceFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-small-project-cli-default-scene.json'),
+        evidenceFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-main-test-project-cli-default-scene.json'),
         evidenceContext: {
           cliPid: cli.pid,
           cliCommand: `${cli.command} ${cli.args.join(' ')}`,
           serverUrl: cli.url,
           logFilePath: cli.logFilePath,
           elapsedStartupMs: cli.elapsedStartupMs,
-          expectedScene: sceneList.currentScene,
+          expectedScene: initialScene,
         },
       });
       expect(defaultSmoke.ready).toMatchObject({
-        scene: sceneList.currentScene,
+        scene: initialScene.uuid,
       });
       expect(defaultSmoke.consoleErrors).toEqual([]);
       expect(defaultSmoke.pageErrors).toEqual([]);
@@ -123,24 +128,24 @@ describe('runtime preview small-project CLI integration acceptance', () => {
 
       const selectTargetScene = selectedScenes[1] ?? selectedScenes[0];
       const sceneSelectSmoke = await runBrowserRuntimeSmoke({
-        url: `${cli.url}/?debug=false`,
+        url: `${cli.url}/?scene=${encodeURIComponent(initialScene.uuid)}&debug=false`,
         runtimeServerOrigin: cli.url,
         sceneSelectTarget: selectTargetScene.uuid,
         readyTimeoutMs: 120_000,
         stableWindowMs: 10_000,
-        evidenceFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-small-project-cli-scene-select.json'),
+        evidenceFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-main-test-project-cli-scene-select.json'),
         evidenceContext: {
           cliPid: cli.pid,
           cliCommand: `${cli.command} ${cli.args.join(' ')}`,
           serverUrl: cli.url,
           logFilePath: cli.logFilePath,
           elapsedStartupMs: cli.elapsedStartupMs,
-          initialScene: sceneList.currentScene,
+          initialScene,
           selectedScene: selectTargetScene,
         },
       });
       expect(sceneSelectSmoke.initialReady).toMatchObject({
-        scene: sceneList.currentScene,
+        scene: initialScene.uuid,
       });
       expect(sceneSelectSmoke.ready).toMatchObject({
         scene: selectTargetScene.uuid,
@@ -160,7 +165,7 @@ describe('runtime preview small-project CLI integration acceptance', () => {
         const evidenceFilePath = join(
           paths.projectRoot,
           'temp',
-          `runtime-preview-small-project-cli-scene-${scene.uuid}.json`,
+          `runtime-preview-main-test-project-cli-scene-${scene.uuid}.json`,
         );
         const smoke = await runBrowserRuntimeSmoke({
           url,

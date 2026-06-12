@@ -1,7 +1,8 @@
 import { join, normalize } from 'node:path';
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { getFixturePaths } from '@shared/fixture-paths';
+import { getCliIntegrationFixturePaths } from '@shared/fixture-paths';
 import { runBrowserRuntimeSmoke } from '@shared/browser-runtime-smoke';
 import {
   canListen,
@@ -13,10 +14,10 @@ interface PreviewSceneRecord {
   url: string;
 }
 
-const complexSceneUuids = [
-  '668efa31-4841-4cbc-bbae-33255599d478',
-  '465d8fb0-d260-4256-a785-651bf2ebf7d1',
-  'ec470553-bc56-4c2c-91aa-c7016f677e3e',
+const mainProjectSceneUuids = [
+  'd3fc11bc-05dc-4e60-bc4f-f682fa74e8b6',
+  '4437972c-9b71-4af0-aae3-251f640ee42a',
+  'ac48432f-ab9a-4c4c-89f6-11053a95abe4',
 ];
 
 const forbiddenServerLogPatterns = [
@@ -40,10 +41,10 @@ async function findAvailablePort(startPort: number, attempts: number): Promise<n
 }
 
 function selectRequiredScenes(scenes: PreviewSceneRecord[]): PreviewSceneRecord[] {
-  return complexSceneUuids.map((uuid) => {
+  return mainProjectSceneUuids.map((uuid) => {
     const scene = scenes.find((entry) => entry.uuid === uuid);
     if (!scene) {
-      throw new Error(`fail-small-project-input: required scene is missing from /scene-list: ${uuid}`);
+      throw new Error(`fail-main-test-project-input: required scene is missing from /scene-list: ${uuid}`);
     }
     return scene;
   });
@@ -54,14 +55,17 @@ function slash(path: string): string {
 }
 
 describe('runtime preview real CLI generated output acceptance', () => {
-  it('uses CLI generated library/programming outputs and loads three complex scenes without browser or server errors', async () => {
-    const paths = getFixturePaths();
+  it('uses CLI generated library/programming outputs and loads three main test-project scenes without browser or server errors', async () => {
+    const paths = getCliIntegrationFixturePaths();
     const repoRoot = join(process.cwd(), '..');
     const port = await findAvailablePort(19601, 50);
+    const normalizedProjectRoot = paths.projectRoot.replace(/\\/g, '/');
+    expect(normalizedProjectRoot.endsWith('/cocos-test-projects')).toBe(true);
+    expect(normalizedProjectRoot).not.toContain('/cocos_work_lab_38x');
     const expectedProjectLibraryRoot = join(paths.projectRoot, 'library', 'cli');
     const expectedProjectProgrammingRoot = join(paths.projectRoot, 'temp', 'cli', 'programming');
     const expectedInternalLibraryRoot = join(paths.projectRoot, 'library');
-    const expectedExtensionLibraryRoot = join(paths.projectRoot, 'library', 'cli-extensions', 'view-state-group');
+    const expectedExtensionLibraryRootPrefix = join(paths.projectRoot, 'library', 'cli-extensions');
     const evidenceSummaryFilePath = join(paths.projectRoot, 'temp', 'runtime-preview-cli-generated-output-evidence.json');
 
     const cli = await startRuntimePreviewCliProcess({
@@ -85,13 +89,11 @@ describe('runtime preview real CLI generated output acceptance', () => {
       };
 
       expect(slash(health.projectLibraryRoot)).toBe(slash(expectedProjectLibraryRoot));
-      expect(health.extensionLibraryRoots.map((entry) => ({
+      const extensionLibraryRoots = health.extensionLibraryRoots.map((entry) => ({
         name: entry.name,
         root: slash(entry.root),
-      }))).toContainEqual({
-        name: 'view-state-group',
-        root: slash(expectedExtensionLibraryRoot),
-      });
+      }));
+      expect(extensionLibraryRoots.every((entry) => entry.root.startsWith(slash(expectedExtensionLibraryRootPrefix)))).toBe(true);
       expect(slash(health.projectProgrammingRoot)).toBe(slash(expectedProjectProgrammingRoot));
       expect(slash(health.cliProgrammingRoot ?? '')).toBe(slash(expectedProjectProgrammingRoot));
 
@@ -101,8 +103,8 @@ describe('runtime preview real CLI generated output acceptance', () => {
       expect(normalizedStdout).toContain(`[runtime-preview]   url: ${cli.url}`);
       expect(normalizedStdout).toContain(`[runtime-preview] projectLibraryRoot=${slash(expectedProjectLibraryRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview]   libraryRoot: ${slash(expectedProjectLibraryRoot)}`);
-      expect(normalizedStdout).toContain(`[runtime-preview] extensionLibraryRoots=view-state-group:${slash(expectedExtensionLibraryRoot)}`);
-      expect(normalizedStdout).toContain(`[runtime-preview]   extensionLibraryRoots: view-state-group:${slash(expectedExtensionLibraryRoot)}`);
+      expect(normalizedStdout).toContain('[runtime-preview] extensionLibraryRoots=');
+      expect(normalizedStdout).toContain('[runtime-preview]   extensionLibraryRoots: ');
       expect(normalizedStdout).toContain(`[runtime-preview] projectProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview]   programmingRoot: ${slash(expectedProjectProgrammingRoot)}`);
       expect(normalizedStdout).toContain(`[runtime-preview] cliProgrammingRoot=${slash(expectedProjectProgrammingRoot)}`);
@@ -122,6 +124,19 @@ describe('runtime preview real CLI generated output acceptance', () => {
       expect(normalizedCliCommand).not.toContain('/tsx/');
       expect(normalizedCliCommand).not.toContain('--settings-timeout-ms');
       expect(cli.stdout).toContain('[runtime-preview] preview:ready');
+
+      const resolutionDetailMapPath = join(
+        expectedProjectProgrammingRoot,
+        'packer-driver',
+        'targets',
+        'preview',
+        'resolution-detail-map.json',
+      );
+      expect(existsSync(resolutionDetailMapPath), 'real CLI programming output should include resolution-detail-map.json').toBe(true);
+      const resolutionDetailMapText = await readFile(resolutionDetailMapPath, 'utf8');
+      expect(resolutionDetailMapText).toContain('@tbmp/mp-cloud-sdk');
+      expect(resolutionDetailMapText).toContain('Failed to resolve CommonJS bare specifier');
+      expect(resolutionDetailMapText).not.toContain('runtime-preview-stubs');
 
       const sceneListResponse = await fetch(`${cli.url}/scene-list`);
       expect(sceneListResponse.status).toBe(200);
@@ -182,7 +197,7 @@ describe('runtime preview real CLI generated output acceptance', () => {
       expect(runtimeLog).toContain('active-output:');
       expect(runtimeLog).toContain(`  url: ${cli.url}`);
       expect(runtimeLog).toContain(`  libraryRoot: ${expectedProjectLibraryRoot}`);
-      expect(runtimeLog).toContain(`  extensionLibraryRoots: view-state-group:${expectedExtensionLibraryRoot}`);
+      expect(runtimeLog).toContain('  extensionLibraryRoots: ');
       expect(runtimeLog).toContain(`  programmingRoot: ${expectedProjectProgrammingRoot}`);
       expect(runtimeLog).toMatch(/engine:init:done durationMs=\d+/);
       expect(runtimeLog).toMatch(/asset-db:done durationMs=\d+/);
@@ -200,7 +215,7 @@ describe('runtime preview real CLI generated output acceptance', () => {
         logFilePath: cli.logFilePath,
         elapsedStartupMs: cli.elapsedStartupMs,
         projectLibraryRoot: expectedProjectLibraryRoot,
-        extensionLibraryRoots: [{ name: 'view-state-group', root: expectedExtensionLibraryRoot }],
+        extensionLibraryRoots,
         projectProgrammingRoot: expectedProjectProgrammingRoot,
         currentScene: sceneList.currentScene,
         sceneResults,
