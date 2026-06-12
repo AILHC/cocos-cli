@@ -31,7 +31,7 @@
 | RP-ISSUE-012 | 编译慢缺少指标，不能靠清 cache 掩盖 | `open` | 验收矩阵仍标为 missing；需要记录 build iteration、asset changes、script collect / compile 耗时。 | [acceptance/matrix.md](acceptance/matrix.md) | 无当前计划 | 后续 startup diagnostics |
 | RP-ISSUE-013 | extension asset-db runtime 触发未完整闭环 | `open` | 已确认小项目存在 extension asset-db 输入，但真实 browser / small-project runtime 是否触发仍未闭环。 | [acceptance/matrix.md](acceptance/matrix.md) | 无当前计划 | 后续 small-project integration |
 | RP-ISSUE-014 | pack / redirect / remote bundle route 触发未完整闭环 | `open` | 当前没有 fact-backed 触发样本；不能用手写 URL 推进。 | [facts/architecture.md](facts/architecture.md)、[acceptance/matrix.md](acceptance/matrix.md) | 无当前计划 | 后续 engine-source / CLI output capture |
-| RP-ISSUE-015 | `design/core-flow.md` 文件内容存在乱码 | `open` | 该文件暂不应作为唯一权威入口；当前有效规则以 README、issues、facts 和 plans 的明确裁决为准。 | [design/core-flow.md](design/core-flow.md) | 无当前计划 | 后续文档修复 |
+| RP-ISSUE-015 | `design/core-flow.md` 文件内容存在乱码 | `fixed` | 已重写为 UTF-8 中文文档，保留核心流程目标、边界、route 规则、script loading、ready 语义和 strict acceptance。 | [design/core-flow.md](design/core-flow.md) | 文档修复 | [design/core-flow.md](design/core-flow.md) |
 
 ## 记录规则
 
