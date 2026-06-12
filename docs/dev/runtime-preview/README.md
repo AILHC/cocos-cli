@@ -11,7 +11,7 @@
 - production `preview --runtime` 的 `engineRoot` 解析和启动日志重复问题已按当前计划修复：项目配置 `cocos-cli.enginePath` 可作为 `project-config` 来源，`server:listening` 只输出一次。修复记录见 [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)。
 - 2026-06-11 `internal` AssetDB / runtime preview 应优先使用项目级 `library`；engine-level `editor/library` 中部分 internal Texture2D 为 `content:null`，会触发 `Texture2D._deserialize` 读取 `content.base` 报错。见 [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)。
 - 浏览器脚本加载顺序当前只记录事实，不执行并发化修改；HTTP file response 已迁移到 Express `sendFile()` validator 路径，body response 不新增 Express `ETag` / conditional `304`。见 [facts/browser-loading-and-cache-20260611.md](facts/browser-loading-and-cache-20260611.md)。
-- `assets/**/*.meta` 默认不应被 runtime preview 改写仍是后续专项；本轮核心流程整理不回滚、不归因现有 feature-c `.meta` 修改。
+- source `assets/**/*.meta` 写回必须与 Editor 3.8.6 保持一致；本轮核心流程整理不回滚、不归因现有 feature-c `.meta` 修改，`.anim.meta` parity 之外的资源类型仍是后续专项。
 
 ## 必读顺序
 

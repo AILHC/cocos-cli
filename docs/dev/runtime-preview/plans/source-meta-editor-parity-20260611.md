@@ -1,5 +1,7 @@
 # Source Meta Editor Parity 分阶段执行计划
 
+> **Status:** historical execution record. 当前状态以 [../issues.md](../issues.md) 和 [../facts/source-meta-editor-baseline-20260611.md](../facts/source-meta-editor-baseline-20260611.md) 为准；本文中的 unchecked checklist 保留原计划草稿状态，不表示当前仍未执行。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 CLI import 后写回的 `.anim.meta` 与 Cocos Creator Editor 3.8.6 在同一项目、同一 engine 下写回的 `.anim.meta` 一致。

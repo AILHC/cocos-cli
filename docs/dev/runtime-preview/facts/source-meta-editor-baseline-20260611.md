@@ -215,7 +215,7 @@ shared-res/tips/tips-animation.anim.meta
 - `src/core/assets/asset-handler/assets/utils/serialize-library.ts` 对 `AnimationClip` 设置 `useCCON = true`，`EditorExtends.serialize()` 返回 `CCON` 后调用 `encodeCCONBinary()`，但返回 `extension: '.bin'`。
 - `AnimationHandler.import()` 使用这个 `extension` 调 `asset.saveToLibrary(extension, data)`，`@cocos/asset-db` 因此把 source `.anim.meta.files` 写成 `.bin`。
 
-当前结论：配置阻塞已经解除；真正原因是 CLI `animation-clip` importer 的版本和 CCON library extension 与 Editor 3.8.6 输出规则不一致。下一步修复应限制在 `.anim` source importer：将 importer version 对齐 `2.0.3`，并让 `AnimationClip` CCON binary 写入 `.cconb`，不要扩大到其他资源类型，除非进一步事实证明共享 `serializeForLibrary()` 必须区分调用场景。
+历史失败基线结论：配置阻塞已经解除；真正原因是 CLI `animation-clip` importer 的版本和 CCON library extension 与 Editor 3.8.6 输出规则不一致。后续修复范围应限制在 `.anim` source importer：将 importer version 对齐 `2.0.3`，并让 `AnimationClip` CCON binary 写入 `.cconb`，不要扩大到其他资源类型，除非进一步事实证明共享 `serializeForLibrary()` 必须区分调用场景。该修复后续已执行，当前状态见本文“最终结论”。
 
 ## Phase 1 Editor baseline 副本事实
 
@@ -290,3 +290,9 @@ TOTAL=19 SAME=3 DIFF=16 MISSING=0
 - `.cconb` library 二进制产物仍未与 Editor 3.8.6 完全 byte-identical。
 - 该差异不是 Editor baseline 未生成导致，`MISSING=0`。
 - 目前只记录为独立后续问题，暂不继续追查 Editor 3.8.6 对 `.anim` 的 import/serialize 细节。
+
+## 最终结论
+
+- `.anim` source `.meta` parity 已完成：CLI import 后写回的 `.anim.meta` 与 Editor 3.8.6 baseline 对齐。
+- 当前修复不代表所有 `assets/**/*.meta` 资源类型都已完成 Editor parity；其它资源类型仍按 [../issues.md](../issues.md) 的 `RP-ISSUE-008` 追踪。
+- `.cconb` byte-level parity 是独立后续观察，不影响 `.anim.meta.files` 从 `.bin` 修正为 `.cconb` 的 source `.meta` parity 结论。

@@ -1,9 +1,11 @@
-﻿# Runtime Preview Core Flow Implementation Plan
+# Runtime Preview Core Flow Implementation Plan
+
+> **Status:** historical execution record. 当前状态以 [../issues.md](../issues.md) 和 [../acceptance/matrix.md](../acceptance/matrix.md) 为准；本文中的 unchecked checklist 保留原计划草稿状态，不表示当前仍未执行。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 璁?production `preview --runtime` 鎸?current Cocos preview flow 璺戦€?feature-c exact scene锛屽苟姝ｇ‘鏈嶅姟 engine runtime 瀹為檯璇锋眰鐨?project / extension / internal library 鏂囦欢銆?
-**Architecture:** `RuntimePreviewContext` 鍙繚瀛樺惎鍔ㄩ摼璺В鏋愬ソ鐨?roots 鍜?providers锛沗resolveLibraryRequest()` 瀵?`/assets/<namespace>/(import|native)/<tail>` 缁熶竴鎵ц path-safe direct lookup锛屼笉鍐嶇敤鏃?production allow-list 闃绘柇鐪熷疄鏂囦欢銆傝剼鏈姞杞界户缁氦缁?current preview-app / import-map / loader锛孍2E 鐢ㄦ洿闀?timeout 鍜岀ǔ瀹氳瀵熺獥鍙ｉ獙璇佺湡瀹?browser runtime銆?
+**Goal:** 让 production `preview --runtime` 按 current Cocos preview flow 跑通 feature-c exact scene，并正确服务 engine runtime 实际请求的 project / extension / internal library 文件。
+**Architecture:** `RuntimePreviewContext` 只保存启动链路解析好的 roots 和 providers；`resolveLibraryRequest()` 对 `/assets/<namespace>/(import|native)/<tail>` 统一执行 path-safe direct lookup，不再用旧 production allow-list 阻断真实文件。脚本加载继续交给 current preview-app / import-map / loader，E2E 用更长 timeout 和稳定观察窗口验证真实 browser runtime。
 **Tech Stack:** TypeScript, Node.js `fs/promises`, `path`, Vitest, Playwright/CDP smoke scripts, Cocos CLI runtime preview.
 
 ---

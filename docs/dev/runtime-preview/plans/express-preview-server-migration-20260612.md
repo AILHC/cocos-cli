@@ -1,5 +1,7 @@
 # Runtime Preview Express Preview Server Migration Implementation Plan
 
+> **Status:** historical execution record. 当前状态以 [../issues.md](../issues.md)、[../facts/browser-loading-and-cache-20260611.md](../facts/browser-loading-and-cache-20260611.md) 和 [../acceptance/matrix.md](../acceptance/matrix.md) 为准；本文中的 unchecked checklist 保留原计划草稿状态，不表示当前仍未执行。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` 或 `superpowers:executing-plans` task-by-task 执行。步骤使用 checkbox (`- [ ]`) 跟踪。
 
 **Goal:** 将 `preview --runtime` 的 HTTP serving layer 从裸 `node:http` handler 改为 Express，同时保留现有 runtime preview 业务路由语义，并恢复旧 Editor 类似的 file response validator / conditional request 能力。

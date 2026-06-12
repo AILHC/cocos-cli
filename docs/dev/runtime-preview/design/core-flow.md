@@ -3,7 +3,7 @@
 记录时间：2026-06-10
 编码修复：2026-06-12
 
-本文定义 production `preview --runtime` 核心预览流程的目标、边界、route 规则、script loading、ready 语义、测试策略和 strict acceptance。本文不处理 `assets/**/*.meta` 默认写入副作用；该问题记录在 [issues.md](../issues.md) 的 `RP-ISSUE-008`。
+本文定义 production `preview --runtime` 核心预览流程的目标、边界、route 规则、script loading、ready 语义、测试策略和 strict acceptance。本文不处理 source `assets/**/*.meta` 写回 parity；该问题记录在 [issues.md](../issues.md) 的 `RP-ISSUE-008`。
 
 ## 目标
 
@@ -31,7 +31,7 @@ http://127.0.0.1:19530/?scene=4c721bfe-0b6e-46c2-97f0-644adfdcba31
 
 ## 非目标
 
-- 本轮不处理 `assets/**/*.meta` 是否被 AssetDB / importer 改写。
+- 本轮不处理所有 `assets/**/*.meta` 写回是否与 Editor 3.8.6 保持一致。
 - 本轮不修改 `preview-app` 的 `assets/general/import`、`assets/general/native` bootstrap 行为。
 - 本轮不通过硬编码 feature-c UUID、scene UUID 或具体报错 URL 修复问题。
 - 本轮不做启动时递归扫描 `library`、`temp`、`assets` 或 generated output。
@@ -233,7 +233,7 @@ ready 后继续观察稳定窗口。稳定窗口内任一 strict field 非空都
 
 - `asset-db:script-compile:error`：report-only，不阻塞 `preview:ready`，但必须输出日志并进入 evidence。
 - 浏览器脚本加载性能：当前只记录，不做并发化修改。
-- `assets/**/*.meta` 默认改写：独立专项，不纳入本 strict gate。
+- source `.meta` 写回 parity：独立专项，不纳入本 strict gate。
 - `.cconb` 二进制与 Editor 不完全一致：独立后续观察。
 
 ### 必须判失败
@@ -250,6 +250,6 @@ ready 后继续观察稳定窗口。稳定窗口内任一 strict field 非空都
 
 - `feature-c` 核心流程 strict acceptance 已通过，记录见 [../issues.md](../issues.md) 的 `RP-ISSUE-001`。
 - `engineRoot` 解析、启动日志重复、默认清理 programming cache、script compile report-only、internal library root、Express file validator 已分别收口到对应 issue。
-- runtime preview 仍不能声明全量完成。未闭环项包括：source `.meta` 默认改写、编译性能指标、extension runtime trigger、pack / redirect / remote route trigger、小项目真实 CLI child process 集成验收。
+- runtime preview 仍不能声明全量完成。未闭环项包括：source `.meta` 写回 parity、编译性能指标、extension runtime trigger、pack / redirect / remote route trigger、小项目真实 CLI child process 集成验收。
 
 新增或更新相关问题时，先写入 [../issues.md](../issues.md)，再补 facts / plans / acceptance。

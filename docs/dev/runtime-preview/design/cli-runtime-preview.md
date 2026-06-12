@@ -12,7 +12,7 @@
 
 - `docs/dev/runtime-preview/facts/architecture.md` 只记录源码证据、产物事实、已确认结论和待验证项。
 - 本文档记录架构决策、模块边界、route 分类、性能 contract 和测试策略。
-- `2026-06-06-runtime-preview-mainbase.md` 记录可执行步骤，不应复制大段事实表；事实变化先改 facts，再同步 design/plan 中的决策或任务。
+- 历史 mainbase 执行计划已迁移到 `docs/superpowers/plans/2026-06-06-runtime-preview-mainbase.md`；runtime preview 当前入口以 `docs/dev/runtime-preview/README.md`、`issues.md`、`facts/`、`design/`、`plans/` 和 `acceptance/` 为准。事实变化先改 facts，再同步 design/plan 中的决策或任务。
 
 ## 非目标
 
