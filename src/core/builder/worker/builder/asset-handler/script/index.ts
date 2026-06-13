@@ -18,8 +18,6 @@ import { Engine } from '../../../../../engine';
 import { MacroItem } from '../../../../../engine/@types/config';
 import { compressUuid } from '../../utils';
 import project from '../../../../../project';
-import { runStaticCompileCheck } from './static-compile-check';
-import { BuildExitCode } from '../../../../@types/protected';
 type PlatformType = StatsQuery.ConstantManager.PlatformType;
 
 interface IScriptProjectOption extends SharedSettings {
@@ -132,20 +130,6 @@ export class ScriptBuilder {
             return;
         }
 
-        // 执行静态编译检查
-        // 注意：如果在 BuildCommand 中已经执行过，这里会重复执行。
-        // 但为了确保脚本编译的安全性，这里强制检查。
-        // 传入 temp/cli/tsconfig.cocos.json，避免使用根目录 tsconfig 导致重复包含 d.ts
-        const tsconfigPath = join(project.path, 'temp', 'cli', 'tsconfig.cocos.json');
-        const checkResult = await runStaticCompileCheck(project.path, true, tsconfigPath);
-        if (!checkResult.passed) {
-            // 构建失败，抛出错误，错误码为 500
-            const errorMessage = checkResult.errorMessage || 'Found assets-related TypeScript errors';
-            const error = new Error(errorMessage);
-            (error as any).code = BuildExitCode.STATIC_COMPILE_ERROR;
-            throw error;
-        }
-        
         const cceModuleMap = script.queryCCEModuleMap();
         const buildScriptOptions: IBuildScriptFunctionOption & SharedSettings = {
             ...this._scriptOptions,

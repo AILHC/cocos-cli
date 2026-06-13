@@ -3,6 +3,7 @@ import { BaseCommand, CommandUtils } from './base';
 import { IBuildCommandOption, BuildExitCode } from '../core/builder/@types/protected';
 import { existsSync, readJSONSync } from 'fs-extra';
 import { openImageAsset } from '../core/assets/asset-handler/assets/image/utils';
+import { mergeBuildConfigData } from './build-config';
 
 /**
  * Build 命令类
@@ -15,6 +16,9 @@ export class BuildCommand extends BaseCommand {
             .requiredOption('-j, --project <path>', 'Path to the Cocos project (required)')
             .requiredOption('-p, --platform <platform>', 'Target platform (web-desktop, web-mobile, android, ios, etc.)')
             .option('-c,--build-config <path>', 'Specify build config file path')
+            .option('--taskId <id>', 'Specify build task id when the build config is a Creator profile with multiple tasks')
+            .option('--buildPath <path>', 'Override build output root path')
+            .option('--outputName <name>', 'Override build output folder name')
             .option('--ndkPath <path>', 'Android NDK path (for Android platform)')
             .option('--sdkPath <path>', 'Android SDK path (for Android platform)')
             .action(async (options: any) => {
@@ -27,9 +31,7 @@ export class BuildCommand extends BaseCommand {
                             process.exit(BuildExitCode.BUILD_FAILED);
                         }
                         console.debug(`Read config from path ${options.buildConfig}...`);
-                        let data = readJSONSync(options.buildConfig);
-                        // 功能点：options 传递的值，允许覆盖配置文件内的同属性值
-                        data = Object.assign(data, options);
+                        const data = mergeBuildConfigData(readJSONSync(options.buildConfig), options);
                         // 避免修改原始 options
                         Object.assign(options, data);
                         // 移除旧的 key 方便和 configPath 未读取的情况做区分
