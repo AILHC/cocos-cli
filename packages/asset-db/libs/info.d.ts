@@ -24,6 +24,7 @@ export declare class InfoManager {
     pathRoot: string;
     private recordInfo;
     private console;
+    private editorCompatibility;
     _saveTimer: null | NodeJS.Timeout;
     constructor(customConsole: CustomConsole, pathRoot: string);
     setRecordJSON(path: string): Promise<void>;

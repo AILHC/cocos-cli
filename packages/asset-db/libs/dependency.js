@@ -40,10 +40,12 @@ class DependencyManager {
     constructor(customConsole, pathRoot) {
         this.dependMap = getDefaultRecordInfo().data;
         this._saveTimer = null;
+        this.editorCompatibility = false;
         this.console = customConsole || console;
         this.pathRoot = pathRoot;
     }
     async setRecordJSON(path) {
+        this.editorCompatibility = (0, path_1.basename)(path) === '.internal-dependency.json';
         this.file = path;
         try {
             await this._restoreCache(path);
@@ -57,6 +59,26 @@ class DependencyManager {
         if (!cache) {
             return;
         }
+        if (this.editorCompatibility) {
+            if (cache.data) {
+                Object.keys(cache.data.path).forEach((path) => {
+                    this.dependMap.path[(0, path_1.join)(this.pathRoot, path)] = cache.data.path[path].map((dependency) => {
+                        return (0, path_1.join)(this.pathRoot, dependency);
+                    });
+                });
+                Object.keys(cache.data.uuid).forEach((path) => {
+                    this.dependMap.uuid[(0, path_1.join)(this.pathRoot, path)] = cache.data.uuid[path];
+                });
+            }
+            else {
+                this.dependMap = {
+                    path: cache.path || {},
+                    uuid: cache.uuid || {},
+                };
+            }
+            this.restoreAssociatedMap();
+            return;
+        }
         const { path: pathMap, uuid: uuidMap } = this.dependMap;
         Object.keys(cache.data.path).forEach((path) => {
             pathMap[(0, path_1.join)(this.pathRoot, path)] = cache.data.path[path].map((dependency) => {
@@ -66,17 +88,7 @@ class DependencyManager {
         Object.keys(cache.data.uuid).forEach((path) => {
             uuidMap[(0, path_1.join)(this.pathRoot, path)] = cache.data.uuid[path];
         });
-        for (const type in this.dependMap) {
-            const map = this.dependMap[type];
-            for (const path in map) {
-                map[path].forEach((dependency) => {
-                    associatedMap[dependency] = associatedMap[dependency] || [];
-                    if (associatedMap[dependency].indexOf(path) === -1) {
-                        associatedMap[dependency].push(path);
-                    }
-                });
-            }
-        }
+        this.restoreAssociatedMap();
     }
     async readRecordJSON(path) {
         if ((0, fs_extra_1.existsSync)(path)) {
@@ -105,6 +117,13 @@ class DependencyManager {
     saveImmediate() {
         clearTimeout(this._saveTimer);
         if (this.file) {
+            if (this.editorCompatibility) {
+                (0, fs_extra_1.outputJSONSync)(this.file, {
+                    path: this.dependMap.path,
+                    uuid: this.dependMap.uuid,
+                }, { spaces: 2 });
+                return;
+            }
             const output = getDefaultRecordInfo();
             const { path: pathMap, uuid: uuidMap } = this.dependMap;
             Object.keys(pathMap).forEach((path) => {
@@ -167,6 +186,19 @@ class DependencyManager {
                     }
                     if (associatedMap[dependency].length === 0) {
                         delete associatedMap[dependency];
+                    }
+                });
+            }
+        }
+    }
+    restoreAssociatedMap() {
+        for (const type in this.dependMap) {
+            const map = this.dependMap[type];
+            for (const path in map) {
+                map[path].forEach((dependency) => {
+                    associatedMap[dependency] = associatedMap[dependency] || [];
+                    if (associatedMap[dependency].indexOf(path) === -1) {
+                        associatedMap[dependency].push(path);
                     }
                 });
             }

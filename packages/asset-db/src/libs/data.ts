@@ -1,47 +1,63 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.DataManager = void 0;
-const path_1 = require("path");
-const fs_extra_1 = require("fs-extra");
-class DataManager {
-    constructor(customConsole) {
-        this.dataMap = {};
-        this._saveTimer = null;
-        this.editorCompatibility = false;
+import { basename } from 'path';
+import { existsSync, outputJSONSync, readJSONSync } from 'fs-extra';
+import type { VirtualAsset } from './asset';
+import { CustomConsole } from './console';
+
+export interface IData {
+    url: string;
+    value: {
+        [key: string]: any;
+    };
+    versionCode: number;
+}
+
+export class DataManager {
+    file: string | undefined;
+    dataMap: {
+        [uuid: string]: IData;
+    } = {};
+    _saveTimer: any = null;
+    private console: CustomConsole | Console;
+    private editorCompatibility = false;
+
+    constructor(customConsole: CustomConsole) {
         this.console = customConsole || console;
     }
-    async setRecordJSON(json) {
+
+    async setRecordJSON(json: string): Promise<void> {
         this.file = json;
-        this.editorCompatibility = (0, path_1.basename)(json) === '.internal-data.json';
-        if ((0, fs_extra_1.existsSync)(json)) {
+        this.editorCompatibility = basename(json) === '.internal-data.json';
+        if (existsSync(json)) {
             try {
-                this.dataMap = (0, fs_extra_1.readJSONSync)(this.file);
-            }
-            catch (error) {
+                this.dataMap = readJSONSync(this.file);
+            } catch (error) {
                 this.console.error(error);
                 this.dataMap = {};
             }
-        }
-        else {
+        } else {
             this.dataMap = {};
         }
     }
-    save() {
+
+    save(): void {
         clearTimeout(this._saveTimer);
         this._saveTimer = setTimeout(() => {
             this.saveImmediate();
         }, 400);
     }
-    saveImmediate() {
+
+    saveImmediate(): void {
         clearTimeout(this._saveTimer);
         if (this.file) {
-            (0, fs_extra_1.outputJSONSync)(this.file, this.dataMap, { spaces: 2 });
+            outputJSONSync(this.file, this.dataMap, { spaces: 2 });
         }
     }
-    has(asset) {
+
+    has(asset: VirtualAsset): boolean {
         return !!this.dataMap[asset.uuid];
     }
-    empty(asset) {
+
+    empty(asset: VirtualAsset): void {
         if (this.shouldPreserve(asset)) {
             return;
         }
@@ -52,7 +68,8 @@ class DataManager {
         };
         this.save();
     }
-    update(asset) {
+
+    update(asset: VirtualAsset): void {
         if (this.shouldPreserve(asset)) {
             return;
         }
@@ -66,7 +83,8 @@ class DataManager {
         this.dataMap[asset.uuid].url = asset.url;
         this.dataMap[asset.uuid].versionCode = asset.versionCode;
     }
-    setValue(asset, key, value) {
+
+    setValue(asset: VirtualAsset, key: string, value: any): void {
         if (this.shouldPreserve(asset)) {
             return;
         }
@@ -74,14 +92,16 @@ class DataManager {
         this.dataMap[asset.uuid].value[key] = value;
         this.save();
     }
-    getValue(asset, key) {
+
+    getValue(asset: VirtualAsset, key: string): any {
         return this.dataMap[asset.uuid].value[key];
     }
-    get(asset, key = 'value') {
+
+    get(asset: VirtualAsset, key: keyof IData = 'value'): null | any {
         return this.dataMap[asset.uuid] ? this.dataMap[asset.uuid][key] : null;
     }
-    shouldPreserve(asset) {
+
+    private shouldPreserve(asset: VirtualAsset): boolean {
         return this.editorCompatibility && !!this.dataMap[asset.uuid];
     }
 }
-exports.DataManager = DataManager;

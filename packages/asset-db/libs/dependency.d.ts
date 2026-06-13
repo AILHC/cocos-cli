@@ -14,6 +14,7 @@ export declare class DependencyManager {
     dependMap: DependMap;
     _saveTimer: any;
     private console;
+    private editorCompatibility;
     constructor(customConsole: CustomConsole, pathRoot: string);
     setRecordJSON(path: string): Promise<void>;
     private _restoreCache;
@@ -23,6 +24,7 @@ export declare class DependencyManager {
     add(type: string, key: string, depends: string | string[]): void;
     remove(type: string, key: string): void;
     destroy(): void;
+    private restoreAssociatedMap;
 }
 export declare function getAssociatedFiles(urlOrPathOrUUID: string): string[];
 export {};
