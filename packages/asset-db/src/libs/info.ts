@@ -1,7 +1,7 @@
 /// <reference types="node" preserve="true" />
 
 import { existsSync, outputJSONSync, readJSONSync, remove } from 'fs-extra';
-import { join, relative } from 'path';
+import { basename, join, relative } from 'path';
 import { CustomConsole } from './console';
 import { Migrator, Migrate } from './migrator';
 
@@ -83,6 +83,18 @@ function getDefaultRecordInfo(): RecordInfoMap {
     };
 }
 
+function getDefaultEditorRecordInfo(): RecordInfoMap {
+    return {
+        version: '1.0.0',
+        map: {},
+        missing: {},
+    };
+}
+
+function getLegacyInfoPath(path: string): string {
+    return path.replace(/\.json$/, '1.0.0.json');
+}
+
 export class InfoManager {
     static version = '1.0.1';
 
@@ -90,6 +102,7 @@ export class InfoManager {
     pathRoot: string;
     private recordInfo: RecordInfoMap;
     private console: CustomConsole | Console;
+    private editorCompatibility = false;
     _saveTimer: null | NodeJS.Timeout = null;
 
     constructor(customConsole: CustomConsole, pathRoot: string) {
@@ -99,18 +112,23 @@ export class InfoManager {
     }
 
     async setRecordJSON(path: string): Promise<void> {
-        this.file = path;
+        this.editorCompatibility = basename(path) === '.internal-info.json';
+        this.file = this.editorCompatibility ? getLegacyInfoPath(path) : path;
         try {
-            await this._restoreCache(path);
+            await this._restoreCache(this.file);
         } catch (error) {
             this.console.warn(error);
         }
     }
 
     private async _restoreCache(path: string): Promise<void> {
-        const recordInfo = getDefaultRecordInfo();
+        const recordInfo = this.editorCompatibility ? getDefaultEditorRecordInfo() : getDefaultRecordInfo();
         const cache = await this._readRecordInfo(path);
         if (cache) {
+            if (this.editorCompatibility) {
+                this.recordInfo = cache;
+                return;
+            }
             Object.keys(cache.map).forEach((path) => {
                 recordInfo.map[join(this.pathRoot, path)] = cache.map[path];
             });
@@ -120,7 +138,23 @@ export class InfoManager {
     }
 
     private async _readRecordInfo(path: string): Promise<RecordInfoMap | undefined> {
-        const oldPath = path.replace('.json', '1.0.0.json');
+        if (this.editorCompatibility) {
+            if (existsSync(path)) {
+                try {
+                    const data = readJSONSync(path);
+                    return {
+                        version: '1.0.0',
+                        map: data.map || {},
+                        missing: data.missing || {},
+                    };
+                } catch (error) {
+                    this.console.warn(error);
+                }
+            }
+            return getDefaultEditorRecordInfo();
+        }
+
+        const oldPath = getLegacyInfoPath(path);
         const migrator = new Migrator<any>(migrations, InfoManager.version, {
             onError: (error) => {
                 this.console.warn(`migrate error in infoManager: ${error}`);
@@ -164,6 +198,14 @@ export class InfoManager {
             clearTimeout(this._saveTimer);
         }
         if (this.file) {
+            if (this.editorCompatibility) {
+                outputJSONSync(this.file, {
+                    version: '1.0.0',
+                    map: this.recordInfo.map,
+                    missing: this.recordInfo.missing,
+                }, { spaces: 2 });
+                return;
+            }
             const output = getDefaultRecordInfo();
             Object.keys(this.recordInfo.map).forEach((path) => {
                 output.map[relative(this.pathRoot, path)] = this.recordInfo.map[path];

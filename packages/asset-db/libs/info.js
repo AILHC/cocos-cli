@@ -60,26 +60,42 @@ function getDefaultRecordInfo() {
         missing: {},
     };
 }
+function getDefaultEditorRecordInfo() {
+    return {
+        version: '1.0.0',
+        map: {},
+        missing: {},
+    };
+}
+function getLegacyInfoPath(path) {
+    return path.replace(/\.json$/, '1.0.0.json');
+}
 class InfoManager {
     constructor(customConsole, pathRoot) {
+        this.editorCompatibility = false;
         this._saveTimer = null;
         this.console = customConsole || console;
         this.pathRoot = pathRoot;
         this.recordInfo = getDefaultRecordInfo();
     }
     async setRecordJSON(path) {
-        this.file = path;
+        this.editorCompatibility = (0, path_1.basename)(path) === '.internal-info.json';
+        this.file = this.editorCompatibility ? getLegacyInfoPath(path) : path;
         try {
-            await this._restoreCache(path);
+            await this._restoreCache(this.file);
         }
         catch (error) {
             this.console.warn(error);
         }
     }
     async _restoreCache(path) {
-        const recordInfo = getDefaultRecordInfo();
+        const recordInfo = this.editorCompatibility ? getDefaultEditorRecordInfo() : getDefaultRecordInfo();
         const cache = await this._readRecordInfo(path);
         if (cache) {
+            if (this.editorCompatibility) {
+                this.recordInfo = cache;
+                return;
+            }
             Object.keys(cache.map).forEach((path) => {
                 recordInfo.map[(0, path_1.join)(this.pathRoot, path)] = cache.map[path];
             });
@@ -88,7 +104,23 @@ class InfoManager {
         }
     }
     async _readRecordInfo(path) {
-        const oldPath = path.replace('.json', '1.0.0.json');
+        if (this.editorCompatibility) {
+            if ((0, fs_extra_1.existsSync)(path)) {
+                try {
+                    const data = (0, fs_extra_1.readJSONSync)(path);
+                    return {
+                        version: '1.0.0',
+                        map: data.map || {},
+                        missing: data.missing || {},
+                    };
+                }
+                catch (error) {
+                    this.console.warn(error);
+                }
+            }
+            return getDefaultEditorRecordInfo();
+        }
+        const oldPath = getLegacyInfoPath(path);
         const migrator = new migrator_1.Migrator(migrations, InfoManager.version, {
             onError: (error) => {
                 this.console.warn(`migrate error in infoManager: ${error}`);
@@ -131,6 +163,14 @@ class InfoManager {
             clearTimeout(this._saveTimer);
         }
         if (this.file) {
+            if (this.editorCompatibility) {
+                (0, fs_extra_1.outputJSONSync)(this.file, {
+                    version: '1.0.0',
+                    map: this.recordInfo.map,
+                    missing: this.recordInfo.missing,
+                }, { spaces: 2 });
+                return;
+            }
             const output = getDefaultRecordInfo();
             Object.keys(this.recordInfo.map).forEach((path) => {
                 output.map[(0, path_1.relative)(this.pathRoot, path)] = this.recordInfo.map[path];

@@ -1,5 +1,5 @@
 import { existsSync, outputJSONSync, readJSONSync } from 'fs-extra';
-import { join, relative } from 'path';
+import { basename, join, relative } from 'path';
 import { CustomConsole } from './console';
 import { Migrator, Migrate } from './migrator';
 
@@ -65,6 +65,7 @@ export class DependencyManager {
     dependMap: DependMap = getDefaultRecordInfo().data;
     _saveTimer: any = null;
     private console: CustomConsole | Console;
+    private editorCompatibility = false;
 
     constructor(customConsole: CustomConsole, pathRoot: string) {
         this.console = customConsole || console;
@@ -72,6 +73,7 @@ export class DependencyManager {
     }
 
     async setRecordJSON(path: string): Promise<void> {
+        this.editorCompatibility = basename(path) === '.internal-dependency.json';
         this.file = path;
         try {
             await this._restoreCache(path);
@@ -86,6 +88,26 @@ export class DependencyManager {
             return;
         }
 
+        if (this.editorCompatibility) {
+            if ((cache as any).data) {
+                Object.keys((cache as any).data.path).forEach((path) => {
+                    this.dependMap.path[join(this.pathRoot, path)] = (cache as any).data.path[path].map((dependency: string) => {
+                        return join(this.pathRoot, dependency);
+                    });
+                });
+                Object.keys((cache as any).data.uuid).forEach((path) => {
+                    this.dependMap.uuid[join(this.pathRoot, path)] = (cache as any).data.uuid[path];
+                });
+            } else {
+                this.dependMap = {
+                    path: (cache as any).path || {},
+                    uuid: (cache as any).uuid || {},
+                };
+            }
+            this.restoreAssociatedMap();
+            return;
+        }
+
         const { path: pathMap, uuid: uuidMap } = this.dependMap;
         Object.keys(cache.data.path).forEach((path) => {
             pathMap[join(this.pathRoot, path)] = cache.data.path[path].map((dependency) => {
@@ -96,17 +118,7 @@ export class DependencyManager {
             uuidMap[join(this.pathRoot, path)] = cache.data.uuid[path];
         });
 
-        for (const type in this.dependMap) {
-            const map = (this.dependMap as any)[type] as Record<string, string[]>;
-            for (const path in map) {
-                map[path].forEach((dependency) => {
-                    associatedMap[dependency] = associatedMap[dependency] || [];
-                    if (associatedMap[dependency].indexOf(path) === -1) {
-                        associatedMap[dependency].push(path);
-                    }
-                });
-            }
-        }
+        this.restoreAssociatedMap();
     }
 
     private async readRecordJSON(path: string): Promise<DependencyRecord | undefined> {
@@ -137,6 +149,13 @@ export class DependencyManager {
     saveImmediate(): void {
         clearTimeout(this._saveTimer);
         if (this.file) {
+            if (this.editorCompatibility) {
+                outputJSONSync(this.file, {
+                    path: this.dependMap.path,
+                    uuid: this.dependMap.uuid,
+                }, { spaces: 2 });
+                return;
+            }
             const output = getDefaultRecordInfo();
             const { path: pathMap, uuid: uuidMap } = this.dependMap;
             Object.keys(pathMap).forEach((path) => {
@@ -202,6 +221,20 @@ export class DependencyManager {
                     }
                     if (associatedMap[dependency].length === 0) {
                         delete associatedMap[dependency];
+                    }
+                });
+            }
+        }
+    }
+
+    private restoreAssociatedMap(): void {
+        for (const type in this.dependMap) {
+            const map = (this.dependMap as any)[type] as Record<string, string[]>;
+            for (const path in map) {
+                map[path].forEach((dependency) => {
+                    associatedMap[dependency] = associatedMap[dependency] || [];
+                    if (associatedMap[dependency].indexOf(path) === -1) {
+                        associatedMap[dependency].push(path);
                     }
                 });
             }
