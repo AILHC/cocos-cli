@@ -8,6 +8,12 @@ import { CocosMigrationManager } from '../migration';
 import { configurationRegistry } from './registry';
 import { IBaseConfiguration } from './config';
 import EventEmitter from 'events';
+import {
+    buildPersistedCliConfig,
+    isCliOwnedConfigPath,
+    isEditorOwnedConfigPath,
+    mergeRuntimeProjectConfig,
+} from './owner-map';
 
 export interface IConfigurationManager {
     /**
@@ -74,6 +80,8 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
     private projectPath: string = '';
     private configPath: string = '';
     private projectConfig: IConfiguration = {};
+    private cliPersistedConfig: IConfiguration = {};
+    private editorOwnedConfig: IConfiguration = {};
     private saveQueue: Promise<void> = Promise.resolve();
 
     private _version: string = '0.0.0';
@@ -105,8 +113,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
         await this.load();
         try {
             await fse.copy(ConfigurationManager.SchemaPathSource, schemaPath);
-            // 迁移不能影响正常的配置初始化流程
-            await this.migrate();
+            await this.rebuildRuntimeProjectConfig();
         } catch (error) {
             console.error(error);
         }
@@ -118,6 +125,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
      */
     public async reload(): Promise<void> {
         await this.load();
+        await this.rebuildRuntimeProjectConfig();
         this.emit(MessageType.Reload, this.projectConfig);
     }
 
@@ -132,6 +140,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
 
             const bind = async (configInstance: IBaseConfiguration) => {
                 this.projectConfig[configInstance.moduleName] = configInstance.getAll();
+                this.cliPersistedConfig = buildPersistedCliConfig(this.projectConfig) as IConfiguration;
                 await this.save();
             };
             instance.on(MessageType.Save, bind);
@@ -164,6 +173,22 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
         instance.configs = utils.deepMerge({}, existingConfig);
     }
 
+    private refreshRegisteredInstances(): void {
+        const instances = (configurationRegistry as any).getInstances?.() || {};
+        for (const instance of Object.values(instances) as IBaseConfiguration[]) {
+            const existingConfig = this.projectConfig[instance.moduleName];
+            if (existingConfig && typeof existingConfig === 'object') {
+                this.initializeConfigFromProject(instance, existingConfig);
+            }
+        }
+    }
+
+    private async rebuildRuntimeProjectConfig(): Promise<void> {
+        this.editorOwnedConfig = await CocosMigrationManager.loadEditorOwnedConfig(this.projectPath) as IConfiguration;
+        this.projectConfig = mergeRuntimeProjectConfig(this.editorOwnedConfig, this.cliPersistedConfig) as IConfiguration;
+        this.refreshRegisteredInstances();
+    }
+
     /**
      * 迁移，包含了 3x 迁移，允许外部单独触发
      */
@@ -184,9 +209,9 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
      * @returns 迁移后的项目配置
      */
     public async migrateFromProject(projectPath: string): Promise<IConfiguration> {
-        const list = await CocosMigrationManager.migrate(projectPath);
-        this.projectConfig = utils.deepMerge(this.projectConfig, list.project) as IConfiguration;
-        await this.save();
+        this.editorOwnedConfig = await CocosMigrationManager.loadEditorOwnedConfig(projectPath) as IConfiguration;
+        this.projectConfig = mergeRuntimeProjectConfig(this.editorOwnedConfig, this.cliPersistedConfig) as IConfiguration;
+        this.refreshRegisteredInstances();
         return this.projectConfig;
     }
 
@@ -254,6 +279,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
         try {
             await this.ensureInitialized();
             const { moduleName, actualKey } = this.parseKey(key);
+            this.assertProjectWriteAllowed(moduleName, actualKey, scope);
             await this.getInstance(moduleName).set(actualKey, value, scope);
             this.emit(MessageType.Update, key, value, scope);
             return true;
@@ -271,6 +297,7 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
         try {
             await this.ensureInitialized();
             const { moduleName, actualKey } = this.parseKey(key);
+            this.assertProjectWriteAllowed(moduleName, actualKey, scope);
             this.emit(MessageType.Remove, key, scope);
             return await this.getInstance(moduleName).remove(actualKey, scope);
         } catch (error) {
@@ -287,19 +314,30 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
         }
     }
 
+    private assertProjectWriteAllowed(moduleName: string, actualKey: string, scope: ConfigurationScope): void {
+        if (scope === 'default') {
+            return;
+        }
+        const fullPath = `${moduleName}.${actualKey}`;
+        if (isEditorOwnedConfigPath(fullPath) && !isCliOwnedConfigPath(fullPath)) {
+            throw new Error(`[Configuration] ${fullPath} is maintained by Cocos Creator Editor settings/profiles and cannot be persisted to cocos.config.json`);
+        }
+    }
+
     /**
      * 加载项目配置
      */
     private async load(): Promise<void> {
         try {
             if (await fse.pathExists(this.configPath)) {
-                this.projectConfig = await fse.readJSON(this.configPath);
-                this.projectConfig.version && (this.version = this.projectConfig.version);
-                newConsole.debug(`[Configuration] 已加载项目配置: ${this.configPath}`, this.projectConfig);
+                this.cliPersistedConfig = buildPersistedCliConfig(await fse.readJSON(this.configPath)) as IConfiguration;
+                this.cliPersistedConfig.version && (this.version = this.cliPersistedConfig.version);
+                this.projectConfig = this.cliPersistedConfig;
+                newConsole.debug(`[Configuration] 已加载项目配置: ${this.configPath}`, this.cliPersistedConfig);
             } else {
                 newConsole.debug(`[Configuration] 项目配置文件不存在，将创建新文件: ${this.configPath}`);
-                // 创建默认配置文件
-                await this.save();
+                this.cliPersistedConfig = {};
+                this.projectConfig = {};
             }
         } catch (error) {
             newConsole.error(`[Configuration] 加载项目配置失败: ${this.configPath} - ${error}`);
@@ -310,7 +348,8 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
      * 保存项目配置
      */
     public async save(force: boolean = false): Promise<void> {
-        if (!force && !Object.keys(this.projectConfig).length) {
+        const persistedConfig = buildPersistedCliConfig(this.cliPersistedConfig) as IConfiguration;
+        if (!force && !Object.keys(persistedConfig).length) {
             return;
         }
         const nextSave = this.saveQueue
@@ -320,11 +359,12 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
                     this.version = ConfigurationManager.VERSION;
                     // 确保目录存在
                     await fse.ensureDir(path.dirname(this.configPath));
-                    this.projectConfig.version = this.version;
-                    this.projectConfig.$schema = ConfigurationManager.relativeSchemaPath;
+                    persistedConfig.version = this.version;
+                    persistedConfig.$schema = ConfigurationManager.relativeSchemaPath;
                     // 保存配置文件
-                    await fse.writeJSON(this.configPath, this.projectConfig, { spaces: 4 });
-                    this.emit(MessageType.Save, this.projectConfig);
+                    await fse.writeJSON(this.configPath, persistedConfig, { spaces: 4 });
+                    this.cliPersistedConfig = persistedConfig;
+                    this.emit(MessageType.Save, persistedConfig);
                     newConsole.debug(`[Configuration] 已保存项目配置: ${this.configPath}`);
                 } catch (error) {
                     newConsole.error(`[Configuration] 保存项目配置失败: ${this.configPath} - ${error}`);
@@ -350,6 +390,8 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
         this.projectPath = '';
         this.configPath = '';
         this.projectConfig = {};
+        this.cliPersistedConfig = {};
+        this.editorOwnedConfig = {};
         this.version = '0.0.0';
         this.configurationMap.clear();
     }
