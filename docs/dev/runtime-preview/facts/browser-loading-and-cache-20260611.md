@@ -9,7 +9,7 @@
 - 旧 Editor preview server 大量使用 Express `res.sendFile()` / `express.static()` 返回脚本、engine、library、plugin 和 preview-app 文件。
 - Express `send` 默认会为 file response 设置 `Cache-Control: public, max-age=0`、`Last-Modified`、`ETag`，并基于请求 header 做 conditional request 判断。
 - 迁移前 runtime preview 自写 HTTP server 的 `serveOnDemandFile()` / `textResponse()` 只设置 `content-type`，没有设置 `Cache-Control`、`Last-Modified`、`ETag`，也没有处理 `If-None-Match` / `If-Modified-Since`。
-- 2026-06-12 已将 runtime preview file response 迁移到 Express `res.sendFile(..., { dotfiles: "allow" })`；body response 仍使用原始 `writeHead()` / `end()`，不新增 Express body `ETag` / conditional `304`。
+- 2026-06-12 已将 runtime preview file response 迁移到 Express `res.sendFile(..., { dotfiles: "allow" })`；随后将 body response 也迁移到 Express `res.send()`，对齐 old preview server 的 body `ETag` / conditional `304` 路径。
 - feature-c 真实 `/scripting/x/.../chunks/*.js` 已验证：首次请求返回 `200` 且带 `Cache-Control: public, max-age=0`、`ETag`、`Last-Modified`，第二次带 `If-None-Match` 返回 `304`。
 
 ## 旧 Editor 参考路径
@@ -120,9 +120,10 @@ response.writeHead(routeResponse.statusCode, routeResponse.headers);
 - `StartedRuntimePreviewServer.server` 仍是 Node `http.Server`，用于保持 listen / close / port allocation 语义。
 - 业务 route dispatcher 仍是 `handleRuntimePreviewRequest()`。
 - file response 由 Express `res.sendFile(..., { dotfiles: "allow" })` 输出。
-- body response 继续使用原始 `writeHead()` / `end()` 写出，不新增 Express body `ETag` / conditional `304`。
+- body response 使用 Express `res.send()` 写出；Express 默认 body `ETag` 生效，带匹配 `If-None-Match` 的请求可返回 `304`，但不会生成 file response 才有的 `Last-Modified`。
 - Express 默认 `X-Powered-By` 已禁用，避免引入与目标无关的新增 header。
 - 未变化 file response 已验证返回 `Cache-Control: public, max-age=0`、`ETag`、`Last-Modified`，带 `If-None-Match` 请求返回 `304`。
+- 未变化 body response 已验证返回 `ETag`，不返回 `Last-Modified`，带匹配 `If-None-Match` 请求返回 `304`。
 - `/preview-error` 正常 POST 已通过真实 HTTP adapter 验证会写入 runtime preview log；超过 `64 KiB` 仍返回 plain text `413`。
 - feature-c 验证样本：`http://127.0.0.1:19630/scripting/x/packer-driver/targets/preview/chunks/00/00058acb9fa7c504e2af7956b6de2e0036373fdb.js` 首次 `200`，`Cache-Control=public, max-age=0`，`ETag=W/"1fec-19eb72cd9ed"`，`Last-Modified=Thu, 11 Jun 2026 14:53:50 GMT`，二次 `If-None-Match` 返回 `304`。
 - 该迁移不改变默认 programming cache 策略，不改变 prerequisite scripts 加载顺序。
@@ -153,7 +154,7 @@ for (const request of requests) {
 
 - 浏览器打开 preview 时，大量 `/scripting/x/.../chunks/*.js` 请求是否主要受浏览器缓存策略、DevTools disable cache、还是 module graph 加载时序影响。
 - Express file response 已能让未变化的真实 feature-c script chunk 在 HTTP 条件请求下返回 `304`；浏览器 Network 面板中的实际缓存命中比例仍需浏览器 trace 验证。
-- `settings.js`、bundle `config.json`、`/scripting/import-map-global`、QuickPack import map / resolution detail map 是否应该禁用强缓存或只允许 revalidate。
+- `settings.js`、bundle `config.json`、`/scripting/import-map-global`、QuickPack import map / resolution detail map 当前通过 Express body `ETag` 只允许 revalidate；是否需要更细的 `Cache-Control` 仍需结合 browser trace 验证。
 - prerequisite scripts 的耗时到底来自网络请求串行、模块求值串行、browser cache miss，还是 SystemJS resolver / import map 解析开销。
 
 ## 禁止事项
