@@ -179,6 +179,8 @@ export class ConfigurationManager extends EventEmitter implements IConfiguration
             const existingConfig = this.projectConfig[instance.moduleName];
             if (existingConfig && typeof existingConfig === 'object') {
                 this.initializeConfigFromProject(instance, existingConfig);
+            } else {
+                this.initializeConfigFromProject(instance, {});
             }
         }
     }

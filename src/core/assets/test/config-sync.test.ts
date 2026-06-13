@@ -85,7 +85,7 @@ describe('asset import config sync', () => {
         await expect(runtime.assetConfig.getProject<string[]>('globList')).resolves.toEqual(['!**/*.tmp', '!**/*.bak']);
         await expect(runtime.assetConfig.getProject<boolean>('restoreAssetDBFromCache')).resolves.toEqual(true);
         await expect(runtime.assetConfig.getProject<string>('createTemplateRoot')).resolves.toEqual(customTemplateRoot);
-        await expect(runtime.assetConfig.getProject<boolean>('fbx.material.smart')).resolves.toEqual(true);
+        await expect(runtime.assetConfig.getProject<boolean>('fbx.material.smart')).resolves.toBe(false);
 
         expect(runtime.assetConfig.data.globList).toEqual(['!**/*.tmp', '!**/*.bak']);
         expect(runtime.assetConfig.data.restoreAssetDBFromCache).toBe(true);

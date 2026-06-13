@@ -110,6 +110,7 @@ describe('configuration owner map', () => {
 
     it('classifies config paths by owner', () => {
         expect(isCliOwnedConfigPath('import.globList')).toBe(true);
+        expect(isCliOwnedConfigPath('import.globList.0')).toBe(true);
         expect(isCliOwnedConfigPath('import.restoreAssetDBFromCache')).toBe(true);
         expect(isCliOwnedConfigPath('import.createTemplateRoot')).toBe(true);
         expect(isCliOwnedConfigPath('version')).toBe(true);
@@ -124,5 +125,6 @@ describe('configuration owner map', () => {
         expect(isEditorOwnedConfigPath('import.fbx.material.smart')).toBe(true);
         expect(isEditorOwnedConfigPath('import.someFutureEditorField')).toBe(true);
         expect(isEditorOwnedConfigPath('import.restoreAssetDBFromCache')).toBe(false);
+        expect(isEditorOwnedConfigPath('import.globList.0')).toBe(false);
     });
 });
