@@ -112,8 +112,8 @@ export class InfoManager {
     }
 
     async setRecordJSON(path: string): Promise<void> {
-        this.editorCompatibility = basename(path) === '.internal-info.json';
-        this.file = this.editorCompatibility ? getLegacyInfoPath(path) : path;
+        this.editorCompatibility = basename(path) === '.internal-info1.0.0.json';
+        this.file = path;
         try {
             await this._restoreCache(this.file);
         } catch (error) {
