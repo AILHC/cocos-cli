@@ -34,6 +34,7 @@ Creator profile adapter 和 `cocos.config.json` 迁移策略属于 build/configu
 
 当前 evidence 主要来自 runtime preview / engine root 专项；后续 configuration 专项结束后应补充模块自己的 facts 文档。
 
+- `../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md`
 - `../build/issues.md`
 - `../build/README.md`
 - `../build-extension-hooks-20260612.md`

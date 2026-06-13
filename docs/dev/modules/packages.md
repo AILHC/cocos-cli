@@ -37,5 +37,5 @@ Package 行为需要通过 package 自身测试或消费方测试验证，不能
 
 当前 package 相关 evidence 主要来自 build/AssetDB 专项。后续 package 专项完成后，应补充模块自己的 facts 文档。
 
-- `../build/plans/asset-db-custom-source-20260613.md`
+- `../../superpowers/plans/2026-06-13-asset-db-custom-source.md`
 - `../build/facts/meta-library-editor-parity-20260613.md`

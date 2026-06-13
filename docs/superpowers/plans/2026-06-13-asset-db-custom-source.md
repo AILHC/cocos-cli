@@ -12,10 +12,10 @@
 
 ## 文档归属
 
-- Build 专题入口：[../README.md](../README.md)
-- AssetDB 正式模块：[../../modules/asset-db.md](../../modules/asset-db.md)
-- Packages 正式模块：[../../modules/packages.md](../../modules/packages.md)
-- Builder 正式模块：[../../modules/builder.md](../../modules/builder.md)
+- Build 专题入口：[../../dev/build/README.md](../../dev/build/README.md)
+- AssetDB 正式模块：[../../dev/modules/asset-db.md](../../dev/modules/asset-db.md)
+- Packages 正式模块：[../../dev/modules/packages.md](../../dev/modules/packages.md)
+- Builder 正式模块：[../../dev/modules/builder.md](../../dev/modules/builder.md)
 
 ## 执行原则
 
