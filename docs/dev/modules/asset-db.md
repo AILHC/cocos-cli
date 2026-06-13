@@ -23,13 +23,21 @@ AssetDB 模块不直接推导 script chunk 业务语义，不负责 HTTP route r
 
 ## Dependencies
 
-依赖 project、configuration、engine、filesystem 和 Cocos AssetDB 相关 npm packages。
+依赖 project、configuration、engine、filesystem 和 Cocos AssetDB 相关 packages。当前 `@cocos/asset-db` 由本仓库 local package `packages/asset-db` 接管，root `package.json` 通过 `file:./packages/asset-db` 引用。
 
 ## Current Constraints
 
 资源解析必须基于真实 AssetDB/library metadata。不能用 chunk regex 或 frozen editor output 反推 production 语义。
 
 CLI build 期间 AssetDB 对 `.meta` 和 project-level `library` records 的写入必须与 Editor baseline 对齐。不能简单禁止写入、build 后回滚文件，或未确认 Editor 行为就把 `internal` DB 改到隔离目录。
+
+`packages/asset-db` 必须保留原 package name `@cocos/asset-db` 和既有 `@cocos/asset-db/libs/*` 子路径兼容。修改 local package 行为前，应先用行为测试锁定 registry package 或当前 local mirror 行为，再记录与 Editor baseline 对齐的差异。
+
+当前 build/AssetDB 写入状态：
+
+- `BUILD-ISSUE-007`：`internal` DB 顶层 record schema 已基本收敛到 Editor baseline，但 `.internal-info1.0.0.json` 仍有 1 个 engine asset `time` 字段差异，状态 `open`。
+- `BUILD-ISSUE-008`：非 3D `typescript` `.meta imported:false` 复验后不再复现，状态 `fixed`。
+- `BUILD-ISSUE-009`：3D `.gltf/.glb/.fbx.meta` 与 Editor baseline 不一致，状态 `open`。
 
 ## Related Evidence
 
