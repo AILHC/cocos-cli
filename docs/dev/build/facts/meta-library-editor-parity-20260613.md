@@ -476,6 +476,60 @@ resolve_error_module_not_found:
 - 如果移除 `localization-editor` 后不再复现，则当前 3 个 `.ts.meta` 是旧构建残留，应先恢复 baseline 后重新验证。
 - 如果仍复现，应继续定位 TypeScript importer 的 `scripting.compileScripts()` 输入和 module graph；修复目标是让 importer 成功，不能强行恢复 `imported: true` 或禁止 `.meta` 写回。
 
+### 2026-06-13 移除 `localization-editor` 后 TypeScript `.meta` 复验
+
+复验前置：
+
+- 测试项目 `extensions/localization-editor` 已不存在。
+- 先恢复 3 个 `.ts.meta` 到 git baseline：
+  - `assets/cases/GFX/mipmapCheck/mipmapCheck.ts.meta`
+  - `assets/cases/GFX/setMipRange/setMipRange-cube.ts.meta`
+  - `assets/cases/GFX/setMipRange/setMipRange-quad.ts.meta`
+- 恢复后 `git status --short -- <3 files>` 无输出。
+
+执行命令：
+
+```powershell
+rtk pwsh -NoProfile -Command "npm run build"
+rtk pwsh -NoProfile -Command "node ./dist/cli.js build --project E:\own_space\engines\cocos-test-projects --platform web-mobile --build-config E:\own_space\engines\cocos-test-projects\profiles\v2\packages\web-mobile.json --buildPath E:\own_space\engines\cocos-test-projects\build --outputName cli-ts-meta-verify"
+```
+
+执行结果：
+
+- CLI build exit code: `0`。
+- 项目 build exit code: `0`。
+- 输出目录存在：`E:\own_space\engines\cocos-test-projects\build\cli-ts-meta-verify`。
+- 构建后 3 个 `.ts.meta` 仍无 diff。
+- 最新构建日志 `E:\own_space\engines\cocos-test-projects\temp\logs\cocos-20260613131752.log` 中未匹配到：
+  - `l10n-manager`
+  - `Failed to import script`
+  - `mipmapCheck`
+  - `setMipRange-cube`
+  - `setMipRange-quad`
+  - `resolve_error_module_not_found`
+
+复验结论：
+
+- 当前代码与当前测试项目状态下，3 个 `.ts.meta imported:true -> false` 不再复现。
+- 之前 3 个 `.ts.meta` diff 可归类为移除 `localization-editor` 前构建留下的旧污染，而不是当前 CLI 在现状态下仍会稳定改写。
+- 当前测试项目 source `.meta` diff 分类已经只剩 3D 资源：
+  - `.glb.meta`: `188`
+  - `.gltf.meta`: `70`
+  - `.fbx.meta`: `28`
+
+补充观察：
+
+- 同次构建后，`library` 顶层 `.internal-data.json` 与 `.internal-dependency.json` 仍与 Editor baseline raw/canonical hash 一致。
+- `.internal-info1.0.0.json` 与 Editor baseline 不一致，但差异仅有 1 个 `map` entry 的 `time` 字段：
+
+```text
+D:\workspace\engines\cocos\3.8.6\editor\assets\primitives.fbx.meta
+base.time = 1781276469143.8496
+project.time = 1781313354600.38
+```
+
+该差异说明 internal info record 仍会按当前 engine source 文件 mtime 写回；是否应视为问题，需要后续对齐 Editor 在相同 engine 文件 mtime 下的行为。它不影响本小节的 TypeScript `.meta` 结论。
+
 ## 阶段结论
 
 - CLI build 在当前 Editor baseline 后会额外改写 `.meta`。
