@@ -1,7 +1,7 @@
 import { Logger } from '@cocos/creator-programming-common/lib/logger';
 import { QuickPack } from '@cocos/creator-programming-quick-pack/lib/quick-pack';
-import { cjsMetaUrlExportName } from '@cocos/creator-programming-mod-lo/lib/cjs/share';
 import { isBareSpecifier } from '@cocos/creator-programming-common/lib/specifier';
+import { createCommonJSBareSpecifierFallbackSource } from '../commonjs-bare-specifier-fallback-source';
 
 interface QuickPackResolutionMessage {
     level: 'warn' | 'error';
@@ -50,12 +50,7 @@ export function createCommonJSBareSpecifierFallbackResolution(
 
     logger.error(message);
 
-    const escapedSpecifier = specifierValue
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'");
-    const source = `
-export const ${cjsMetaUrlExportName} = '${escapedSpecifier}';
-`;
+    const source = createCommonJSBareSpecifierFallbackSource();
 
     return {
         resolved: {

@@ -12,6 +12,8 @@ import ps, { relative } from 'path';
 import { packMods } from '../../utils/pack-mods';
 import { CCEnvConstants } from './build-time-constants';
 import { isCjsInteropUrl, getCjsInteropTarget } from '@cocos/creator-programming-common';
+import { isBareSpecifier } from '@cocos/creator-programming-common/lib/specifier';
+import { modLoBuiltinModCommonJsURL } from '@cocos/creator-programming-mod-lo/lib/utils/mod-lo-builtin-mods';
 import { build as buildSystemJs } from '@cocos/module-system';
 import buildPolyfills from '@cocos/build-polyfills';
 import { IBuildSystemJsOption, IPolyFills } from '../../../../@types';
@@ -20,6 +22,7 @@ import minimatch from 'minimatch';
 import { SharedSettings } from '../../../../../scripting/interface';
 import { MacroItem } from '../../../../../engine/@types/config';
 import { DBInfo } from '../../../../../scripting/@types/config-export';
+import { createCommonJSBareSpecifierFallbackSource } from '../../../../../scripting/commonjs-bare-specifier-fallback-source';
 
 interface buildRes {
     scriptPackages: string[];
@@ -31,6 +34,8 @@ interface Bundle {
     scripts: IAssetInfo[];
     outFile: string;
 }
+
+type ModLoModuleType = 'json' | 'esm' | 'commonjs' | undefined;
 
 function relativeUrl(from: string, to: string) {
     return relative(from, to).replace(/\\/g, '/');
@@ -46,6 +51,80 @@ const useEditorFolderFeature = false; // TODO: 之后正式接入编辑器 Edito
 
 function getExternalEditorModules(cceModuleMap: Record<string, any>) {
     return Object.keys(cceModuleMap).filter(name => name !== 'mapLocation');
+}
+
+function createModLoRollupPlugin({
+    modLo,
+}: {
+    modLo: ModLo;
+}): rollup.Plugin {
+    const loadMetaMap: Record<string, {
+        url: URL;
+        type: ModLoModuleType;
+    }> = {};
+    return {
+        name: 'rollup-plugin-mod-lo-cocos-cli',
+        resolveId(source, importer) {
+            if (source === rpModLo.helperModule || source === modLoBuiltinModCommonJsURL) {
+                return { id: source };
+            }
+
+            let resolved;
+            try {
+                if (!importer) {
+                    resolved = modLo.resolve(source);
+                } else {
+                    const loadMeta = loadMetaMap[importer];
+                    if (!loadMeta) {
+                        return null;
+                    }
+                    resolved = modLo.resolve(source, loadMeta.url, loadMeta.type);
+                }
+            } catch (error) {
+                const importerModLoType = importer ? loadMetaMap[importer]?.type : undefined;
+                if (isBareSpecifier(source) && importerModLoType === 'commonjs') {
+                    return {
+                        id: `data:text/javascript,${encodeURIComponent(createCommonJSBareSpecifierFallbackSource())}`,
+                    };
+                }
+                return this.error(error as Error);
+            }
+
+            if (resolved.isExternal) {
+                return {
+                    external: true,
+                    id: source,
+                };
+            }
+            return {
+                id: resolved.url.href,
+            };
+        },
+        load(id) {
+            let url: URL;
+            try {
+                url = new URL(id);
+            } catch {
+                return null;
+            }
+
+            let modLoModule;
+            try {
+                modLoModule = modLo.load(url);
+            } catch {
+                return null;
+            }
+            loadMetaMap[id] = {
+                url,
+                type: modLoModule.type as ModLoModuleType,
+            };
+            const source = modLoModule.module();
+            return {
+                code: source.code,
+                map: source.map,
+            };
+        },
+    };
 }
 
 async function genImportRestrictions(dbInfos: DBInfo[], externalEditorModules: string[]) {
@@ -298,7 +377,7 @@ export async function buildScriptCommand(
     }
 
     const rollupPlugins: rollup.Plugin[] = [
-        rpModLo({ modLo }),
+        createModLoRollupPlugin({ modLo }),
     ];
     if (modulePreservation === 'facade' || modulePreservation === 'erase') {
         rollupPlugins.push(rpNamedChunk());
