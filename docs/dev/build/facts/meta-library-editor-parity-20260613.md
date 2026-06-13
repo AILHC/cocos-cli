@@ -24,6 +24,41 @@
 - 构建配置：`E:\own_space\engines\cocos-test-projects\profiles\v2\packages\web-mobile.json`
 - 构建输出：`E:\own_space\engines\cocos-test-projects\build\codex-cli-output\cli-side-effect-check`
 
+## Editor baseline 产物事实
+
+来源：`E:\own_space\engines\cocos-cli\.codex-tmp\bak_test_projects_library_data_json`。当前阶段以用户提供的 Editor backup 作为权威产物 baseline；若后续要证明 Editor 内部 `AssetDB` 版本或 patch，应作为附加事实，不替代这个产物 baseline。
+
+文件集合共 10 个顶层 JSON：
+
+| 文件 | 字节数 | 顶层结构 | raw SHA256 | canonical JSON SHA256 |
+| --- | ---: | --- | --- | --- |
+| `.assets-data.json` | 1395112 | 5494 个 uuid-like keys | `e60c6a434862a0a5b491ca7c27a75f567980f285edd7577c87bbb077fec99900` | `0eff4382e4ed4ba1fb94f90263a887e459d3e46ea53c1e0a9a39702ccb909001` |
+| `.assets-dependency.json` | 162981 | `path` / `uuid` | `8d3481be81c24e0301ac9bc1aa23f01e5d94cf3bd83d51bbe5bddeeef60133ed` | `4b587acfb7c6898906e8ed4cad0ca1737764060477d3ef642175e84e0eec6b88` |
+| `.assets-info1.0.0.json` | 886206 | `version` / `map` / `missing` | `6fe120933f56cb841806035c2a4e5f7f8d6090de8643e20f4dfc1cac8b1835f3` | `10361cda61d9748415a301eaf97233e7a4d90379a77c33e93115fa29a985a72d` |
+| `.internal-data.json` | 113080 | 597 个 uuid-like keys | `b623f3500205a5626772e9415f519f004f94f22e5c7cc922ecd9859bdaf2765a` | `c9f297d95c17718018c8bba32b871274ba9f398414b450bb111bbc447ec4c572` |
+| `.internal-dependency.json` | 287569 | `path` / `uuid` | `3a5e00e3acb20dfd89b34597fd0fffdc65f5af44eca78caa576b9bf1ff40e992` | `2198a77e1523946bb3dd2db5eebbca9e81b3958a0211f7fc23fb4180441f6648` |
+| `.internal-info1.0.0.json` | 173288 | `version` / `map` / `missing` | `3f13a618531a013e62f8eda36512ca7c5ba07d0cd4da5d514568a17b84e56a2b` | `f38c9de32bdebb10eee1543b3150741f36cbef70d5f40b003a3e46c5df8fecac` |
+| `.localization-editor-data.json` | 2844 | 19 个 uuid-like keys | `5abb4da13d7a1f909ed1e1aa6212eb6efb2062a4015a5ff7ab89827ab7ccaf72` | `790d1c0d3a1845df88c6bcaf989ae14aee38eb35090a34665a5064ea37f0e357` |
+| `.localization-editor-info1.0.0.json` | 7421 | `version` / `map` / `missing` | `9742d0ae6ea1b1d87b3fa5d3a8b1a72ebd2e1e5b3ec0fabc7ec0f7e77654fddd` | `0925a3b9b27c9f29a69b327d82862bfd76e73d2cb29c81085e526e9fc6d0099f` |
+| `.view-state-group-data.json` | 449 | 3 个 uuid-like keys | `aebd73e9cf21aaa6f2028ca01ef5e85728fc114abd666bfd0769595ba1edc5c7` | `184fa3da67e2b321a889f6a85fe86ca655fbea5f2ace837d9a498167fe02eae3` |
+| `.view-state-group-info1.0.0.json` | 1170 | `version` / `map` / `missing` | `ac57c8614d982fa3f25570e0cdc2569ebd9f939b34c63511ad73a4c78b978eaa` | `bbd1a76a4c280d71d25532ac149f0095b4c8bd5a6ffe55a06a7778950f841412` |
+
+关键 schema 摘要：
+
+| 文件 | version / 数量 | 顶层字段或 value shape |
+| --- | --- | --- |
+| `.internal-info1.0.0.json` | `version: 1.0.0`；`map: 1002`；`missing: 0` | 顶层字段为 `version` / `map` / `missing`，文件名带 `1.0.0` |
+| `.internal-dependency.json` | `path: 88`；`uuid: 31` | 顶层字段为 `path` / `uuid`，没有 `data` / `version` 包裹 |
+| `.internal-data.json` | 597 个 uuid-like keys | 每个 value 的字段形状为 `url` / `value` / `versionCode` |
+| `.assets-info1.0.0.json` | `version: 1.0.0`；`map: 4898`；`missing: 0` | 同样使用 `*.info1.0.0.json` 旧文件名 |
+| `.assets-dependency.json` | `path: 259`；`uuid: 185` | 同样使用顶层 `path` / `uuid` 旧结构 |
+
+阶段性修复层级判断：
+
+- Editor baseline 在项目 `library` 顶层保留旧 record schema，不是仅 key 顺序或格式化差异。
+- CLI 当前 `internal.library` 也指向 `<project>/library`，这一路径策略本身与产物位置不冲突；冲突集中在 `@cocos/asset-db` record manager 写入 schema / migration 策略。
+- 因此下一步优先在 vendored `packages/asset-db` 中实现可解释的 compatibility mode，使 CLI 写出的 `internal` 顶层 record 与 Editor baseline 的文件名和结构一致；除非后续发现 Editor 实际使用了不同 `internal.library` 策略，否则不优先修改 `src/core/assets/asset-config.ts`。
+
 ## Build 前检查
 
 命令：
