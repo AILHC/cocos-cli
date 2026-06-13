@@ -1,1 +1,55 @@
-"use strict";Object.defineProperty(exports,"__esModule",{value:!0}),exports.Migrator=void 0;const utils_1=require("./utils");class Migrator{constructor(r,o,t){this.migrations=r,this.lastedVersion=o,this.hook=t,(null===t||void 0===t?void 0:t.onError)&&(this.onError=t.onError)}async run(r,o,t){if(o===this.lastedVersion)return r;if(this.hook&&this.hook.pre)try{await this.hook.pre(r)}catch(o){this.onError(o,"preMigrate",r,...t||[])}let i=r;for(const r of this.migrations){if(!((0,utils_1.compareVersion)(o,r.version)>0))try{console.debug(`Migration: -> ${r.version}`),i=await r.migrate(i,...t||[])}catch(r){this.onError(r,"migrate",i,...t||[])}}if(this.hook&&this.hook.post)try{await this.hook.post(r)}catch(o){this.onError(o,"postMigrate",r,...t||[])}return i}onError(r,o,t,...i){console.error(`Migrate error in ${o}`),console.error(r)}}exports.Migrator=Migrator;
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Migrator = void 0;
+const utils_1 = require("./utils");
+class Migrator {
+    constructor(migrations, lastedVersion, hook) {
+        this.migrations = migrations;
+        this.lastedVersion = lastedVersion;
+        this.hook = hook;
+        if (hook === null || hook === void 0 ? void 0 : hook.onError) {
+            this.onError = hook.onError;
+        }
+    }
+    async run(data, startVersion, extArgs) {
+        var _a, _b;
+        if (startVersion === this.lastedVersion) {
+            return data;
+        }
+        if ((_a = this.hook) === null || _a === void 0 ? void 0 : _a.pre) {
+            try {
+                await this.hook.pre(data);
+            }
+            catch (error) {
+                this.onError(error, 'preMigrate', data, ...(extArgs || []));
+            }
+        }
+        let result = data;
+        for (const migration of this.migrations) {
+            if ((0, utils_1.compareVersion)(startVersion, migration.version) > 0) {
+                continue;
+            }
+            try {
+                console.debug(`Migration: -> ${migration.version}`);
+                result = await migration.migrate(result, ...(extArgs || []));
+            }
+            catch (error) {
+                this.onError(error, 'migrate', result, ...(extArgs || []));
+            }
+        }
+        if ((_b = this.hook) === null || _b === void 0 ? void 0 : _b.post) {
+            try {
+                await this.hook.post(data);
+            }
+            catch (error) {
+                this.onError(error, 'postMigrate', data, ...(extArgs || []));
+            }
+        }
+        return result;
+    }
+    onError(error, stage, data, ...args) {
+        console.error(`Migrate error in ${stage}`);
+        console.error(error);
+    }
+}
+exports.Migrator = Migrator;

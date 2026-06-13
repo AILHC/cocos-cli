@@ -1,1 +1,185 @@
-"use strict";Object.defineProperty(exports,"__esModule",{value:!0}),exports.InfoManager=void 0;const fs_extra_1=require("fs-extra"),path_1=require("path"),migrator_1=require("./migrator"),migrations=[{version:"1.0.0",migrate:async(e,t)=>{const r={version:InfoManager.version,map:{},missing:{}};return Object.keys(e).forEach(t=>{const s=e[t];s.missing?(delete s.missing,s.uuid&&(r.missing[s.uuid]={path:t,time:s.time,removeTime:Date.now()})):(delete s.missing,r.map[t]=s)}),r}},{version:"1.0.1",migrate:async(e,t)=>{const r={version:InfoManager.version,map:{},missing:{}};return Object.keys(e).forEach(s=>{const i=e[s],o=(0,path_1.relative)(t.pathRoot,s);o.startsWith("..")?r.missing[s]=i:r[o]=i}),r}}];function getDefaultRecordInfo(){return{version:InfoManager.version,map:{},missing:{}}}class InfoManager{constructor(e,t){this._saveTimer=null,this.console=e||console,this.pathRoot=t,this.recordInfo=getDefaultRecordInfo()}async setRecordJSON(e){this.file=e;try{await this._restoreCache(e)}catch(e){this.console.warn(e)}}async _restoreCache(e){const t=getDefaultRecordInfo(),r=await this._readRecordInfo(e);r&&(Object.keys(r.map).forEach(e=>{t.map[(0,path_1.join)(this.pathRoot,e)]=r.map[e]}),t.missing=r.missing,this.recordInfo=t)}async _readRecordInfo(e){const t=e.replace(".json","1.0.0.json"),r=new migrator_1.Migrator(migrations,InfoManager.version,{onError:(e,t,r,...s)=>{this.console.warn(`migrate error in infoManager: ${e}`),this.console.warn(e)}});if((0,fs_extra_1.existsSync)(t))try{const e=(0,fs_extra_1.readJSONSync)(t);return await(0,fs_extra_1.remove)(t),await r.run(e,"1.0.0",[this])}catch(e){this.console.warn(e)}else if((0,fs_extra_1.existsSync)(e))try{const t=(0,fs_extra_1.readJSONSync)(e);return await r.run(t,InfoManager.version,[this])}catch(e){this.console.warn(e)}}destroy(){this.recordInfo=getDefaultRecordInfo()}save(){this._saveTimer&&clearTimeout(this._saveTimer),this._saveTimer=setTimeout(()=>{this.saveImmediate()},400)}saveImmediate(){if(this._saveTimer&&clearTimeout(this._saveTimer),this.file){const e=getDefaultRecordInfo();Object.keys(this.recordInfo.map).forEach(t=>{e.map[(0,path_1.relative)(this.pathRoot,t)]=this.recordInfo.map[t]}),(0,fs_extra_1.outputJSONSync)(this.file,e,{spaces:2})}}add(e,t,r){this.recordInfo.map[e]&&this.recordInfo.map[e].uuid===r&&this.recordInfo.map[e].time===t||(this.recordInfo.map[e]=r?{time:t,uuid:r}:{time:t},this.save())}remove(e){if(!this.recordInfo.map[e])return;const t=this.recordInfo.map[e];this.addMissing(e,t),delete this.recordInfo.map[e],this.save()}get(e){return this.recordInfo.map[e]||null}addMissing(e,t){t.uuid&&(this.recordInfo.missing[t.uuid]={path:e,time:t.time,removeTime:Date.now()})}getMissingInfo(e){return this.recordInfo.missing[e]||null}compare(e,t){const r=this.recordInfo.map[e];return!!r&&r.time===t}async forEach(e){for(const t in this.recordInfo.map)await e(t,this.recordInfo.map[t])}}exports.InfoManager=InfoManager,InfoManager.version="1.0.1";
+"use strict";
+/// <reference types="node" preserve="true" />
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.InfoManager = void 0;
+const fs_extra_1 = require("fs-extra");
+const path_1 = require("path");
+const migrator_1 = require("./migrator");
+const migrations = [{
+        version: '1.0.0',
+        migrate: async (data) => {
+            const result = {
+                version: InfoManager.version,
+                map: {},
+                missing: {},
+            };
+            Object.keys(data).forEach((path) => {
+                const info = data[path];
+                if (info.missing) {
+                    delete info.missing;
+                    if (info.uuid) {
+                        result.missing[info.uuid] = {
+                            path,
+                            time: info.time,
+                            removeTime: Date.now(),
+                        };
+                    }
+                }
+                else {
+                    delete info.missing;
+                    result.map[path] = info;
+                }
+            });
+            return result;
+        },
+    }, {
+        version: '1.0.1',
+        migrate: async (data, manager) => {
+            const result = {
+                version: InfoManager.version,
+                map: {},
+                missing: {},
+            };
+            Object.keys(data).forEach((path) => {
+                const info = data[path];
+                const relativePath = (0, path_1.relative)(manager.pathRoot, path);
+                if (relativePath.startsWith('..')) {
+                    result.missing[path] = info;
+                }
+                else {
+                    result[relativePath] = info;
+                }
+            });
+            return result;
+        },
+    }];
+function getDefaultRecordInfo() {
+    return {
+        version: InfoManager.version,
+        map: {},
+        missing: {},
+    };
+}
+class InfoManager {
+    constructor(customConsole, pathRoot) {
+        this._saveTimer = null;
+        this.console = customConsole || console;
+        this.pathRoot = pathRoot;
+        this.recordInfo = getDefaultRecordInfo();
+    }
+    async setRecordJSON(path) {
+        this.file = path;
+        try {
+            await this._restoreCache(path);
+        }
+        catch (error) {
+            this.console.warn(error);
+        }
+    }
+    async _restoreCache(path) {
+        const recordInfo = getDefaultRecordInfo();
+        const cache = await this._readRecordInfo(path);
+        if (cache) {
+            Object.keys(cache.map).forEach((path) => {
+                recordInfo.map[(0, path_1.join)(this.pathRoot, path)] = cache.map[path];
+            });
+            recordInfo.missing = cache.missing;
+            this.recordInfo = recordInfo;
+        }
+    }
+    async _readRecordInfo(path) {
+        const oldPath = path.replace('.json', '1.0.0.json');
+        const migrator = new migrator_1.Migrator(migrations, InfoManager.version, {
+            onError: (error) => {
+                this.console.warn(`migrate error in infoManager: ${error}`);
+                this.console.warn(error);
+            },
+        });
+        if ((0, fs_extra_1.existsSync)(oldPath)) {
+            try {
+                const data = (0, fs_extra_1.readJSONSync)(oldPath);
+                await (0, fs_extra_1.remove)(oldPath);
+                return await migrator.run(data, '1.0.0', [this]);
+            }
+            catch (error) {
+                this.console.warn(error);
+            }
+        }
+        else if ((0, fs_extra_1.existsSync)(path)) {
+            try {
+                const data = (0, fs_extra_1.readJSONSync)(path);
+                return await migrator.run(data, InfoManager.version, [this]);
+            }
+            catch (error) {
+                this.console.warn(error);
+            }
+        }
+    }
+    destroy() {
+        this.recordInfo = getDefaultRecordInfo();
+    }
+    save() {
+        if (this._saveTimer) {
+            clearTimeout(this._saveTimer);
+        }
+        this._saveTimer = setTimeout(() => {
+            this.saveImmediate();
+        }, 400);
+    }
+    saveImmediate() {
+        if (this._saveTimer) {
+            clearTimeout(this._saveTimer);
+        }
+        if (this.file) {
+            const output = getDefaultRecordInfo();
+            Object.keys(this.recordInfo.map).forEach((path) => {
+                output.map[(0, path_1.relative)(this.pathRoot, path)] = this.recordInfo.map[path];
+            });
+            (0, fs_extra_1.outputJSONSync)(this.file, output, { spaces: 2 });
+        }
+    }
+    add(path, mtimeMs, uuid) {
+        if (this.recordInfo.map[path]
+            && this.recordInfo.map[path].uuid === uuid
+            && this.recordInfo.map[path].time === mtimeMs) {
+            return;
+        }
+        this.recordInfo.map[path] = uuid ? { time: mtimeMs, uuid } : { time: mtimeMs };
+        this.save();
+    }
+    remove(path) {
+        if (!this.recordInfo.map[path]) {
+            return;
+        }
+        const info = this.recordInfo.map[path];
+        this.addMissing(path, info);
+        delete this.recordInfo.map[path];
+        this.save();
+    }
+    get(path) {
+        return (this.recordInfo.map[path] || null);
+    }
+    addMissing(path, info) {
+        if (info.uuid) {
+            this.recordInfo.missing[info.uuid] = {
+                path,
+                time: info.time,
+                removeTime: Date.now(),
+            };
+        }
+    }
+    getMissingInfo(uuid) {
+        return (this.recordInfo.missing[uuid] || null);
+    }
+    compare(path, mtimeMs) {
+        const info = this.recordInfo.map[path];
+        return !!info && info.time === mtimeMs;
+    }
+    async forEach(handler) {
+        for (const path in this.recordInfo.map) {
+            await handler(path, this.recordInfo.map[path]);
+        }
+    }
+}
+exports.InfoManager = InfoManager;
+InfoManager.version = '1.0.1';
