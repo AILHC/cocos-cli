@@ -385,6 +385,97 @@ CLI 侧修正提交：`03d8ffc fix: use editor internal info record path`。
 
 当前仍未继续执行主测试项目 build，因为测试项目还有既有 `.meta` diff。该 diff 需要先清理或明确作为独立 baseline，否则 build 后无法判断新的 CLI side effect。
 
+## 2026-06-13 当前 3D `.meta` diff 与修复方向
+
+主测试项目当前仍有 3D source `.meta` diff：
+
+- `.glb.meta`: `188`
+- `.gltf.meta`: `70`
+- `.fbx.meta`: `28`
+
+样本事实：
+
+- `assets/shared-res/models/astronaut/Astronaut.gltf.meta`
+  - `ver: 2.3.13 -> 2.3.14`
+  - 新增 `userData` 默认字段：
+    - `legacyFbxImporter: false`
+    - `allowMeshDataAccess: true`
+    - `addVertexColor: false`
+    - `generateLightmapUVNode: false`
+    - `meshOptimizer`
+- `assets/shared-res/models/robot-expressive/RobotExpressive.glb.meta`
+  - 顶层 `ver: 2.3.13 -> 2.3.14`
+  - 顶层 `files` 从 `__original-animation-*.cconb` 改为 `__original-animation-*.bin`
+  - `gltf-animation` subMeta `ver: 1.0.17 -> 1.0.18`
+  - `gltf-animation` subMeta `files: [".cconb"] -> [".bin"]`
+
+对应源码入口：
+
+- `src/core/assets/asset-handler/assets/gltf.ts`
+  - 当前 `GltfHandler.importer.version = "2.3.14"`。
+  - `validateMeta()` 会向 `asset.meta.userData` 补齐新的默认字段。
+  - `saveOriginalAnimations()` 使用 `serializeForLibrary(animation)` 返回的 extension 保存原始动画。
+- `src/core/assets/asset-handler/assets/gltf/animation.ts`
+  - 当前 `gltf-animation` importer version 为 `1.0.18`。
+  - 当前导入时使用 `serializeForLibrary(animationClip)` 返回的 extension 保存 sub asset。
+- `src/core/assets/asset-handler/assets/utils/serialize-library.ts`
+  - 对 `AnimationClip` 开启 `useCCON` 后，`CCON` binary 当前返回 `extension: ".bin"`。
+
+与历史 `.anim.meta` 问题的关系：
+
+- 历史 `.anim.meta` parity 问题已经证明：CLI 不能通过禁止写 `.meta` 或 build 后回滚解决 source `.meta` diff。
+- 当时修复是把 `.anim` importer 对齐 Editor 3.8.6：
+  - `animation-clip` importer `ver = "2.0.3"`。
+  - `AnimationClip` library 产物写为 `.cconb`，从而 source `.anim.meta.files = [".cconb"]`。
+- 当前 3D `.meta` diff 应采用同类修复路径：建立 `.gltf/.glb/.fbx.meta` Editor baseline parity 测试，然后让 `gltf` / `fbx` / `gltf-animation` importer 的 version、默认 `userData` schema、animation library extension 与 Editor baseline 一致。
+
+阶段性修复方向：
+
+1. 先建立 3D source `.meta` Editor baseline，范围至少覆盖当前 diff 中的 `.gltf`、`.glb`、`.fbx`。
+2. 对齐 `gltf` / `fbx` 顶层 importer version 与 Editor baseline；不能只看当前 CLI 版本号。
+3. 对齐 `gltf-animation` subMeta version 与 Editor baseline。
+4. 对齐 3D animation 产物 extension：当前样本显示 CLI 把 Editor baseline 的 `.cconb` 改成 `.bin`，应参考 `.anim.meta` 的处理方式，在确认 Editor baseline 后把相关 `AnimationClip` 保存路径收敛为 `.cconb`。
+5. 对齐默认 `userData` 写入策略：如果 Editor baseline 没有写入新增默认字段，CLI 不应在 source `.meta` 中补写这些字段；如果 Editor baseline 已升级，则以 Editor baseline 为准。
+6. 修复后用真实测试项目和 Editor baseline 做 source `.meta` JSON parity，而不是只比较字段片段。
+
+## 2026-06-13 当前 TypeScript `.meta` diff 与失败原因
+
+当前测试项目中仍有 3 个 `.ts.meta` diff：
+
+- `assets/cases/GFX/mipmapCheck/mipmapCheck.ts.meta`
+- `assets/cases/GFX/setMipRange/setMipRange-cube.ts.meta`
+- `assets/cases/GFX/setMipRange/setMipRange-quad.ts.meta`
+
+diff 内容相同，均为：
+
+```text
+imported: true -> false
+```
+
+可用构建日志：`.codex-tmp/build-cli-side-effect-check.out`。
+
+日志事实：
+
+- 3 个脚本均出现 `Failed to import script`。
+- 对应 `Importer exec failed` 的错误相同：
+
+```text
+resolve_error_module_not_found:
+{"specifier":"./core/l10n-manager","parentURL":"file:///E:/own_space/engines/cocos-test-projects/extensions/localization-editor/static/assets/l10n.ts"}
+```
+
+阶段性判断：
+
+- 这 3 个 `.ts.meta` 不是各自脚本源码语法错误导致。
+- 直接原因是 TypeScript importer 调用 scripting compile 流程时，底层 packer/resolver 因 `localization-editor/static/assets/l10n.ts` 的相对依赖 `./core/l10n-manager` 解析失败而抛错。
+- AssetDB importer 抛错后，资源 import 流程不会进入成功分支；`Asset.reset()` 已把 `imported` 置为 `false`，随后 `.meta` 被保存，因此出现 `imported: true -> false`。
+- 该日志来自移除 `localization-editor` 前的构建；移除后需要在干净 `.meta` baseline 上重新构建，才能确认这 3 个 `.ts.meta` 是否仍会被当前 CLI 改写。
+
+修复方向：
+
+- 如果移除 `localization-editor` 后不再复现，则当前 3 个 `.ts.meta` 是旧构建残留，应先恢复 baseline 后重新验证。
+- 如果仍复现，应继续定位 TypeScript importer 的 `scripting.compileScripts()` 输入和 module graph；修复目标是让 importer 成功，不能强行恢复 `imported: true` 或禁止 `.meta` 写回。
+
 ## 阶段结论
 
 - CLI build 在当前 Editor baseline 后会额外改写 `.meta`。
