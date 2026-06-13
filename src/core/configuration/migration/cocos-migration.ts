@@ -5,8 +5,6 @@ import { CocosConfigLoader } from './cocos-config-loader';
  * CocosCreator 配置迁移器实现
  */
 export class CocosMigration {
-    private static loader: CocosConfigLoader = new CocosConfigLoader();
-
     /**
      * 执行迁移
      * @param projectPath 项目路径
@@ -14,8 +12,9 @@ export class CocosMigration {
      * @returns 迁移后的新配置
      */
     public static async migrate(projectPath: string, target: IMigrationTarget): Promise<any> {
-        CocosMigration.loader.initialize(projectPath);
-        const oldPluginConfig = await CocosMigration.loader.loadConfig(target.sourceScope, target.pluginName);
+        const loader = new CocosConfigLoader();
+        loader.initialize(projectPath);
+        const oldPluginConfig = await loader.loadConfig(target.sourceScope, target.pluginName);
         if (!oldPluginConfig) return {};
 
         let migratedConfig: any = await target.migrate(oldPluginConfig);

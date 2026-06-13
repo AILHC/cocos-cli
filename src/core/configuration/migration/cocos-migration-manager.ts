@@ -115,11 +115,17 @@ export class CocosMigrationManager {
         return result;
     }
 
+    public static async loadEditorOwnedConfig(projectPath: string): Promise<Record<string, any>> {
+        const result = await this.migrate(projectPath);
+        return result.project || {};
+    }
+
     /**
      * 清空所有迁移器
      */
     public static clear(): void {
         this._targets.clear();
+        this._initialized = false;
         newConsole.debug('[Migration] 已清空所有迁移器');
     }
 
