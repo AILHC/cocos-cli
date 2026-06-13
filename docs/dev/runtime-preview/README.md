@@ -35,8 +35,8 @@
 | 目录 | 用途 |
 | --- | --- |
 | `facts/` | 事实、源码约束、真实产物观察、当前裁决。 |
-| `design/` | 当前或曾经批准的设计文档。 |
-| `plans/` | 可执行计划、执行记录和阶段性 implementation notes。 |
+| `design/` | runtime preview 稳定设计和历史设计记录；新的 Superpowers spec 应写入 `docs/superpowers/specs/`。 |
+| `plans/` | legacy execution records 和阶段性 implementation notes；新的 Superpowers implementation plan 应写入 `docs/superpowers/plans/`。 |
 | `acceptance/` | 验收矩阵、验收反馈和 evidence 摘要。 |
 | `handoff/` | 交接记录和新会话启动信息。 |
 | `archive/` | 历史审查、旧边界、旧执行计划和专项记录；不代表当前裁决，除非当前事实文档显式引用。 |
@@ -45,7 +45,7 @@
 
 - 反馈问题、待修事项和后续专项必须先进入 [issues.md](issues.md)，并分配 `RP-ISSUE-xxx`。
 - `facts/` 只记录源码、真实产物、日志、可重复验证结果和由这些事实推出的裁决。
-- `plans/` 只记录执行方案、执行记录、验证命令和阶段性 implementation notes；计划完成后必须回填 [issues.md](issues.md)。
+- 新的 Superpowers spec / implementation plan 统一写入 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`；本目录 `plans/` 只保留 legacy execution records 和阶段性 implementation notes。
 - `acceptance/matrix.md` 只记录验收项、通过条件、证据和状态；不要把长篇问题历史写进 matrix。
 - `acceptance/feedback-20260609.md` 保留历史反馈闭环细节；新增反馈不再直接追加到该文件，除非需要扩展原有验收证据。
 - `archive/` 是历史参考，不作为当前实现依据；只有被 [issues.md](issues.md) 或 `facts/` 显式引用时才参与当前判断。

@@ -6,8 +6,9 @@
 
 1. 当前问题索引：[issues.md](issues.md)
 2. 当前关键事实：[facts/meta-library-editor-parity-20260613.md](facts/meta-library-editor-parity-20260613.md)
-3. 项目状态写入一致性阶段计划：[plans/meta-library-editor-parity-20260613.md](plans/meta-library-editor-parity-20260613.md)
-4. `@cocos/asset-db` 定制源码接管计划：[plans/asset-db-custom-source-20260613.md](plans/asset-db-custom-source-20260613.md)
+3. `cocos.config.json` Editor-owned 配置运行时合并规格：[../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md](../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md)
+4. 项目状态写入一致性阶段计划：[../../superpowers/plans/2026-06-13-meta-library-editor-parity.md](../../superpowers/plans/2026-06-13-meta-library-editor-parity.md)
+5. `@cocos/asset-db` 定制源码接管计划：[../../superpowers/plans/2026-06-13-asset-db-custom-source.md](../../superpowers/plans/2026-06-13-asset-db-custom-source.md)
 
 ## Related Stable Modules
 
@@ -21,8 +22,9 @@
 
 - `issues.md`：只记录 build 专题问题状态、当前结论、事实入口和处理方向。
 - `facts/`：记录可重复事实、命令、baseline、diff 和由事实推出的判断。
-- `plans/`：记录可执行计划和任务拆分。
+- `../../superpowers/specs/`：记录 Superpowers spec。
+- `../../superpowers/plans/`：记录 Superpowers implementation plan。
 
 ## Maintenance Rule
 
-验证和排查时可以先写入本目录的 `issues`、`facts` 或 `plans`。专项完成后，长期结论必须同步回填到相关 `modules/` 文档；过程记录保留在本目录作为证据。
+验证和排查时可以先写入本目录的 `issues` 或 `facts`。需要正式 spec 或 implementation plan 时，写入 `docs/superpowers/specs/` 或 `docs/superpowers/plans/`。专项完成后，长期结论必须同步回填到相关 `modules/` 文档；过程记录保留在本目录作为证据。

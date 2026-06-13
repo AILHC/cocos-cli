@@ -463,7 +463,7 @@ When a task finishes, update stable module or architecture docs with the final c
 
 本目录保存长期设计决策。只有存在明确取舍、替代方案和后果的内容才进入 `decisions/`。
 
-普通事实进入 `../facts/`。当前模块行为进入 `../modules/`。某次执行计划进入 `../plans/` 或主题目录下的 `plans/`。
+普通事实进入 `docs/dev/facts/`。当前模块行为进入 `docs/dev/modules/`。新的 Superpowers spec 进入 `docs/superpowers/specs/`，implementation plan 进入 `docs/superpowers/plans/`。
 ```
 
 ## Task 7: 更新 `runtime-preview` 文档，移除跨模块承载压力

@@ -2,14 +2,14 @@
 
 日期：2026-06-13
 
-专题入口：[../README.md](../README.md)
+专题入口：[../../dev/build/README.md](../../dev/build/README.md)
 
 相关正式模块：
 
-- [Builder Module](../../modules/builder.md)
-- [AssetDB Module](../../modules/asset-db.md)
-- [Configuration Module](../../modules/configuration.md)
-- [Scripting Module](../../modules/scripting.md)
+- [Builder Module](../../dev/modules/builder.md)
+- [AssetDB Module](../../dev/modules/asset-db.md)
+- [Configuration Module](../../dev/modules/configuration.md)
+- [Scripting Module](../../dev/modules/scripting.md)
 
 ## 目标
 

@@ -8,9 +8,10 @@
 2. 源码模块地图：`architecture/module-map.md`
 3. 文档维护规则：`architecture/documentation-policy.md`
 4. 模块正式文档：`modules/`
-5. 可验证事实：`facts/`
-6. 设计决策：`decisions/`
-7. 专项计划、验收和交接：各主题目录下的 `plans/`、`acceptance/`、`handoff/`
+5. Superpowers spec / implementation plan：`../superpowers/`
+6. 可验证事实：`facts/`
+7. 设计决策：`decisions/`
+8. 专题过程记录、验收和交接：各主题目录下的 `facts/`、`acceptance/`、`handoff/`
 
 ## Document Types
 
@@ -18,7 +19,9 @@
 - `modules/`：当前模块职责、入口、输出、依赖和边界。
 - `facts/`：源码位置、真实产物、命令输出和对比记录。
 - `decisions/`：带取舍的长期设计决策。
-- `plans/`：某次修改计划。
+- `../superpowers/specs/`：按 Superpowers 工作流产生的正式 spec。
+- `../superpowers/plans/`：按 Superpowers 工作流产生的正式 implementation plan。
+- `plans/`：legacy process record；新正式计划不再写入 `docs/dev/**/plans/`。
 - `acceptance/`：验收过程和结果。
 - `handoff/`：阶段性交接。
 - `archive/`：历史记录，不作为当前架构入口。
@@ -37,4 +40,4 @@
 
 ## Maintenance Rule
 
-验证和排查时可以先记录在 `facts`、`issues`、`plans` 或 `acceptance`。专项结束后，稳定结论必须回填到 `architecture/` 或 `modules/`，证据链接保留到 `facts/` 或过程文档。
+验证和排查时可以先记录在 `facts`、`issues`、`acceptance` 或 `handoff`。需要 Superpowers spec / implementation plan 时，必须写入 `docs/superpowers/specs/` 或 `docs/superpowers/plans/`。专项结束后，稳定结论必须回填到 `architecture/` 或 `modules/`，证据链接保留到 `facts/` 或过程文档。

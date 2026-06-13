@@ -37,5 +37,6 @@ Normal build 相关问题、事实和实施计划统一从 `../build/README.md` 
 - `../build/README.md`
 - `../build/issues.md`
 - `../build/facts/meta-library-editor-parity-20260613.md`
-- `../build/plans/meta-library-editor-parity-20260613.md`
+- `../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md`
+- `../../superpowers/plans/2026-06-13-meta-library-editor-parity.md`
 - `../runtime-preview/archive/old-implementation-review-20260606.md`
