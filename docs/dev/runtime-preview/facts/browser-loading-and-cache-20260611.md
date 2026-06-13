@@ -130,6 +130,8 @@ response.writeHead(routeResponse.statusCode, routeResponse.headers);
 
 ## 脚本加载问题记录
 
+> 稳定结论已整理到 `../../modules/scripting.md`，事实索引见 `../../facts/scripting-generated-modules.md`。
+
 当前 `preview-app` 在 `cc.game.init()` 后等待：
 
 ```ts
