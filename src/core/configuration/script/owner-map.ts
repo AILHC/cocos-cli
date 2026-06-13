@@ -43,7 +43,9 @@ function cloneConfigValue<T>(value: T): T {
 }
 
 export function isCliOwnedConfigPath(path: string): boolean {
-    return [...CLI_OWNED_CONFIG_PATHS, ...PERSISTENCE_METADATA_PATHS].includes(path as never);
+    return [...CLI_OWNED_CONFIG_PATHS, ...PERSISTENCE_METADATA_PATHS].some((ownedPath) => (
+        path === ownedPath || path.startsWith(`${ownedPath}.`)
+    ));
 }
 
 export function isEditorOwnedConfigPath(path: string): boolean {

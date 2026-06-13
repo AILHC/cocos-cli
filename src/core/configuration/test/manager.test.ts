@@ -701,6 +701,35 @@ describe('ConfigurationManager', () => {
             expect(configInstance.configs).toEqual({ globalConfigKey: 'after' });
         });
 
+        it('reload clears registered configuration instances when runtime module disappears', async () => {
+            mockMigration.loadEditorOwnedConfig
+                .mockResolvedValueOnce({ engine: { globalConfigKey: 'before' } })
+                .mockResolvedValueOnce({});
+
+            mockFse.pathExists.mockResolvedValue(true);
+            mockFse.readJSON.mockResolvedValue({ version: '1.0.0' });
+            mockFse.copy.mockResolvedValue(undefined);
+
+            const configInstance: any = {
+                moduleName: 'engine',
+                configs: {},
+                getAll: jest.fn(),
+                on: jest.fn(),
+                off: jest.fn(),
+            };
+            configInstance.getAll.mockReturnValue(configInstance.configs);
+            mockRegistry.getInstances.mockReturnValue({ engine: configInstance } as any);
+
+            await manager.initialize(projectPath);
+            const registryHandler = mockRegistry.on.mock.calls.find((call) => call[0] === MessageType.Registry)?.[1] as Function | undefined;
+            expect(registryHandler).toBeDefined();
+            registryHandler!(configInstance);
+            expect(configInstance.configs).toEqual({ globalConfigKey: 'before' });
+
+            await manager.reload();
+            expect(configInstance.configs).toEqual({});
+        });
+
         it('migrateFromProject refreshes runtime config without persisting editor-owned snapshot', async () => {
             mockMigration.loadEditorOwnedConfig.mockResolvedValue({
                 engine: { globalConfigKey: 'from-editor' },

@@ -14,4 +14,13 @@ describe('BaseConfiguration owner guard', () => {
         await expect(config.set('globList', ['!**/*.tmp'])).resolves.toBe(true);
         expect(config.getAll()).toEqual({ globList: ['!**/*.tmp'] });
     });
+
+    it('allows CLI-owned nested project-scope writes', async () => {
+        const config = new BaseConfiguration('import', {
+            globList: [],
+        });
+
+        await expect(config.set('globList.0', '!**/*.tmp')).resolves.toBe(true);
+        expect(config.getAll()).toEqual({ globList: { 0: '!**/*.tmp' } });
+    });
 });
