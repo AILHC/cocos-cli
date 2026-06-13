@@ -1,0 +1,28 @@
+# Build Documentation
+
+本文是 normal build 专题文档入口。这里保留 build 相关的问题台账、事实记录和实施计划；稳定结论应回填到 `../modules/` 下的正式模块文档。
+
+## Reading Path
+
+1. 当前问题索引：[issues.md](issues.md)
+2. 当前关键事实：[facts/meta-library-editor-parity-20260613.md](facts/meta-library-editor-parity-20260613.md)
+3. 项目状态写入一致性阶段计划：[plans/meta-library-editor-parity-20260613.md](plans/meta-library-editor-parity-20260613.md)
+4. `@cocos/asset-db` 定制源码接管计划：[plans/asset-db-custom-source-20260613.md](plans/asset-db-custom-source-20260613.md)
+
+## Related Stable Modules
+
+- Builder build flow：[../modules/builder.md](../modules/builder.md)
+- AssetDB metadata / library records：[../modules/asset-db.md](../modules/asset-db.md)
+- Project configuration and Creator profile migration：[../modules/configuration.md](../modules/configuration.md)
+- Script compilation and resolver behavior：[../modules/scripting.md](../modules/scripting.md)
+- Workspace packages and local package ownership：[../modules/packages.md](../modules/packages.md)
+
+## Document Roles
+
+- `issues.md`：只记录 build 专题问题状态、当前结论、事实入口和处理方向。
+- `facts/`：记录可重复事实、命令、baseline、diff 和由事实推出的判断。
+- `plans/`：记录可执行计划和任务拆分。
+
+## Maintenance Rule
+
+验证和排查时可以先写入本目录的 `issues`、`facts` 或 `plans`。专项完成后，长期结论必须同步回填到相关 `modules/` 文档；过程记录保留在本目录作为证据。

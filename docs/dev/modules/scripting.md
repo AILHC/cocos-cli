@@ -72,9 +72,12 @@ export { };
 - 不在没有等价性验证时把 prerequisite imports 改为全并发。
 - 测试可以检查 chunk 形态，但 production 语义必须来自 records、import-map、AssetDB facts。
 - 本地 `temp/programming` 可能是旧产物，不能未经重新生成就代表当前服务。
+- AssetDB importer 启动期的 single-script compile 失败会影响 `.meta.imported` 写回；这属于 AssetDB / scripting 交叉问题，事实入口见 build 专题。
 
 ## Related Evidence
 
 - `../facts/scripting-generated-modules.md`
+- `../build/facts/meta-library-editor-parity-20260613.md`
+- `../build/issues.md`
 - `../runtime-preview/acceptance/feedback-20260609.md`
 - `../runtime-preview/handoff/handoff-20260610.md`
