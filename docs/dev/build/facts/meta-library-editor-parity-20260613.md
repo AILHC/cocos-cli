@@ -532,15 +532,14 @@ project.time = 1781313354600.38
 
 ## 阶段结论
 
-- CLI build 在当前 Editor baseline 后会额外改写 `.meta`。
-- 其中非 3D `.meta` 有 4 个 `typescript` 文件被改为 `imported: false`，需要修复或确认 Editor 是否应有同样行为。
-- CLI build 会改写项目 `library` 顶层 `internal` JSON，且写入内容与 Editor baseline 不一致。
-- 问题不是路径污染，也不是仅格式化变化；核心是 `internal` DB 使用项目 `library` 根目录并通过当前 CLI AssetDB 写出不同 schema/version。
-- 本轮只记录验证事实，不更新正在重构的 `docs/dev/build/issues.md`。
+- CLI build 在当前 Editor baseline 后仍会额外改写 3D source `.meta`，当前剩余差异集中在 `.glb.meta`、`.gltf.meta`、`.fbx.meta`，已登记为 `BUILD-ISSUE-009`。
+- 非 3D `typescript` `.meta imported: false` 复验后不再复现；旧差异来自移除 `localization-editor` 前的构建污染，已登记为 `BUILD-ISSUE-008 fixed`。
+- local `@cocos/asset-db` 已将 `internal` DB 的 `.internal-data.json`、`.internal-dependency.json` 和 `.internal-info1.0.0.json` 文件名 / schema 收敛到 Editor baseline。`BUILD-ISSUE-007` 仍为 `open`，剩余差异是 `.internal-info1.0.0.json` 中 1 个 engine asset `time` 字段会随当前 engine source mtime 写回，需要继续核对 Editor 在相同 engine source mtime 下的行为。
+- `docs/dev/build/issues.md` 已更新当前状态：`BUILD-ISSUE-007 open`、`BUILD-ISSUE-008 fixed`、`BUILD-ISSUE-009 open`。
 
 ## 后续修改方向
 
-1. 先对齐 Editor 启动 internal DB 时使用的 data JSON 命名、版本和 dependency schema，确认 Editor 是通过配置、AssetDB 版本、migration 还是额外 wrapper 决定这些产物。
-2. 修 CLI 的 `internal` DB 初始化配置或 AssetDB 启动链路，使其写出的 `library` 顶层 JSON 与 Editor baseline 一致。
-3. 针对 4 个 `typescript` `.meta`，定位 `imported` 被置为 `false` 的来源；不能简单禁止 `.meta` 写入，而应确保与 Editor importer 状态一致。
+1. 继续核对 Editor 在相同 engine source mtime 下是否会更新 `.internal-info1.0.0.json` 的 `time` 字段；如果不会，CLI 需要让 `internal` readonly DB 的 info record 保持 Editor baseline。
+2. 为 `.gltf/.glb/.fbx.meta` 建立 Editor baseline parity 测试，然后对齐 `gltf` / `fbx` / `gltf-animation` importer version、默认 `userData` schema 和 animation library extension。
+3. 后续如果重新引入 extension asset-db 脚本 mount 并再次复现 TypeScript importer 失败，应作为新的 extension script importer/module graph 问题处理，不能沿用已 fixed 的旧 `BUILD-ISSUE-008` 结论。
 4. 修复后重复本文件中的 build 前 baseline、受控 build、`.meta` diff、`library` 顶层 JSON canonical diff 验证。
