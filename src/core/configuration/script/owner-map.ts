@@ -29,10 +29,17 @@ function pickPaths(source: ConfigRecord, paths: readonly string[]): ConfigRecord
     for (const path of paths) {
         const value = utils.getByDotPath(source, path);
         if (value !== undefined) {
-            utils.setByDotPath(result, path, value);
+            utils.setByDotPath(result, path, cloneConfigValue(value));
         }
     }
     return result;
+}
+
+function cloneConfigValue<T>(value: T): T {
+    if (value === undefined || value === null || typeof value !== 'object') {
+        return value;
+    }
+    return JSON.parse(JSON.stringify(value));
 }
 
 export function isCliOwnedConfigPath(path: string): boolean {
@@ -65,7 +72,7 @@ export function buildPersistedCliConfig(source: ConfigRecord): ConfigRecord {
 }
 
 export function mergeRuntimeProjectConfig(editorConfig: ConfigRecord, cliPersistedConfig: ConfigRecord): ConfigRecord {
-    const runtimeConfig = utils.deepMerge({}, editorConfig) as ConfigRecord;
+    const runtimeConfig = cloneConfigValue(editorConfig);
     const cliOwnedConfig = pickCliOwnedConfig(cliPersistedConfig);
 
     for (const path of CLI_OWNED_CONFIG_PATHS) {
