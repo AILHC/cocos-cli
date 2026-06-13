@@ -363,6 +363,28 @@ rtk pwsh -NoProfile -Command "npx jest src/core/assets/test/asset-db-internal-re
 - 需要先把主测试项目恢复到 Editor baseline：至少 `.meta` diff 清零，并保证 `library` 顶层 internal JSON 文件集合、raw hash、canonical hash 与 baseline 一致。
 - 本轮只记录 build 前门槛失败事实，不更新 `docs/dev/build/issues.md`。
 
+### 2026-06-13 补充更正
+
+后续确认 `.internal-info.json` 是旧 CLI 逻辑运行后留下的污染文件，不应作为新逻辑兼容入口。Editor baseline 使用 `.internal-info1.0.0.json`，因此 CLI 的 `internal` DB info record 应直接读写 `.internal-info1.0.0.json`。
+
+已恢复主测试项目 `library` 顶层 internal JSON 到用户提供的 Editor baseline：
+
+- 删除 stale `.internal-info.json`。
+- 从 `.codex-tmp/bak_test_projects_library_data_json` 恢复：
+  - `.internal-data.json`
+  - `.internal-dependency.json`
+  - `.internal-info1.0.0.json`
+
+恢复后 hash 检查：
+
+- `.internal-data.json`: `RawEqual = True`，`CanonicalEqual = True`
+- `.internal-dependency.json`: `RawEqual = True`，`CanonicalEqual = True`
+- `.internal-info1.0.0.json`: `RawEqual = True`，`CanonicalEqual = True`
+
+CLI 侧修正提交：`03d8ffc fix: use editor internal info record path`。
+
+当前仍未继续执行主测试项目 build，因为测试项目还有既有 `.meta` diff。该 diff 需要先清理或明确作为独立 baseline，否则 build 后无法判断新的 CLI side effect。
+
 ## 阶段结论
 
 - CLI build 在当前 Editor baseline 后会额外改写 `.meta`。
