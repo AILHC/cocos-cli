@@ -40,11 +40,13 @@
   - 支持 reset 或 per-call fresh read，确保同进程多次读取能看到 Editor 文件变化。
 - Modify: `src/core/configuration/script/manager.ts`
   - 分离 persisted config 与 runtime merged config。
+  - `initialize()` 在 `load()` 后必须调用 runtime rebuild，不能继续依赖 version-gated `migrate()` 才读取 Editor files。
   - 初始化 / reload / remigrate 后刷新已注册 `BaseConfiguration` 实例。
   - 保存事件绑定处只持久化 CLI-owned path。
   - Editor-owned project-scope set/remove 默认拒绝。
 - Modify: `src/core/configuration/script/config.ts`
-  - 如 manager 层需要判断 set/remove 来源，新增最小 hook 或保持不改；优先在 manager 层完成 owner 判断。
+  - 在 `BaseConfiguration.set/remove()` 直连入口增加 owner guard，防止 `configurationRegistry.register()` 返回的实例绕过 manager 层检查。
+  - `BaseConfiguration.save()` 继续 emit 保存事件，但保存前不能允许 Editor-owned project-scope 写入落进实例 `configs`。
 - Modify: `src/core/configuration/@types/cocos.config.d.ts`
   - 将 `COCOS_CONFIG` 语义调整为 CLI persisted config，或新增 `CocosCliPersistedConfig`。
 - Modify: `src/api/configuration/configuration.ts`
@@ -53,8 +55,14 @@
   - 确认 public lib `migrateFromProject()`、`migrate()`、`save()` 语义与新 manager 一致。
 - Modify: `src/core/configuration/test/manager.test.ts`
   - 覆盖初始化、保存、reload、remigrate、拒绝 Editor-owned 写入。
+- Create: `src/core/configuration/test/manager-editor-files.test.ts`
+  - 用真实临时 project 验证 `ConfigurationManager.initialize()` 从 Editor files 读取当前值，并忽略旧 `cocos.config.json` Editor-owned snapshot。
+- Create: `src/core/configuration/test/config-owner-guard.test.ts`
+  - 覆盖 `BaseConfiguration` 直连 set/remove 不能绕过 owner guard。
 - Modify: `src/core/configuration/test/cocos-migration.test.ts`
-  - 覆盖 migration 每次读取当前 Editor files，不复用旧 projectPath/cache。
+  - 保留 manager 调用 migration 的既有 mock 测试。
+- Create: `src/core/configuration/test/cocos-migration-loader.test.ts`
+  - 用真实临时 Editor files 覆盖 migration 每次读取当前 projectPath，不复用旧 loader/cache。
 - Modify: `src/core/assets/test/config-sync.test.ts`
   - 保留 CLI-owned `import` 配置行为，删除或调整旧的 `import.fbx` 从 `cocos.config.json` 生效断言。
 - Modify: `docs/dev/modules/configuration.md`
@@ -165,12 +173,16 @@ describe('configuration owner map', () => {
         expect(isCliOwnedConfigPath('import.createTemplateRoot')).toBe(true);
         expect(isCliOwnedConfigPath('version')).toBe(true);
         expect(isCliOwnedConfigPath('$schema')).toBe(true);
+        expect(isCliOwnedConfigPath('import.fbx.material.smart')).toBe(false);
+        expect(isCliOwnedConfigPath('import.someFutureEditorField')).toBe(false);
 
         expect(isEditorOwnedConfigPath('engine.globalConfigKey')).toBe(true);
         expect(isEditorOwnedConfigPath('builder.common.platform')).toBe(true);
         expect(isEditorOwnedConfigPath('script.useDefineForClassFields')).toBe(true);
         expect(isEditorOwnedConfigPath('scene.tick')).toBe(true);
         expect(isEditorOwnedConfigPath('import.fbx.material.smart')).toBe(true);
+        expect(isEditorOwnedConfigPath('import.someFutureEditorField')).toBe(true);
+        expect(isEditorOwnedConfigPath('import.restoreAssetDBFromCache')).toBe(false);
     });
 });
 ```
@@ -216,10 +228,6 @@ const EDITOR_OWNED_ROOTS = [
     'scene',
 ] as const;
 
-const EDITOR_OWNED_EXACT_PATHS = [
-    'import.fbx',
-] as const;
-
 function hasPath(value: ConfigRecord, path: string): boolean {
     return utils.getByDotPath(value, path) !== undefined;
 }
@@ -240,8 +248,13 @@ export function isCliOwnedConfigPath(path: string): boolean {
 }
 
 export function isEditorOwnedConfigPath(path: string): boolean {
-    return EDITOR_OWNED_ROOTS.some((root) => path === root || path.startsWith(`${root}.`))
-        || EDITOR_OWNED_EXACT_PATHS.some((ownedPath) => path === ownedPath || path.startsWith(`${ownedPath}.`));
+    if (isCliOwnedConfigPath(path)) {
+        return false;
+    }
+    if (path === 'import' || path.startsWith('import.')) {
+        return true;
+    }
+    return EDITOR_OWNED_ROOTS.some((root) => path === root || path.startsWith(`${root}.`));
 }
 
 export function pickCliOwnedConfig(source: ConfigRecord): ConfigRecord {
@@ -304,18 +317,42 @@ rtk git commit -m "test: define configuration owner map"
 - Modify: `src/core/configuration/migration/cocos-migration-manager.ts`
 - Modify: `src/core/configuration/migration/cocos-config-loader.ts`
 - Modify: `src/core/configuration/test/cocos-migration.test.ts`
+- Create: `src/core/configuration/test/cocos-migration-loader.test.ts`
 
 - [ ] **Step 1: 写失败测试**
 
-Append to `src/core/configuration/test/cocos-migration.test.ts`:
+Create `src/core/configuration/test/cocos-migration-loader.test.ts`. Do not put this case in `cocos-migration.test.ts`, because that file mocks `../migration/cocos-migration` and would not exercise the real `CocosMigration.loader` / `CocosConfigLoader.configMap` path:
 
 ```ts
+import path from 'path';
+import os from 'os';
+import fse from 'fs-extra';
+import { CocosMigrationManager } from '../migration';
+import type { IMigrationTarget } from '../migration';
+
 describe('editor-owned config snapshot loading', () => {
+    afterEach(() => {
+        CocosMigrationManager.clear();
+    });
+
     it('does not reuse stale project path or package cache between migrations', async () => {
-        const originalRegisterMigration = CocosMigrationManager['registerMigration'];
-        CocosMigrationManager['registerMigration'] = jest.fn().mockResolvedValue(undefined);
+        const projectA = await fse.mkdtemp(path.join(os.tmpdir(), 'cocos-cli-project-a-'));
+        const projectB = await fse.mkdtemp(path.join(os.tmpdir(), 'cocos-cli-project-b-'));
 
         try {
+            await fse.ensureDir(path.join(projectA, 'settings/v2/packages'));
+            await fse.ensureDir(path.join(projectB, 'settings/v2/packages'));
+            await fse.writeJSON(path.join(projectA, 'settings/v2/packages/engine.json'), {
+                modules: {
+                    globalConfigKey: 'project-a',
+                },
+            });
+            await fse.writeJSON(path.join(projectB, 'settings/v2/packages/engine.json'), {
+                modules: {
+                    globalConfigKey: 'project-b',
+                },
+            });
+
             const target: IMigrationTarget = {
                 sourceScope: 'project',
                 pluginName: 'engine',
@@ -325,22 +362,19 @@ describe('editor-owned config snapshot loading', () => {
                     },
                 }),
             };
+            CocosMigrationManager.clear();
             CocosMigrationManager.register(target);
 
-            mockMigrate
-                .mockResolvedValueOnce({ engine: { globalConfigKey: 'project-a' } })
-                .mockResolvedValueOnce({ engine: { globalConfigKey: 'project-b' } });
-
-            await expect(CocosMigrationManager.loadEditorOwnedConfig('/project-a')).resolves.toEqual({
+            await expect(CocosMigrationManager.loadEditorOwnedConfig(projectA)).resolves.toEqual({
                 engine: { globalConfigKey: 'project-a' },
             });
-            await expect(CocosMigrationManager.loadEditorOwnedConfig('/project-b')).resolves.toEqual({
+            await expect(CocosMigrationManager.loadEditorOwnedConfig(projectB)).resolves.toEqual({
                 engine: { globalConfigKey: 'project-b' },
             });
-            expect(mockMigrate).toHaveBeenNthCalledWith(1, '/project-a', target);
-            expect(mockMigrate).toHaveBeenNthCalledWith(2, '/project-b', target);
         } finally {
-            CocosMigrationManager['registerMigration'] = originalRegisterMigration;
+            await fse.remove(projectA);
+            await fse.remove(projectB);
+            CocosMigrationManager.clear();
         }
     });
 });
@@ -351,7 +385,7 @@ describe('editor-owned config snapshot loading', () => {
 Run:
 
 ```powershell
-rtk npm test -- src/core/configuration/test/cocos-migration.test.ts --runInBand
+rtk npm test -- src/core/configuration/test/cocos-migration-loader.test.ts --runInBand
 ```
 
 Expected:
@@ -359,6 +393,8 @@ Expected:
 ```text
 Property 'loadEditorOwnedConfig' does not exist
 ```
+
+After adding `loadEditorOwnedConfig()`, the same test must fail if `CocosMigration` keeps a static `CocosConfigLoader` initialized with the first project path or if `CocosConfigLoader.configMap` is shared across project reads.
 
 - [ ] **Step 3: 修改 `CocosMigration` 避免 static loader 陈旧**
 
@@ -401,13 +437,14 @@ If implementation keeps `migrate()` returning `{ project }`, `loadEditorOwnedCon
 Run:
 
 ```powershell
-rtk npm test -- src/core/configuration/test/cocos-migration.test.ts --runInBand
+rtk npm test -- src/core/configuration/test/cocos-migration.test.ts src/core/configuration/test/cocos-migration-loader.test.ts --runInBand
 ```
 
 Expected:
 
 ```text
 PASS src/core/configuration/test/cocos-migration.test.ts
+PASS src/core/configuration/test/cocos-migration-loader.test.ts
 ```
 
 - [ ] **Step 6: 提交 Task 2**
@@ -415,7 +452,7 @@ PASS src/core/configuration/test/cocos-migration.test.ts
 Run:
 
 ```powershell
-rtk git add src/core/configuration/migration/cocos-migration.ts src/core/configuration/migration/cocos-migration-manager.ts src/core/configuration/migration/cocos-config-loader.ts src/core/configuration/test/cocos-migration.test.ts
+rtk git add src/core/configuration/migration/cocos-migration.ts src/core/configuration/migration/cocos-migration-manager.ts src/core/configuration/migration/cocos-config-loader.ts src/core/configuration/test/cocos-migration.test.ts src/core/configuration/test/cocos-migration-loader.test.ts
 rtk git commit -m "fix: load editor configuration without stale migration cache"
 ```
 
@@ -424,7 +461,10 @@ rtk git commit -m "fix: load editor configuration without stale migration cache"
 **Files:**
 
 - Modify: `src/core/configuration/script/manager.ts`
+- Modify: `src/core/configuration/script/config.ts`
 - Modify: `src/core/configuration/test/manager.test.ts`
+- Create: `src/core/configuration/test/manager-editor-files.test.ts`
+- Create: `src/core/configuration/test/config-owner-guard.test.ts`
 
 - [ ] **Step 1: 写失败测试：Editor-owned 不被旧 `cocos.config.json` 覆盖**
 
@@ -558,7 +598,63 @@ FAIL src/core/configuration/test/manager.test.ts
 
 The failures should show stale `engine` or `import.fbx` still comes from `cocos.config.json`.
 
-- [ ] **Step 4: 修改 manager 状态模型**
+- [ ] **Step 4: 写真实 Editor files 初始化回归测试**
+
+Create `src/core/configuration/test/manager-editor-files.test.ts`:
+
+```ts
+import path from 'path';
+import os from 'os';
+import fse from 'fs-extra';
+import { ConfigurationManager } from '../script/manager';
+import { configurationRegistry } from '../script/registry';
+
+describe('ConfigurationManager with real Editor files', () => {
+    let projectPath = '';
+    let manager: ConfigurationManager;
+
+    beforeEach(async () => {
+        projectPath = await fse.mkdtemp(path.join(os.tmpdir(), 'cocos-cli-manager-editor-files-'));
+        manager = new ConfigurationManager();
+    });
+
+    afterEach(async () => {
+        await configurationRegistry.unregister('engine').catch(() => undefined);
+        manager.reset();
+        await fse.remove(projectPath);
+    });
+
+    it('initializes editor-owned runtime config from Editor files even when cocos.config.json has current version stale fields', async () => {
+        await fse.ensureDir(path.join(projectPath, 'settings/v2/packages'));
+        await fse.writeJSON(path.join(projectPath, 'settings/v2/packages/engine.json'), {
+            modules: {
+                globalConfigKey: 'from-editor',
+            },
+        });
+        await fse.writeJSON(path.join(projectPath, 'cocos.config.json'), {
+            version: '1.0.0',
+            engine: {
+                globalConfigKey: 'from-stale-cocos-config',
+            },
+            import: {
+                globList: ['!**/*.tmp'],
+            },
+        });
+
+        await manager.initialize(projectPath);
+        const engineConfig = await configurationRegistry.register('engine', { defaults: {} });
+
+        await expect(engineConfig.get('globalConfigKey')).resolves.toBe('from-editor');
+
+        await manager.save(true);
+        const persisted = await fse.readJSON(path.join(projectPath, 'cocos.config.json'));
+        expect(persisted.engine).toBeUndefined();
+        expect(persisted.import.globList).toEqual(['!**/*.tmp']);
+    });
+});
+```
+
+- [ ] **Step 5: 修改 manager 状态模型**
 
 Modify `src/core/configuration/script/manager.ts`:
 
@@ -600,7 +696,34 @@ private async rebuildRuntimeProjectConfig(): Promise<void> {
 
 - Add `refreshRegisteredInstances()` that iterates current registry instances and calls existing `initializeConfigFromProject(instance, config)` for modules with runtime config.
 
-- [ ] **Step 5: Filter save event and reject Editor-owned writes**
+- Update `initialize()` so it always rebuilds runtime config from current Editor files after reading the CLI overlay. Do not leave Editor-owned reads behind `migrate()` version gating:
+
+```ts
+public async initialize(projectPath: string): Promise<void> {
+    if (this.initialized) {
+        return;
+    }
+
+    configurationRegistry.on(MessageType.Registry, this.onRegistryConfigurationBind);
+    configurationRegistry.on(MessageType.UnRegistry, this.onUnRegistryConfigurationBind);
+
+    this.projectPath = projectPath;
+    this.configPath = path.join(projectPath, ConfigurationManager.name);
+    const schemaPath = path.join(projectPath, ConfigurationManager.relativeSchemaPath);
+    await this.load();
+    try {
+        await fse.copy(ConfigurationManager.SchemaPathSource, schemaPath);
+        await this.rebuildRuntimeProjectConfig();
+    } catch (error) {
+        console.error(error);
+    }
+    this.initialized = true;
+}
+```
+
+- Keep `migrate()` only for persisted file version compatibility. It must not be the only path that reads Editor-owned files.
+
+- [ ] **Step 6: Filter save event and reject Editor-owned writes in manager**
 
 Update `onRegistryConfiguration()` save binding:
 
@@ -624,7 +747,69 @@ if (scope !== 'default' && isEditorOwnedConfigPath(fullPath) && !isCliOwnedConfi
 
 Keep default-scope writes unchanged.
 
-- [ ] **Step 6: Make `save()` write persisted config only**
+- [ ] **Step 7: Reject Editor-owned writes in BaseConfiguration direct entrypoints**
+
+Modify `src/core/configuration/script/config.ts` so callers that hold a registered config instance cannot bypass manager-level checks:
+
+```ts
+import { isCliOwnedConfigPath, isEditorOwnedConfigPath } from './owner-map';
+
+private assertProjectWriteAllowed(key: string, scope: ConfigurationScope): void {
+    if (scope === 'default') {
+        return;
+    }
+    const fullPath = `${this.moduleName}.${key}`;
+    if (isEditorOwnedConfigPath(fullPath) && !isCliOwnedConfigPath(fullPath)) {
+        throw new Error(`[Configuration] ${fullPath} is maintained by Cocos Creator Editor settings/profiles and cannot be persisted to cocos.config.json`);
+    }
+}
+```
+
+Call it at the start of project-scope `set()` and `remove()` before mutating `this.configs`:
+
+```ts
+public async set<T>(key: string, value: T, scope: ConfigurationScope = 'project'): Promise<boolean> {
+    this.assertProjectWriteAllowed(key, scope);
+    if (scope === 'default') {
+        utils.setByDotPath(this.defaultConfigs, key, value);
+    } else {
+        utils.setByDotPath(this.configs, key, value);
+        await this.save();
+    }
+    return true;
+}
+
+public async remove(key: string, scope: ConfigurationScope = 'project'): Promise<boolean> {
+    this.assertProjectWriteAllowed(key, scope);
+    // keep existing remove logic after this guard
+}
+```
+
+- [ ] **Step 8: Add direct-entrypoint rejection tests**
+
+Append to `src/core/configuration/test/manager.test.ts` or create `src/core/configuration/test/config-owner-guard.test.ts`:
+
+```ts
+import { BaseConfiguration } from '../script/config';
+
+describe('BaseConfiguration owner guard', () => {
+    it('rejects editor-owned project-scope writes before mutating configs', async () => {
+        const config = new BaseConfiguration('import', {});
+
+        await expect(config.set('fbx.material.smart', true)).rejects.toThrow('is maintained by Cocos Creator Editor');
+        expect(config.getAll()).toEqual({});
+    });
+
+    it('allows CLI-owned project-scope writes', async () => {
+        const config = new BaseConfiguration('import', {});
+
+        await expect(config.set('globList', ['!**/*.tmp'])).resolves.toBe(true);
+        expect(config.getAll()).toEqual({ globList: ['!**/*.tmp'] });
+    });
+});
+```
+
+- [ ] **Step 9: Make `save()` write persisted config only**
 
 Update `save()` so it serializes `this.cliPersistedConfig`, not full `this.projectConfig`:
 
@@ -640,28 +825,32 @@ await fse.writeJSON(this.configPath, persistedConfig, { spaces: 4 });
 
 After successful write, keep `this.cliPersistedConfig = persistedConfig`.
 
-- [ ] **Step 7: Run manager tests**
+- [ ] **Step 10: Run manager tests**
 
 Run:
 
 ```powershell
-rtk npm test -- src/core/configuration/test/manager.test.ts --runInBand
+rtk npm test -- src/core/configuration/test/manager.test.ts src/core/configuration/test/manager-editor-files.test.ts src/core/configuration/test/config-owner-guard.test.ts --runInBand
 ```
 
 Expected:
 
 ```text
 PASS src/core/configuration/test/manager.test.ts
+PASS src/core/configuration/test/manager-editor-files.test.ts
+PASS src/core/configuration/test/config-owner-guard.test.ts
 ```
 
-- [ ] **Step 8: 提交 Task 3**
+- [ ] **Step 11: 提交 Task 3**
 
 Run:
 
 ```powershell
-rtk git add src/core/configuration/script/manager.ts src/core/configuration/test/manager.test.ts
+rtk git add src/core/configuration/script/manager.ts src/core/configuration/script/config.ts src/core/configuration/test/manager.test.ts src/core/configuration/test/config-owner-guard.test.ts
 rtk git commit -m "fix: separate runtime and persisted project config"
 ```
+
+If the direct-entrypoint tests were appended to `manager.test.ts`, omit `src/core/configuration/test/config-owner-guard.test.ts` from `git add`.
 
 ## Task 4：实现 reload / remigrate 的内存刷新语义
 
@@ -813,7 +1002,7 @@ rtk git commit -m "fix: refresh runtime config from editor settings"
 **Files:**
 
 - Modify: `src/core/assets/test/config-sync.test.ts`
-- Inspect/Modify if needed: `src/core/assets/asset-config.ts`
+- Read: `src/core/assets/asset-config.ts`
 
 - [ ] **Step 1: 更新 config-sync 测试**
 
@@ -834,15 +1023,15 @@ function createImportConfig(customTemplateRoot: string) {
 }
 ```
 
-Keep the stale `fbx` value in the fixture to prove it is ignored, but change the assertion:
+Keep the stale `fbx` value in the fixture to prove it is ignored, but change the assertion to verify the runtime AssetDB sync only consumes CLI-owned fields:
 
 ```ts
-await expect(runtime.assetConfig.getProject<boolean>('fbx.material.smart')).resolves.toBe(false);
+expect(runtime.assetConfig.data.restoreAssetDBFromCache).toBe(true);
+expect(runtime.assetConfig.data.globList).toEqual(['!**/*.tmp', '!**/*.bak']);
+expect(runtime.assetConfig.data.createTemplateRoot).toBe(customTemplateRoot);
 ```
 
-If Editor-owned defaults make this assertion unstable, assert only that `runtime.assetConfig.data` consumes CLI-owned paths and add a separate manager-level test for `import.fbx` owner behavior.
-
-- [ ] **Step 2: Run config-sync test and confirm failure or pass depending on Task 3**
+- [ ] **Step 2: Run config-sync test**
 
 Run:
 
@@ -850,15 +1039,15 @@ Run:
 rtk npm test -- src/core/assets/test/config-sync.test.ts --runInBand
 ```
 
-Expected before complete manager integration:
+Expected:
 
 ```text
-FAIL or PASS depending on prior task order; if FAIL, failure should be limited to import.fbx owner behavior.
+PASS src/core/assets/test/config-sync.test.ts
 ```
 
-- [ ] **Step 3: Adjust AssetConfig only if needed**
+- [ ] **Step 3: Confirm AssetConfig reads only CLI-owned import fields**
 
-If `assetConfig.syncRuntimeConfigFromConfiguration()` already reads only:
+Read `src/core/assets/asset-config.ts` and confirm `syncRuntimeConfigFromConfiguration()` reads only:
 
 ```ts
 restoreAssetDBFromCache
@@ -866,7 +1055,7 @@ globList
 createTemplateRoot
 ```
 
-do not change `src/core/assets/asset-config.ts`. It currently does not need `import.fbx` for runtime asset config sync.
+Do not add `import.fbx` or any non-whitelisted `import.*` field to AssetDB runtime sync in this task.
 
 - [ ] **Step 4: Run config-sync test**
 
@@ -887,11 +1076,9 @@ PASS src/core/assets/test/config-sync.test.ts
 Run:
 
 ```powershell
-rtk git add src/core/assets/test/config-sync.test.ts src/core/assets/asset-config.ts
+rtk git add src/core/assets/test/config-sync.test.ts
 rtk git commit -m "test: keep asset db cli-owned config overlay"
 ```
-
-If `asset-config.ts` was not modified, omit it from `git add`.
 
 ## Task 6：类型、schema 和文档收口
 
@@ -904,17 +1091,17 @@ If `asset-config.ts` was not modified, omit it from `git add`.
 
 - [ ] **Step 1: Adjust config type**
 
-Modify `src/core/configuration/@types/cocos.config.d.ts` to add a persisted config type:
+Modify `src/core/configuration/@types/cocos.config.d.ts` so the exported schema type represents the persisted overlay file, not runtime merged config:
 
 ```ts
-export interface COCOS_CLI_PERSISTED_CONFIG {
+export interface COCOS_CONFIG {
     $schema?: string;
     version: string;
     import?: Pick<ImportConfiguration, 'restoreAssetDBFromCache' | 'globList' | 'createTemplateRoot'>;
 }
 ```
 
-Keep `COCOS_CONFIG` only if schema generation or downstream type users still require it. If `COCOS_CONFIG` is now only schema output for the persisted file, update it to match `COCOS_CLI_PERSISTED_CONFIG`.
+Do not include `builder`、`engine`、`script`、`scene` or non-whitelisted `import.*` fields in `COCOS_CONFIG`.
 
 - [ ] **Step 2: Verify generated schema behavior**
 
@@ -929,8 +1116,6 @@ Expected:
 ```text
 build 成功，并生成匹配 CLI-owned persisted config 的 cocos.config.schema.json。
 ```
-
-If schema generation still expects `COCOS_CONFIG`, adjust the generator or exported interface name in the same task.
 
 - [ ] **Step 3: Update configuration module docs**
 
@@ -948,7 +1133,7 @@ Modify `docs/dev/build/issues.md` for `BUILD-ISSUE-006` after verification:
 | BUILD-ISSUE-006 | CLI 生成的 `cocos.config.json` 可能滞后于 Editor 修改后的项目配置 | `fixed` | 已将 `cocos.config.json` 收敛为 CLI-owned overlay；Editor-owned 配置每次从 Editor settings/profiles 读取并在内存合并。保存时只写 CLI-owned import 字段和 metadata，旧 Editor-owned 快照会被清理。 | [../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md](../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md)；本计划 | 保持 owner map 测试和 manager reload/remigrate 测试覆盖。 |
 ```
 
-- [ ] **Step 5: Update build README if needed**
+- [ ] **Step 5: Verify build README plan link**
 
 Ensure `docs/dev/build/README.md` links this implementation plan:
 
@@ -974,7 +1159,7 @@ rtk git commit -m "docs: document cocos config overlay ownership"
 Run:
 
 ```powershell
-rtk npm test -- src/core/configuration/test/owner-map.test.ts src/core/configuration/test/cocos-migration.test.ts src/core/configuration/test/manager.test.ts --runInBand
+rtk npm test -- src/core/configuration/test/owner-map.test.ts src/core/configuration/test/cocos-migration.test.ts src/core/configuration/test/cocos-migration-loader.test.ts src/core/configuration/test/manager.test.ts src/core/configuration/test/config-owner-guard.test.ts --runInBand
 ```
 
 Expected:
@@ -982,10 +1167,28 @@ Expected:
 ```text
 PASS src/core/configuration/test/owner-map.test.ts
 PASS src/core/configuration/test/cocos-migration.test.ts
+PASS src/core/configuration/test/cocos-migration-loader.test.ts
 PASS src/core/configuration/test/manager.test.ts
+PASS src/core/configuration/test/config-owner-guard.test.ts
 ```
 
-- [ ] **Step 2: Run AssetDB config sync test**
+- [ ] **Step 2: Run real Editor files regression test**
+
+Run the test that writes real `settings/v2/packages/engine.json` and an old `cocos.config.json` snapshot, then initializes the manager:
+
+```powershell
+rtk npm test -- src/core/configuration/test/manager-editor-files.test.ts --runInBand
+```
+
+Expected:
+
+```text
+PASS src/core/configuration/test/manager-editor-files.test.ts
+```
+
+This is the minimum non-mocked verification that Editor files, not old `cocos.config.json` snapshots, are the source of Editor-owned runtime config. `cocos-migration-loader.test.ts` separately covers loader/cache freshness.
+
+- [ ] **Step 3: Run AssetDB config sync test**
 
 Run:
 
@@ -999,7 +1202,7 @@ Expected:
 PASS src/core/assets/test/config-sync.test.ts
 ```
 
-- [ ] **Step 3: Run build**
+- [ ] **Step 4: Run build**
 
 Run:
 
@@ -1013,7 +1216,7 @@ Expected:
 build 成功。
 ```
 
-- [ ] **Step 4: Inspect git diff**
+- [ ] **Step 5: Inspect git diff**
 
 Run:
 
@@ -1028,17 +1231,22 @@ Expected:
 只包含本计划相关文件的修改；没有项目 fixture、library、temp 或无关源码变更。
 ```
 
-- [ ] **Step 5: Final commit if previous tasks were batched**
+- [ ] **Step 6: Confirm no remaining related changes**
 
-If any changes remain unstaged from the implementation:
+Run:
 
 ```powershell
-rtk git add <remaining related files>
-rtk git commit -m "fix: use editor settings as configuration source"
+rtk git status --short
+```
+
+Expected:
+
+```text
+没有未提交的本计划相关文件；如果存在，只能是前面任务遗漏的同一任务文件，回到对应 task 的 commit step 处理。
 ```
 
 ## Plan Self-Review
 
 - Spec coverage：覆盖 CLI-owned overlay、Editor-owned runtime read、in-memory merge、save filtering、reload/remigrate refresh、static loader cache、metadata owner、API/docs。
-- Placeholder scan：本计划不使用 `TBD` / `TODO` / “fill in later”。如果执行中发现真实 API 与 snippets 不一致，应更新 plan 或记录偏差后再继续。
+- Placeholder scan：已移除占位命令、条件性修改步骤和不确定预期；如果执行中发现真实 API 与 snippets 不一致，应更新 plan 或记录偏差后再继续。
 - Type consistency：新增函数名在 tasks 中保持一致：`buildPersistedCliConfig()`、`mergeRuntimeProjectConfig()`、`isCliOwnedConfigPath()`、`isEditorOwnedConfigPath()`、`loadEditorOwnedConfig()`。
