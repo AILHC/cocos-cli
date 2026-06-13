@@ -125,7 +125,6 @@ export class CocosMigrationManager {
      */
     public static clear(): void {
         this._targets.clear();
-        this._initialized = false;
         newConsole.debug('[Migration] 已清空所有迁移器');
     }
 

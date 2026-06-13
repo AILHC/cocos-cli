@@ -81,6 +81,31 @@ describe('configuration owner map', () => {
                 globalConfigKey: 'from-editor',
             },
         });
+        expect(editorConfig).toEqual({
+            import: {
+                fbx: {
+                    material: {
+                        smart: false,
+                    },
+                },
+            },
+            engine: {
+                globalConfigKey: 'from-editor',
+            },
+        });
+        expect(cliConfig).toEqual({
+            import: {
+                globList: ['!**/*.cache'],
+                fbx: {
+                    material: {
+                        smart: true,
+                    },
+                },
+            },
+            engine: {
+                globalConfigKey: 'from-cocos-config',
+            },
+        });
     });
 
     it('classifies config paths by owner', () => {
