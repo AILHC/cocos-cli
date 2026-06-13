@@ -166,20 +166,20 @@ describe('runtime preview express server adapter', () => {
     }
   });
 
-  it('does not add Express validators to dynamic body responses', async () => {
+  it('serves dynamic body responses through Express validators', async () => {
     const { server } = await createServerFixture();
     try {
       const response = await fetch(`${server.url}/settings.js`);
       expect(response.status).toBe(200);
-      expect(response.headers.get('etag')).toBeNull();
+      expect(response.headers.get('etag')).toBeTruthy();
       expect(response.headers.get('last-modified')).toBeNull();
       expect(response.headers.get('x-powered-by')).toBeNull();
 
       const conditionalResponse = await getText(`${server.url}/settings.js`, {
-        'If-None-Match': '"not-a-runtime-preview-body-etag"',
+        'If-None-Match': response.headers.get('etag')!,
       });
-      expect(conditionalResponse.statusCode).toBe(200);
-      expect(conditionalResponse.body).toContain('window._CCSettings = ');
+      expect(conditionalResponse.statusCode).toBe(304);
+      expect(conditionalResponse.body).toBe('');
     } finally {
       await server.close();
     }

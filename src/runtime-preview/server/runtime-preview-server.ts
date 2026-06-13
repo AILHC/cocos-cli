@@ -102,8 +102,15 @@ function sendRuntimePreviewResponse(
         return;
     }
 
-    response.writeHead(routeResponse.statusCode, routeResponse.headers);
-    response.end(routeResponse.body);
+    const { 'content-type': contentType, ...headers } = routeResponse.headers;
+    for (const [name, value] of Object.entries(headers)) {
+        response.setHeader(name, value);
+    }
+    response.status(routeResponse.statusCode);
+    if (contentType) {
+        response.type(contentType);
+    }
+    response.send(routeResponse.body);
 }
 
 function isBodyTooLargeError(error: unknown): boolean {
