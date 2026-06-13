@@ -323,6 +323,46 @@ resolve_error_module_not_found:
 - 仍需补充的事实是 Editor baseline 使用的 AssetDB record 写入版本和配置来源：Editor 是使用旧 AssetDB record schema、额外 wrapper、迁移开关，还是不同的 internal DB library 策略。
 - 修复目标应是让 CLI 的 internal DB record 写入与 Editor 一致，而不是简单禁止 `library` 写入。
 
+## 2026-06-13 Task 6 build 前门槛检查
+
+本轮已在 CLI 侧实现 local `@cocos/asset-db` internal record compatibility，并通过 focused tests：
+
+```powershell
+rtk pwsh -NoProfile -Command "npm --prefix packages/asset-db run build"
+rtk pwsh -NoProfile -Command "npx jest src/core/assets/test/asset-db-internal-record.test.ts src/core/assets/test/config-sync.test.ts --runInBand"
+```
+
+验证时的 commit：
+
+- CLI：`0071c72`
+- 主测试项目：`5f735ccb`
+
+但主测试项目未满足 Task 6 build 前 baseline 门槛，因此没有继续执行 CLI build。
+
+`.meta` 当前已有 diff，按资源后缀分类：
+
+- `.glb`: 188
+- `.gltf`: 70
+- `.fbx`: 28
+- `.ts`: 3
+
+`library` 顶层 internal JSON 文件集合也已经与 Editor baseline 不一致：
+
+- 主测试项目当前文件：
+  - `.internal-data.json`
+  - `.internal-dependency.json`
+  - `.internal-info.json`
+- Editor baseline 文件：
+  - `.internal-data.json`
+  - `.internal-dependency.json`
+  - `.internal-info1.0.0.json`
+
+结论：
+
+- 不能在该 dirty baseline 上继续运行 build 并声明 CLI side effect 已修复。
+- 需要先把主测试项目恢复到 Editor baseline：至少 `.meta` diff 清零，并保证 `library` 顶层 internal JSON 文件集合、raw hash、canonical hash 与 baseline 一致。
+- 本轮只记录 build 前门槛失败事实，不更新 `docs/dev/build/issues.md`。
+
 ## 阶段结论
 
 - CLI build 在当前 Editor baseline 后会额外改写 `.meta`。
