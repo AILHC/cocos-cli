@@ -18,30 +18,27 @@ describe('cocos config schema', () => {
         });
     }
 
-    it('allows manager-owned top-level fields', () => {
+    it('allows only CLI-owned overlay fields at the top level', () => {
         const schema = generateSchema();
 
         expect(schema?.properties?.$schema).toBeDefined();
-        expect(schema?.properties?.scene).toBeDefined();
+        expect(schema?.properties?.version).toBeDefined();
+        expect(schema?.properties?.import).toBeDefined();
+        expect(schema?.properties?.builder).toBeUndefined();
+        expect(schema?.properties?.engine).toBeUndefined();
+        expect(schema?.properties?.scene).toBeUndefined();
+        expect(schema?.properties?.script).toBeUndefined();
     });
 
-    it('describes bundle config custom entries with the custom bundle config shape', () => {
+    it('allows only CLI-owned import overlay fields', () => {
         const schema = generateSchema();
-        const bundleConfigRef = schema.definitions.BuildConfiguration.properties.bundleConfig.$ref;
-        const bundleConfig = resolveDefinition(schema, bundleConfigRef);
-        const customRef = bundleConfig.properties.custom.$ref;
-        const custom = resolveDefinition(schema, customRef);
-        const customItem = resolveDefinition(schema, custom.additionalProperties.$ref);
+        const importRef = schema.properties.import.$ref;
+        const importOverlay = resolveDefinition(schema, importRef);
 
-        expect(customItem.properties.configs).toBeDefined();
-    });
-
-    it('allows platform-specific bundle override keys', () => {
-        const schema = generateSchema();
-        const overwriteSettingsRef = schema.definitions.CustomBundleConfigItem
-            .properties.overwriteSettings.$ref;
-        const overwriteSettings = resolveDefinition(schema, overwriteSettingsRef);
-
-        expect(overwriteSettings.additionalProperties?.$ref).toBe('#/definitions/BundleConfigItem');
+        expect(importOverlay.properties.restoreAssetDBFromCache).toBeDefined();
+        expect(importOverlay.properties.globList).toBeDefined();
+        expect(importOverlay.properties.createTemplateRoot).toBeDefined();
+        expect(importOverlay.properties.fbx).toBeUndefined();
+        expect(importOverlay.properties.default).toBeUndefined();
     });
 });
