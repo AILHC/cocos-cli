@@ -29,10 +29,16 @@ AssetDB 模块不直接推导 script chunk 业务语义，不负责 HTTP route r
 
 资源解析必须基于真实 AssetDB/library metadata。不能用 chunk regex 或 frozen editor output 反推 production 语义。
 
+CLI build 期间 AssetDB 对 `.meta` 和 project-level `library` records 的写入必须与 Editor baseline 对齐。不能简单禁止写入、build 后回滚文件，或未确认 Editor 行为就把 `internal` DB 改到隔离目录。
+
 ## Related Evidence
 
-当前 evidence 主要来自 runtime preview 专项；后续 AssetDB 专项结束后应补充模块自己的 facts 文档。
+当前 evidence 包含 runtime preview 专项和 build/AssetDB 写入一致性专项。后续 AssetDB 专项完成后，应继续把稳定结论回填到本模块。
 
+- `../build/README.md`
+- `../build/facts/meta-library-editor-parity-20260613.md`
+- `../build/plans/asset-db-custom-source-20260613.md`
+- `../build/issues.md`
 - `../runtime-preview/facts/architecture.md`
 - `../runtime-preview/facts/reference-library.md`
 - `../runtime-preview/acceptance/matrix.md`

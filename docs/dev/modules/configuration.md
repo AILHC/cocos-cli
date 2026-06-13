@@ -28,8 +28,13 @@ Configuration 模块不应根据测试失败反向改变 production 默认策略
 
 正常运行时，engine source 应从项目配置和 CLI 初始化链路解析。测试或专项验证可用 `COCOS_CLI_TEST_ENGINE_ROOT` 覆盖 engine source 路径。
 
+Creator profile adapter 和 `cocos.config.json` 迁移策略属于 build/configuration 交叉边界。现有 build issue 只记录事实和待决策略，不能在未确认 production 策略时强制重写配置默认行为。
+
 ## Related Evidence
 
 当前 evidence 主要来自 runtime preview / engine root 专项；后续 configuration 专项结束后应补充模块自己的 facts 文档。
 
+- `../build/issues.md`
+- `../build/README.md`
+- `../build-extension-hooks-20260612.md`
 - `../runtime-preview/facts/source-meta-editor-baseline-20260611.md`

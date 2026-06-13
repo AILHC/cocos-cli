@@ -29,7 +29,13 @@ Builder 模块不直接承担 preview browser loading 策略，也不绕过 scri
 
 Bundle prerequisite module 是 bundle script loading 的一部分，不能和 runtime preview 的 global `cce:/internal/x/prerequisite-imports` 混为同一个入口。
 
+Normal build 相关问题、事实和实施计划统一从 `../build/README.md` 进入。build 专题中的过程记录不能替代本模块的长期结论；专项完成后，应把稳定行为回填到本文件。
+
 ## Related Evidence
 
 - `../facts/scripting-generated-modules.md`
+- `../build/README.md`
+- `../build/issues.md`
+- `../build/facts/meta-library-editor-parity-20260613.md`
+- `../build/plans/meta-library-editor-parity-20260613.md`
 - `../runtime-preview/archive/old-implementation-review-20260606.md`

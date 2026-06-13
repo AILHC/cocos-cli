@@ -2,6 +2,13 @@
 
 日期：2026-06-13
 
+相关正式模块文档：
+
+- [Builder Module](../../modules/builder.md)
+- [AssetDB Module](../../modules/asset-db.md)
+- [Configuration Module](../../modules/configuration.md)
+- [Scripting Module](../../modules/scripting.md)
+
 ## 验证目标
 
 验证 CLI build 在主测试项目中是否会额外改写 `.meta` 与 `library` 顶层 JSON，并判断写入结果是否与 Editor baseline 一致。

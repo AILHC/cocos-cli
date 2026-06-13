@@ -1,6 +1,6 @@
 # Build 问题台账
 
-本文记录 normal build 相关问题。runtime preview 专题问题仍记录在 `docs/dev/runtime-preview/issues.md`。
+本文记录 normal build 相关问题。runtime preview 专题问题仍记录在 `docs/dev/runtime-preview/issues.md`。build 专题入口见 [README.md](README.md)，稳定模块说明见 [../modules/builder.md](../modules/builder.md)、[../modules/asset-db.md](../modules/asset-db.md)、[../modules/configuration.md](../modules/configuration.md)、[../modules/scripting.md](../modules/scripting.md)。
 
 ## 状态定义
 

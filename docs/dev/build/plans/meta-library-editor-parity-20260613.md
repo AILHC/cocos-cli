@@ -2,6 +2,15 @@
 
 日期：2026-06-13
 
+专题入口：[../README.md](../README.md)
+
+相关正式模块：
+
+- [Builder Module](../../modules/builder.md)
+- [AssetDB Module](../../modules/asset-db.md)
+- [Configuration Module](../../modules/configuration.md)
+- [Scripting Module](../../modules/scripting.md)
+
 ## 目标
 
 验证并修正 CLI build 对主测试项目项目状态的写入行为，使其与 Editor 行为一致。
