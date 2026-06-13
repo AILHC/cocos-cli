@@ -6,9 +6,9 @@ export declare const enum LogLevel {
     DEBUG = 4
 }
 export declare class CustomConsole {
-    constructor(level?: LogLevel);
     debug: (...args: any[]) => void;
     log: (...args: any[]) => void;
     warn: (...args: any[]) => void;
     error: (...args: any[]) => void;
+    constructor(level?: LogLevel);
 }

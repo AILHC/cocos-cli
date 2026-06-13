@@ -1,14 +1,8 @@
 export type MigrateStage = 'migrate' | 'preMigrate' | 'postMigrate';
-/**
- * 迁移队列
- */
 export interface Migrate<T> {
     version: string;
     migrate: (data: T, ...args: any[]) => Promise<T>;
 }
-/**
- * 钩子函数
- */
 export interface MigrateHook<T> {
     pre?: (data: T, ...args: any[]) => Promise<T>;
     post?: (data: T, ...args: any[]) => Promise<T>;

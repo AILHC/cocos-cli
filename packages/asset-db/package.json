@@ -4,6 +4,9 @@
     "private": true,
     "description": "",
     "main": "index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json"
+    },
     "author": "Cocos",
     "license": "MIT",
     "dependencies": {
