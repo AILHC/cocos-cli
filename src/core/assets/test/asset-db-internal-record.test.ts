@@ -62,9 +62,9 @@ describe('asset-db internal record editor parity', () => {
     it('keeps internal InfoManager record in editor 1.0.0 file shape', async () => {
         const fixture = await makeTempProject();
         try {
-            const infoPath = join(fixture.library, '.internal-info.json');
-            const oldInfoPath = infoPath.replace('.json', '1.0.0.json');
-            writeJSONSync(oldInfoPath, {
+            const currentInfoPath = join(fixture.library, '.internal-info.json');
+            const infoPath = join(fixture.library, '.internal-info1.0.0.json');
+            writeJSONSync(infoPath, {
                 version: '1.0.0',
                 map: {
                     [join(fixture.target, 'a.ts')]: {
@@ -87,8 +87,8 @@ describe('asset-db internal record editor parity', () => {
             manager.saveImmediate();
             manager.destroy();
 
-            const output = readJSONSync(oldInfoPath);
-            expect(existsSync(infoPath)).toBe(false);
+            const output = readJSONSync(infoPath);
+            expect(existsSync(currentInfoPath)).toBe(false);
             expect(output).toHaveProperty('version', '1.0.0');
             expect(output.map[join(fixture.target, 'a.ts')]).toEqual({ time: 1, uuid: 'uuid-a' });
             expect(output.map[join(fixture.target, 'b.ts')]).toEqual({ time: 4, uuid: 'uuid-b' });
@@ -246,7 +246,7 @@ describe('asset-db internal record editor parity', () => {
         }
     });
 
-    it('sets current internal record file paths during AssetDB.prepareStart', async () => {
+    it('sets editor internal record file paths during AssetDB.prepareStart', async () => {
         const fixture = await makeTempProject();
         try {
             const db = new AssetDB({
@@ -265,11 +265,39 @@ describe('asset-db internal record editor parity', () => {
 
             await (db as any).prepareStart();
 
-            expect(infoSpy).toHaveBeenCalledWith(join(fixture.library, '.internal-info.json'));
+            expect(infoSpy).toHaveBeenCalledWith(join(fixture.library, '.internal-info1.0.0.json'));
             expect(dataSpy).toHaveBeenCalledWith(join(fixture.library, '.internal-data.json'));
             expect(dependencySpy).toHaveBeenCalledWith(join(fixture.library, '.internal-dependency.json'));
         } finally {
             delete assetDBMap.internal;
+            await rm(fixture.root, { recursive: true, force: true });
+        }
+    });
+
+    it('keeps non-internal record file paths during AssetDB.prepareStart', async () => {
+        const fixture = await makeTempProject();
+        try {
+            const db = new AssetDB({
+                name: 'assets',
+                target: fixture.target,
+                library: fixture.library,
+                temp: fixture.temp,
+                level: 0,
+                ignoreFiles: [],
+                readonly: false,
+            });
+
+            const infoSpy = jest.spyOn(db.infoManager, 'setRecordJSON').mockResolvedValue(undefined);
+            const dataSpy = jest.spyOn(db.dataManager, 'setRecordJSON').mockResolvedValue(undefined);
+            const dependencySpy = jest.spyOn(db.dependencyManager, 'setRecordJSON').mockResolvedValue(undefined);
+
+            await (db as any).prepareStart();
+
+            expect(infoSpy).toHaveBeenCalledWith(join(fixture.library, '.assets-info.json'));
+            expect(dataSpy).toHaveBeenCalledWith(join(fixture.library, '.assets-data.json'));
+            expect(dependencySpy).toHaveBeenCalledWith(join(fixture.library, '.assets-dependency.json'));
+        } finally {
+            delete assetDBMap.assets;
             await rm(fixture.root, { recursive: true, force: true });
         }
     });
