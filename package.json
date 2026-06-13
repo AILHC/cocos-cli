@@ -57,7 +57,8 @@
         "static",
         "workflow",
         "writablePath",
-        "packages/cc-module"
+        "packages/cc-module",
+        "packages/asset-db"
     ],
     "overrides": {
         "fsevents": "2.3.3"
@@ -108,7 +109,7 @@
     },
     "dependencies": {
         "@babel/core": "7.22.20",
-        "@cocos/asset-db": "3.0.0-alpha.10",
+        "@cocos/asset-db": "file:./packages/asset-db",
         "@cocos/build-polyfills": "2.0.0",
         "@cocos/ccbuild": "2.3.19",
         "@cocos/creator-programming-rollup-plugin-mod-lo": "1.4.6",
