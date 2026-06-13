@@ -7,8 +7,9 @@
 1. 当前问题索引：[issues.md](issues.md)
 2. 当前关键事实：[facts/meta-library-editor-parity-20260613.md](facts/meta-library-editor-parity-20260613.md)
 3. `cocos.config.json` Editor-owned 配置运行时合并规格：[../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md](../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md)
-4. 项目状态写入一致性阶段计划：[../../superpowers/plans/2026-06-13-meta-library-editor-parity.md](../../superpowers/plans/2026-06-13-meta-library-editor-parity.md)
-5. `@cocos/asset-db` 定制源码接管计划：[../../superpowers/plans/2026-06-13-asset-db-custom-source.md](../../superpowers/plans/2026-06-13-asset-db-custom-source.md)
+4. `cocos.config.json` Editor-owned 配置运行时合并实施计划：[../../superpowers/plans/2026-06-13-cocos-config-editor-owned-runtime-merge.md](../../superpowers/plans/2026-06-13-cocos-config-editor-owned-runtime-merge.md)
+5. 项目状态写入一致性阶段计划：[../../superpowers/plans/2026-06-13-meta-library-editor-parity.md](../../superpowers/plans/2026-06-13-meta-library-editor-parity.md)
+6. `@cocos/asset-db` 定制源码接管计划：[../../superpowers/plans/2026-06-13-asset-db-custom-source.md](../../superpowers/plans/2026-06-13-asset-db-custom-source.md)
 
 ## Related Stable Modules
 
