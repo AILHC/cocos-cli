@@ -9,7 +9,8 @@ import { CocosMigrationManager } from '../migration';
 jest.mock('fs-extra');
 jest.mock('../migration', () => ({
     CocosMigrationManager: {
-        migrate: jest.fn()
+        migrate: jest.fn(),
+        loadEditorOwnedConfig: jest.fn(),
     }
 }));
 
@@ -17,12 +18,14 @@ jest.mock('../migration', () => ({
 jest.mock('../script/registry', () => ({
     configurationRegistry: {
         on: jest.fn(),
-        getInstance: jest.fn()
+        getInstance: jest.fn(),
+        getInstances: jest.fn(),
     }
 }));
 
 const mockFse = fse as any;
 const mockRegistry = configurationRegistry as jest.Mocked<typeof configurationRegistry>;
+const mockMigration = CocosMigrationManager as jest.Mocked<typeof CocosMigrationManager>;
 
 describe('ConfigurationManager', () => {
     let manager: ConfigurationManager;
@@ -32,6 +35,11 @@ describe('ConfigurationManager', () => {
     beforeEach(() => {
         manager = new ConfigurationManager();
         jest.clearAllMocks();
+        mockMigration.loadEditorOwnedConfig.mockResolvedValue({});
+        mockMigration.migrate.mockResolvedValue({
+            project: {},
+        });
+        mockRegistry.getInstances.mockReturnValue({});
 
         // Reset static properties
         (ConfigurationManager as any).VERSION = '1.0.0';
@@ -69,14 +77,15 @@ describe('ConfigurationManager', () => {
             // 由于 projectConfig 初始为空，save 方法会直接返回，所以不会调用 writeJSON 或 ensureDir
             // 这是正确的行为，因为空的配置不需要保存
 
-            // Existing configuration
+            // Existing CLI overlay is filtered before runtime merge.
             const existingConfig = { version: '1.0.0', module1: { key: 'value' } };
             mockFse.pathExists.mockResolvedValue(true);
             mockFse.readJSON.mockResolvedValue(existingConfig);
 
             const newManager = new ConfigurationManager();
             await newManager.initialize(projectPath);
-            expect(newManager['projectConfig']).toEqual(existingConfig);
+            expect(newManager['projectConfig']).toEqual({});
+            expect(newManager['cliPersistedConfig']).toEqual({ version: '1.0.0' });
             expect(mockFse.readJSON).toHaveBeenCalledWith(configPath);
         });
 
@@ -300,36 +309,27 @@ describe('ConfigurationManager', () => {
         it('should perform migration when version is lower and not when same or higher', async () => {
             const { CocosMigrationManager } = require('../migration');
             manager.reset();
-            const migratedConfig = {
-                project: {
-                    migratedKey: 'migratedValue'
-                },
-                global: {},
-                local: {},
-            };
-            CocosMigrationManager.migrate.mockResolvedValue(migratedConfig);
+            mockMigration.loadEditorOwnedConfig.mockResolvedValue({
+                migratedKey: 'migratedValue',
+            });
 
-            // Lower version - should migrate
+            // Lower version still initializes runtime config from Editor-owned snapshot.
             mockFse.pathExists.mockResolvedValue(true);
             mockFse.readJSON.mockResolvedValue({ version: '0.9.0' });
             mockFse.ensureDir.mockResolvedValue(undefined);
             mockFse.writeJSON.mockResolvedValue(undefined);
 
             await manager.initialize(projectPath);
-            expect(CocosMigrationManager.migrate).toHaveBeenCalledWith(projectPath);
+            expect(mockMigration.loadEditorOwnedConfig).toHaveBeenCalledWith(projectPath);
             expect(manager['projectConfig']).toEqual({
-                version: '1.0.0',
                 migratedKey: 'migratedValue',
-                $schema: './temp/cli/cocos.config.schema.json'
             });
-            expect(manager['version']).toBe('1.0.0');
-            // Same version - should not migrate (migrate method checks version)
+            expect(manager['version']).toBe('0.9.0');
+            // Same version still reads Editor-owned config.
             const newManager = new ConfigurationManager();
             mockFse.readJSON.mockResolvedValue({ version: '1.0.0' });
             await newManager.initialize(projectPath);
-            // migrate is called but returns early due to same version
-            // Note: CocosMigrationManager is a singleton, so it's only called once
-            expect(CocosMigrationManager.migrate).toHaveBeenCalledTimes(1);
+            expect(mockMigration.loadEditorOwnedConfig).toHaveBeenCalledTimes(2);
         });
     });
 
@@ -345,12 +345,12 @@ describe('ConfigurationManager', () => {
 
         it('should save configuration and have correct static properties', async () => {
             // Save configuration
-            manager['projectConfig'] = { version: '1.0.0', test: 'value' };
+            manager['cliPersistedConfig'] = { import: { globList: ['!**/*.tmp'] } };
             await manager['save']();
             expect(mockFse.ensureDir).toHaveBeenCalledWith(path.dirname(configPath));
             expect(mockFse.writeJSON).toHaveBeenCalledWith(
                 configPath,
-                { version: '1.0.0', test: 'value', $schema: './temp/cli/cocos.config.schema.json' },
+                { version: '1.0.0', import: { globList: ['!**/*.tmp'] }, $schema: './temp/cli/cocos.config.schema.json' },
                 { spaces: 4 }
             );
 
@@ -364,7 +364,7 @@ describe('ConfigurationManager', () => {
         });
 
         it('should serialize concurrent saves for the same config file', async () => {
-            manager['projectConfig'] = { version: '1.0.0', test: 'value' };
+            manager['cliPersistedConfig'] = { import: { globList: ['!**/*.tmp'] } };
             mockFse.writeJSON.mockClear();
 
             let activeWrites = 0;
@@ -463,7 +463,10 @@ describe('ConfigurationManager', () => {
         it('should initialize configs from existing projectConfig when registering configuration', async () => {
             // 模拟配置文件存在并包含配置
             mockFse.pathExists.mockResolvedValue(true);
-            mockFse.readJSON.mockResolvedValue(existingProjectConfig);
+            mockFse.readJSON.mockResolvedValue({ version: '1.0.0' });
+            mockMigration.loadEditorOwnedConfig.mockResolvedValue({
+                testModule: existingProjectConfig.testModule,
+            });
             mockFse.ensureDir.mockResolvedValue(undefined);
             mockFse.writeJSON.mockResolvedValue(undefined);
 
@@ -471,7 +474,9 @@ describe('ConfigurationManager', () => {
             await newManager.initialize(projectPath);
 
             // 验证 projectConfig 已正确加载
-            expect(newManager['projectConfig']).toEqual(existingProjectConfig);
+            expect(newManager['projectConfig']).toEqual({
+                testModule: existingProjectConfig.testModule,
+            });
 
             // 模拟配置实例注册 - 使用 BaseConfiguration 类型
             const mockInstance = {
@@ -514,26 +519,18 @@ describe('ConfigurationManager', () => {
 
             await saveHandler(mockInstance);
 
-            // 验证修复：Save 时应该保存正确的配置，而不是空对象
+            // Editor-owned runtime config should not be persisted back to cocos.config.json.
             expect(mockInstance.getAll).toHaveBeenCalled();
-            expect(mockFse.writeJSON).toHaveBeenCalledWith(
-                configPath,
-                expect.objectContaining({
-                    testModule: {
-                        existingKey: 'existingValue',
-                        nested: {
-                            existingNestedKey: 'existingNestedValue'
-                        }
-                    }
-                }),
-                { spaces: 4 }
-            );
+            expect(mockFse.writeJSON).not.toHaveBeenCalled();
         });
 
         it('should throw error when registering non-BaseConfiguration instances', async () => {
             // 模拟配置文件存在并包含配置
             mockFse.pathExists.mockResolvedValue(true);
-            mockFse.readJSON.mockResolvedValue(existingProjectConfig);
+            mockFse.readJSON.mockResolvedValue({ version: '1.0.0' });
+            mockMigration.loadEditorOwnedConfig.mockResolvedValue({
+                testModule: existingProjectConfig.testModule,
+            });
             mockFse.ensureDir.mockResolvedValue(undefined);
             mockFse.writeJSON.mockResolvedValue(undefined);
 
@@ -564,6 +561,170 @@ describe('ConfigurationManager', () => {
             } catch (error) {
                 expect((error as Error).message).toContain('配置实例必须是 BaseConfiguration 类型');
             }
+        });
+    });
+
+    describe('editor-owned runtime merge', () => {
+        it('uses editor-owned config from migration instead of stale cocos.config.json fields', async () => {
+            mockMigration.loadEditorOwnedConfig.mockResolvedValue({
+                engine: {
+                    globalConfigKey: 'from-editor',
+                },
+            });
+
+            mockFse.pathExists.mockResolvedValue(true);
+            mockFse.readJSON.mockResolvedValue({
+                version: '1.0.0',
+                engine: {
+                    globalConfigKey: 'from-cocos-config',
+                },
+            });
+            mockFse.copy.mockResolvedValue(undefined);
+
+            const configInstance: any = {
+                moduleName: 'engine',
+                configs: {},
+                getAll: jest.fn(),
+                on: jest.fn(),
+                off: jest.fn(),
+            };
+            configInstance.getAll.mockReturnValue(configInstance.configs);
+
+            mockRegistry.getInstance.mockReturnValue(configInstance as any);
+            await manager.initialize(projectPath);
+
+            const registryHandler = mockRegistry.on.mock.calls.find((call) => call[0] === MessageType.Registry)?.[1] as Function | undefined;
+            expect(registryHandler).toBeDefined();
+            registryHandler!(configInstance);
+
+            expect(configInstance.configs).toEqual({
+                globalConfigKey: 'from-editor',
+            });
+        });
+
+        it('persists only CLI-owned fields and metadata when a registered config saves', async () => {
+            mockMigration.loadEditorOwnedConfig.mockResolvedValue({
+                engine: {
+                    globalConfigKey: 'from-editor',
+                },
+                import: {
+                    fbx: {
+                        material: {
+                            smart: false,
+                        },
+                    },
+                },
+            });
+
+            mockFse.pathExists.mockResolvedValue(true);
+            mockFse.readJSON.mockResolvedValue({
+                version: '1.0.0',
+                $schema: './temp/cli/cocos.config.schema.json',
+                import: {
+                    globList: ['!**/*.tmp'],
+                    fbx: {
+                        material: {
+                            smart: true,
+                        },
+                    },
+                },
+                engine: {
+                    globalConfigKey: 'stale',
+                },
+            });
+            mockFse.copy.mockResolvedValue(undefined);
+            mockFse.ensureDir.mockResolvedValue(undefined);
+            mockFse.writeJSON.mockResolvedValue(undefined);
+
+            const importConfigInstance: any = {
+                moduleName: 'import',
+                configs: {
+                    globList: ['!**/*.cache'],
+                    fbx: {
+                        material: {
+                            smart: false,
+                        },
+                    },
+                },
+                getAll: jest.fn(),
+                on: jest.fn(),
+                off: jest.fn(),
+            };
+            importConfigInstance.getAll.mockReturnValue(importConfigInstance.configs);
+
+            await manager.initialize(projectPath);
+            const registryHandler = mockRegistry.on.mock.calls.find((call) => call[0] === MessageType.Registry)?.[1] as Function | undefined;
+            expect(registryHandler).toBeDefined();
+            registryHandler!(importConfigInstance);
+
+            const saveHandler = importConfigInstance.on.mock.calls.find((call: any[]) => call[0] === MessageType.Save)?.[1];
+            expect(saveHandler).toBeDefined();
+            await saveHandler(importConfigInstance);
+
+            expect(mockFse.writeJSON).toHaveBeenLastCalledWith(configPath, {
+                version: '1.0.0',
+                $schema: ConfigurationManager.relativeSchemaPath,
+                import: {
+                    globList: ['!**/*.cache'],
+                },
+            }, { spaces: 4 });
+        });
+    });
+
+    describe('runtime refresh', () => {
+        it('reload refreshes already registered configuration instances from latest editor files', async () => {
+            mockMigration.loadEditorOwnedConfig
+                .mockResolvedValueOnce({ engine: { globalConfigKey: 'before' } })
+                .mockResolvedValueOnce({ engine: { globalConfigKey: 'after' } });
+
+            mockFse.pathExists.mockResolvedValue(true);
+            mockFse.readJSON.mockResolvedValue({ version: '1.0.0' });
+            mockFse.copy.mockResolvedValue(undefined);
+
+            const configInstance: any = {
+                moduleName: 'engine',
+                configs: {},
+                getAll: jest.fn(),
+                on: jest.fn(),
+                off: jest.fn(),
+            };
+            configInstance.getAll.mockReturnValue(configInstance.configs);
+            mockRegistry.getInstances.mockReturnValue({ engine: configInstance } as any);
+
+            await manager.initialize(projectPath);
+            const registryHandler = mockRegistry.on.mock.calls.find((call) => call[0] === MessageType.Registry)?.[1] as Function | undefined;
+            expect(registryHandler).toBeDefined();
+            registryHandler!(configInstance);
+            expect(configInstance.configs).toEqual({ globalConfigKey: 'before' });
+
+            await manager.reload();
+            expect(configInstance.configs).toEqual({ globalConfigKey: 'after' });
+        });
+
+        it('migrateFromProject refreshes runtime config without persisting editor-owned snapshot', async () => {
+            mockMigration.loadEditorOwnedConfig.mockResolvedValue({
+                engine: { globalConfigKey: 'from-editor' },
+                import: { globList: ['!**/*.tmp'] },
+            });
+
+            mockFse.pathExists.mockResolvedValue(true);
+            mockFse.readJSON.mockResolvedValue({ version: '1.0.0' });
+            mockFse.copy.mockResolvedValue(undefined);
+            mockFse.ensureDir.mockResolvedValue(undefined);
+            mockFse.writeJSON.mockResolvedValue(undefined);
+
+            await manager.initialize(projectPath);
+            await manager.migrateFromProject(projectPath);
+
+            expect(mockFse.writeJSON).not.toHaveBeenCalledWith(
+                configPath,
+                expect.objectContaining({ engine: expect.any(Object) }),
+                expect.any(Object),
+            );
+            expect(manager['projectConfig']).toEqual({
+                engine: { globalConfigKey: 'from-editor' },
+                import: { globList: ['!**/*.tmp'] },
+            });
         });
     });
 });

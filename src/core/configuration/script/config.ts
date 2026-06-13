@@ -1,6 +1,7 @@
 import * as utils from './utils';
 import { ConfigurationScope, MessageType } from './interface';
 import { EventEmitter } from 'events';
+import { isCliOwnedConfigPath, isEditorOwnedConfigPath } from './owner-map';
 
 type EventEmitterMethods = Pick<EventEmitter, 'on' | 'off' | 'once' | 'emit'>;
 
@@ -121,6 +122,7 @@ export class BaseConfiguration extends EventEmitter implements IBaseConfiguratio
     }
 
     public async set<T>(key: string, value: T, scope: ConfigurationScope = 'project'): Promise<boolean> {
+        this.assertProjectWriteAllowed(key, scope);
         if (scope === 'default') {
             utils.setByDotPath(this.defaultConfigs, key, value);
         } else {
@@ -131,6 +133,7 @@ export class BaseConfiguration extends EventEmitter implements IBaseConfiguratio
     }
 
     public async remove(key: string, scope: ConfigurationScope = 'project'): Promise<boolean> {
+        this.assertProjectWriteAllowed(key, scope);
         let removed = false;
 
         if (scope === 'default') {
@@ -147,6 +150,16 @@ export class BaseConfiguration extends EventEmitter implements IBaseConfiguratio
         }
 
         return removed;
+    }
+
+    private assertProjectWriteAllowed(key: string, scope: ConfigurationScope): void {
+        if (scope === 'default') {
+            return;
+        }
+        const fullPath = `${this.moduleName}.${key}`;
+        if (isEditorOwnedConfigPath(fullPath) && !isCliOwnedConfigPath(fullPath)) {
+            throw new Error(`[Configuration] ${fullPath} is maintained by Cocos Creator Editor settings/profiles and cannot be persisted to cocos.config.json`);
+        }
     }
 
     public async save() {

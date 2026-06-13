@@ -16,7 +16,7 @@ export class ConfigurationApi {
 
     @tool('configuration-remigrate')
     @title('Re-migrate configuration') // 重新迁移配置
-    @description('Re-migrate and generate cocos.config.json from the settings directory of the current project') // 从当前项目的 settings 目录重新迁移生成 cocos.config.json
+    @description('Re-read Editor-owned project configuration from settings/profiles and refresh runtime configuration without generating a full cocos.config.json') // 从 settings/profiles 重新读取 Editor-owned 配置并刷新运行时配置，不生成全量 cocos.config.json
     @result(SchemaMigrateResult)
     async migrateFromProject(): Promise<CommonResultType<TMigrateResult>> {
         const code: HttpStatusCode = COMMON_STATUS.SUCCESS;
@@ -41,7 +41,7 @@ export class ConfigurationApi {
 
     // @tool('configuration-reload')
     @title('Reload configuration') // 重新加载配置
-    @description('Reload configuration from the configuration file on the disk, used to refresh the configuration status') // 从硬盘的配置文件重新加载配置，用于刷新配置状态
+    @description('Reload CLI-owned overlay from cocos.config.json and Editor-owned configuration from settings/profiles') // 从 cocos.config.json 重新加载 CLI-owned overlay，并从 settings/profiles 重新读取 Editor-owned 配置
     @result(SchemaReloadResult)
     async reload(): Promise<CommonResultType<TReloadResult>> {
         const code: HttpStatusCode = COMMON_STATUS.SUCCESS;
