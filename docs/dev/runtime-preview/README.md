@@ -10,7 +10,7 @@
 - `settings.engine.builtinAssets` 必须包含 internal physics default material `ba21476f-2866-4f81-9c4d-6e359316e448`；该资源不能只挂到 `main` / `start-scene` launch bundle。
 - production `preview --runtime` 的 `engineRoot` 解析和启动日志重复问题已按当前计划修复：项目配置 `cocos-cli.enginePath` 可作为 `project-config` 来源，`server:listening` 只输出一次。修复记录见 [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)。
 - 2026-06-11 `internal` AssetDB / runtime preview 应优先使用项目级 `library`；engine-level `editor/library` 中部分 internal Texture2D 为 `content:null`，会触发 `Texture2D._deserialize` 读取 `content.base` 报错。见 [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)。
-- 浏览器脚本加载顺序当前只记录事实，不执行并发化修改；HTTP file response 已迁移到 Express `sendFile()` validator 路径，body response 不新增 Express `ETag` / conditional `304`。见 [facts/browser-loading-and-cache-20260611.md](facts/browser-loading-and-cache-20260611.md)。
+- 浏览器脚本加载顺序当前只记录事实，不执行并发化修改；HTTP file response 已迁移到 Express `sendFile()` validator 路径，body response 通过 Express `res.send()` 可生成 body `ETag`，满足条件请求时可以返回 `304`。见 [facts/browser-loading-and-cache-20260611.md](facts/browser-loading-and-cache-20260611.md)。
 - source `assets/**/*.meta` 写回必须与 Editor 3.8.6 保持一致；本轮核心流程整理不回滚、不归因现有 feature-c `.meta` 修改，`.anim.meta` parity 之外的资源类型仍是后续专项。
 
 ## 必读顺序
@@ -23,6 +23,12 @@
 6. [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)：production engine root 解析退化和启动日志重复的修复计划。
 7. [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)：项目级 internal library 事实、缓存干扰和最小修复边界。
 8. [acceptance/feedback-20260609.md](acceptance/feedback-20260609.md)：历史反馈闭环长文；新问题状态以 [issues.md](issues.md) 为索引。
+
+## Cross-Module References
+
+- 脚本编译、packer-driver、generated prerequisite module：`../modules/scripting.md`
+- HTTP server 和 cache validators：`../modules/server.md`
+- Runtime preview 当前模块职责：`../modules/runtime-preview.md`
 
 ## 模块说明
 

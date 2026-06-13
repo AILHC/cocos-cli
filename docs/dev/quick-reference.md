@@ -188,7 +188,7 @@ echo "All checks passed!" | 完成！
 
 - **Contributing Guide**: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 - **E2E Testing**: [e2e/README.md](../../e2e/README.md)
-- **Type Inference**: [e2e/docs/TYPE-INFERENCE-EXAMPLE.md](../../e2e/docs/TYPE-INFERENCE-EXAMPLE.md)
+- **Type Inference**: `e2e/docs/TYPE-INFERENCE-EXAMPLE.md` was used by the historical E2E layout; the current repository does not provide this file.
 - **Test Coverage**: [e2e/scripts/README.md](../../e2e/scripts/README.md)
 
 ## 💡 Tips | 技巧
