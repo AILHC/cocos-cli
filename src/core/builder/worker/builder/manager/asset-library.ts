@@ -355,12 +355,9 @@ class BuildAssetLibrary {
             return;
         }
 
-        // 目前所有 CCON 资产在资产库里面的后缀都是 .bin
-        // 后面如果调整了这里要对应调整。
-        // 断言一下，确保没问题。
         const originalDest = dest;
         const originalExtname = extname(originalDest);
-        assert(originalExtname === '.bin');
+        assert(originalExtname === '.bin' || originalExtname === '.cconb');
         const baseName = basename(originalDest, originalExtname);
         const fullBaseName = join(dirname(originalDest), baseName);
 

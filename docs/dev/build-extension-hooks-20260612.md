@@ -399,6 +399,75 @@ node ./dist/cli.js build --project E:\own_space\engines\cocos-test-projects --pl
 - build 退出码为 `0`，输出目录为 `E:\own_space\engines\cocos-test-projects\build\codex-cjs-visible-meta-20260615`；构建日志仍记录 `Failed to resolve CommonJS bare specifier "@tbmp/mp-cloud-sdk"`，这是保留的编译期诊断。
 - 使用 in-app Browser 打开 `http://127.0.0.1:13333/?open=1781495718735`，页面标题为 `Cocos Creator | test-cases`，`canvasCount: 1`；warning/error 日志数为 `0`，按 `@tbmp`、`mp-cloud-sdk`、`Current environment`、`require()`、`commonjs-bare-specifier` 过滤后数量为 `0`。
 
+### 2026-06-15 CLI build `.anim` CCON 资源运行时 404
+
+用户反馈：同一主测试项目中，Editor 构建产物运行无资源加载报错，CLI 构建产物运行有资源加载报错。
+
+复现和对比方式：
+
+- Editor 产物目录：`E:\own_space\engines\cocos-test-projects\build\web-mobile`。
+- 修复前 CLI 产物目录：`E:\own_space\engines\cocos-test-projects\build\codex-cjs-visible-meta-20260615`。
+- 使用同一种 Python 静态服务分别打开两份产物，并通过 CDP Network 事件采集 HTTP 失败请求。
+
+事实：
+
+- Editor 产物 Network 失败请求数为 `0`。
+- 修复前 CLI 产物有 3 个唯一资源重复 404：
+  - `assets/main/import/1f/1feeb8bd-de73-436b-bc5a-2f806ede2f16.json`
+  - `assets/main/import/db/db08659e-08bc-4f54-8872-8f696002de29.json`
+  - `assets/main/import/e5/e5b2329c-bc9e-4bc1-8c40-a37ce95caaf1.json`
+- 3 个 UUID 分别对应：
+  - `assets/cases/animation/Animations/Easing_Linear.anim.meta`
+  - `assets/cases/animation/Animations/Easing_Bounce.anim.meta`
+  - `assets/cases/animation/Animations/Easing_Sine.anim.meta`
+- 当前这 3 个 `.anim.meta` 的 `files` 均为 `[ ".cconb" ]`。
+- Editor 产物中，3 个资源输出在 `assets/main/import/*.cconb`，并且 bundle config 的 `extensionMap[".cconb"]` 包含对应 UUID。
+- 修复前 CLI 产物中，3 个资源输出在 `assets/main/native/*.cconb`，bundle config 的 `extensionMap` 为空，且这 3 个 UUID 位于 `versions.native`。
+
+根因：
+
+- `src/core/builder/worker/builder/utils/cconb.ts` 的 `hasCCONFormatAssetInLibrary()` 仍使用旧规则：只有 `meta.files === [".bin"]` 才认为是 CCON 资源。
+- 但当前 `.anim` importer 已把 library 文件写为 `.cconb`。
+- 因此 CLI build 没有走 CCON import 资源输出逻辑，也没有写入 `extensionMap[".cconb"]`；运行时只能按默认 `.json` 后缀请求 import 资源，最终 404。
+- 进一步验证时，`BuildAssetLibrary.outputCCONAsset()` 也保留了旧断言 `originalExtname === ".bin"`，需要同步支持 `.cconb`。
+
+修复：
+
+- `hasCCONFormatAssetInLibrary()` 支持单文件 `.bin` 或 `.cconb`。
+- `getCCONFormatAssetInLibrary()` 按 `asset.meta.files[0]` 返回真实 library 文件路径。
+- `outputCCONAsset()` 输入扩展名允许 `.bin` 和 `.cconb`。
+- `outputCCONFormat()` build 输出统一写 `.cconb`，与 `getDesiredCCONExtensionMap()` 和 Editor 产物一致。
+- 新增 `vitests/suites/build/cconb-library-detection.test.ts` 覆盖 `.cconb`、历史 `.bin` 和普通 `.json` 三种识别行为。
+
+验证：
+
+```powershell
+$env:COCOS_CLI_TEST_ENGINE_ROOT="E:\own_space\engines\3.8.6"
+cd vitests
+npx vitest run suites/build/cconb-library-detection.test.ts
+```
+
+结果：通过，`3 tests`。
+
+```powershell
+npm run build
+```
+
+结果：通过，输出只包含既有 circular dependency warning。
+
+```powershell
+node ./dist/cli.js build --project E:\own_space\engines\cocos-test-projects --platform web-mobile --build-config E:\own_space\engines\cocos-test-projects\profiles\v2\packages\web-mobile.json --buildPath E:\own_space\engines\cocos-test-projects\build --outputName codex-cconb-import-fix2-20260615
+```
+
+结果：
+
+- build 退出码为 `0`，输出目录为 `E:\own_space\engines\cocos-test-projects\build\codex-cconb-import-fix2-20260615`。
+- 3 个 `.anim` 输出到 `assets/main/import/*.cconb`。
+- `assets/main/config.dcd3d.json` 中 `extensionMap[".cconb"]` 包含这 3 个 UUID。
+- 这 3 个 UUID 位于 `versions.import`，不再位于 `versions.native`。
+- 使用 in-app Browser 打开 `http://127.0.0.1:13335/?net=fix2-178149`，页面标题为 `Cocos Creator | test-cases`，`canvasCount: 1`，CDP Network 失败请求数为 `0`。
+- 当前端口 `13335` 只剩 `ShieldNode.tiledLayer` 的既有 warning，无 `download failed` / `status: 404` 错误。
+
 ### 2026-06-13 `.meta` 变更来源补充记录
 
 用户补充验证事实：
