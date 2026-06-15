@@ -4,7 +4,7 @@
 
 **Goal:** 处理 `BUILD-ISSUE-014`：让 CLI normal build 支持项目内 Cocos extension builder hook，并用主测试项目中的裁剪版 `build-ex` fixture 验证 Editor extension builder contract。该计划不迁移 `feature-c/build-ex` 的业务发布逻辑，不重新处理 `wechatgame` 平台 parity。
 
-**Architecture:** 抽出项目 extension package discovery，复用给 AssetDB mount 与 builder hook 注册。`PluginManager` 读取 `<projectRoot>/extensions/*/package.json` 的 Editor schema `contributions.builder`，加载 builder entry，注册 `configs["*"]` 与 `configs[platform]` 的 public hooks 和 package options。hook 执行沿用 CLI builder 现有 `runPluginTask()` 生命周期，但项目 extension 必须是 public hook，不得被当作 internal platform hook。裁剪版 `build-ex` fixture 用真实 Editor extension builder 结构验证 discovery、配置合并、hook 顺序、错误传播、产物写入和运行结果。
+**Architecture:** CLI 实现一个 Editor-like project extension builder host，而不是内置 `feature-c/build-ex` 业务适配器。抽出项目 extension package discovery，复用给 AssetDB mount 与 builder hook 注册；`PluginManager` 读取 `<projectRoot>/extensions/*/package.json` 的 Editor schema `contributions.builder`，加载 builder entry，注册 `configs["*"]` 与 `configs[platform]` 的 public hooks 和 package options。hook 执行沿用 CLI builder 现有 `runPluginTask()` 生命周期，但项目 extension 必须是 public hook，不得被当作 internal platform hook。裁剪版 `build-ex` fixture 不是空壳，必须用真实 Editor extension builder 结构和最小可审计 output side effects 验证 discovery、配置合并、hook 顺序、错误传播、产物写入和运行结果。
 
 **Tech Stack:** Node.js, TypeScript, Cocos CLI builder, Cocos Creator extension `contributions.builder`, Jest/Vitest, PowerShell, in-app Browser。
 
@@ -25,8 +25,10 @@
 - `wechatgame` 第一阶段事实已在 `docs/dev/build/facts/wechatgame-source-inventory-20260615.md` 记录；未完成平台高级能力已迁入 `BUILD-ISSUE-012` 和 `BUILD-ISSUE-013`。
 - 本计划可以在 hook MVP 通过后用 `wechatgame` 做可选 smoke，但不得把 `wechatgame` 平台 parity 作为本计划交付条件。
 - 不把 `feature-c/build-ex` 业务逻辑硬编码进 CLI；CLI 只实现通用 extension builder 接入机制。
-- 裁剪版 `build-ex` fixture 只证明 Editor extension builder contract，不证明 `feature-c/build-ex` 业务迁移完成。
+- 裁剪版 `build-ex` fixture 只证明 Editor extension builder contract，不证明 `feature-c/build-ex` 业务迁移完成；但 fixture 不能是空壳，必须包含最小真实构建副作用：读取 `options.packages["build-ex"]`、验证 `configs["*"]` 与 `configs[platform]` 合并、写 hook report、写一个非业务 output marker、覆盖受控失败。
 - fixture 不得保留 `feature-c` 私有 SDK、cfg 合并、hotupdate manifest、混淆、字体替换、资源删除、`.meta` 源资产改写等业务发布逻辑。
+- `feature-c/build-ex` 中可归类为 build output 级的业务逻辑（例如复制文件、改输出目录文件、生成 manifest）应由项目 extension 自身在 hook 中实现；CLI 只提供 hook host、配置、生命周期、错误传播和输出目录访问能力。
+- `feature-c/build-ex` 中依赖 `Editor.Message`、AssetDB、源资产或 `.meta` 写入的逻辑不属于本 MVP；若真实迁移需要，后续单独设计 Editor facade / AssetDB API / unsupported 边界，不能在本计划中静默 mock。
 - 若 `build-ex` 依赖的 Editor API 在 CLI 中没有等价能力，先记录为不支持、替代实现或后续能力；不允许用静默 mock 掩盖。
 - `assetHandlers` 不纳入 MVP 支持范围；必须有明确 unsupported 记录或测试，避免误判为已支持。
 - parity 构建输入使用 Editor 导出的完整 `buildConfig_<platform>.json`；`profiles/v2/packages/<platform>.json` 只作为 profile adapter 兼容测试输入。
@@ -132,6 +134,9 @@
 - [ ] fixture 覆盖 extension package name 到 `options.packages["build-ex"]` 的映射。
 - [ ] fixture 覆盖 `configs["*"]` 与 `configs["web-mobile"]` 的配置合并冲突。
 - [ ] fixture 覆盖 builder entry 到 hooks 的相对路径解析。
+- [ ] fixture 的 hook 必须读取 `options.platform`、`options.packages["build-ex"].buildVersion`、`options.packages["build-ex"].gameDebug`、`options.packages["build-ex"].hotupdateUrl`，并把读取结果写入 hook report；缺失时按受控错误路径失败。
+- [ ] fixture 的 hook 必须在 `result.dest` 下写一个最小非业务 output marker，例如 `build-ex-output-marker.json`，内容只包含 fixture 字段、platform、buildVersion 和 hook 阶段，不包含私有 SDK 或业务发布逻辑。
+- [ ] fixture 必须包含一个受控失败开关，例如 `options.packages["build-ex"].forceHookError`，用于验证 `throwError = true` 时 CLI build 非 0 退出、错误包含 extension name 和 hook name、`onError` 行为可观测。
 - [ ] fixture 不写 `.meta`，不写 `library` 顶层 internal JSON，不改项目源资产。
 - [ ] fixture 不复制 `feature-c` 的 `cc_obfuscated_js.json`、热更新脚本、SDK libs、cfg 合并、字体替换、asset 删除逻辑。
 - [ ] `assetHandlers` 不实现；用文档或测试明确 MVP 不支持。
@@ -140,7 +145,7 @@
 
 - [ ] `onBeforeBuild` 记录 `platform`、`packages["build-ex"]` 关键字段、`result.dest` 可见性和执行顺序。
 - [ ] `onBeforeCompressSettings` 记录是否可访问 `result.settings.assets`，但不依赖具体 hash。
-- [ ] `onAfterBuild` 写入输出目录下的 `build-ex-hook-report.json`，并做一个小范围非业务输出文件写入，验证 `result.dest` 写能力。
+- [ ] `onAfterBuild` 写入输出目录下的 `build-ex-hook-report.json`，并写入 `build-ex-output-marker.json`，验证 extension hook 能影响 build output，但不复制 `feature-c/build-ex` 的业务发布逻辑。
 - [ ] `onError` 在受控失败用例中记录错误 marker。
 - [ ] `build-ex-hook-report.json` 固定 schema：
   - `events[]`：hook name、extension name、platform、fatal/non-fatal 标记、顺序号。
@@ -202,6 +207,7 @@ rtk pwsh -NoLogo -NoProfile -Command 'python -m http.server 13340 --directory "E
 ### Extension hook MVP
 
 - CLI 支持项目内 extension builder discovery：`package.json` 的 `contributions.builder`、builder entry 相对路径、`configs["*"]` / `configs[platform]` hooks。
+- CLI 的实现定位为 Editor-like project extension builder host；CLI 不内置 `feature-c/build-ex` 的 SDK、hotupdate、cfg merge、混淆、字体替换、资源删除或 `.meta` 改写业务。
 - 无 `extensions/` 时现有 build 行为不变。
 - malformed package、缺失 builder entry、缺失 hooks 文件、重复 extension name 的策略明确并有测试。
 - `contributes.builder` 与 `contributions.builder` 的 project extension schema 边界明确并有测试。
@@ -210,6 +216,7 @@ rtk pwsh -NoLogo -NoProfile -Command 'python -m http.server 13340 --directory "E
 - `throwError=true`、non-fatal error、`onError` 触发条件均有测试覆盖。
 - `buildConfig_<platform>.json` 中 `packages["build-ex"]` 与 extension builder options 合并语义明确。
 - 裁剪版 `build-ex` 可由 Editor 和 CLI 执行同一生命周期 hook，并输出可 diff 的 `build-ex-hook-report.json`。
+- 裁剪版 `build-ex` 必须产生最小真实 output side effects：读取 package options、记录平台配置合并结果、写 `build-ex-hook-report.json`、写 `build-ex-output-marker.json`、覆盖受控失败；只有空 hook 或只打印日志不满足验收。
 - CLI `web-mobile` 构建通过，输出目录可运行，无新增 console error。
 - CLI 构建后源资产、`.meta`、`library` 顶层 JSON 的变化与 Editor baseline 一致；如果 fixture 设计为不写这些位置，则 CLI 和 Editor 都不能产生相关差异。
 - `BUILD-ISSUE-014` 事实、验证和状态已回填到文档。
@@ -219,7 +226,9 @@ rtk pwsh -NoLogo -NoProfile -Command 'python -m http.server 13340 --directory "E
 - `build-ex-hook-report.json` 包含固定 schema：`events[]`、`optionsSnapshot`、`resultShape`、`writes[]`、`errors[]`，并定义动态字段白名单。
 - fixture 覆盖 `configs["*"]` 与平台配置合并、extension package name 到 `options.packages["build-ex"]` 的映射、builder entry 到 hooks 相对路径解析、多个 project extensions 稳定排序。
 - fixture 只证明 Editor extension builder contract，不证明 `feature-c/build-ex` 业务迁移完成。
+- fixture 证明的是 extension host 能承载项目 extension 的 build output 级逻辑；真实 `feature-c/build-ex` 业务迁移应尽量落在项目 extension 内，而不是继续改 CLI。
 - fixture 不保留 `feature-c` 私有 SDK / cfg / hotupdate / 混淆 / manifest / `.meta` 改写业务；每个删除项都有记录和理由。
+- 依赖 `Editor.Message`、AssetDB、源资产或 `.meta` 写入的能力必须在文档中标为 unsupported / deferred，不能通过静默 mock 伪装为已支持。
 - `assetHandlers` 不属于 MVP 时，有明确 unsupported 记录或测试，不把未覆盖误判为已支持。
 
 ## 确认后建议执行顺序
