@@ -273,12 +273,13 @@
   - `src = 11`
   - `subpackages = 4`
 - CLI 输出 `assets/start-scene/config.*.json` 和 `remote/resources/config.*.json` 的 CCON `extensionMap` 均为 `.ccon`。
+- 用户更新微信开发者工具后，使用微信开发者工具测试当前 CLI `wechatgame` 构建产物未再复现先前 `loadFont:fail no permission` 问题；第一阶段普通微信小游戏产物运行验收可视为阶段性通过。
 
 验证中观察到但未在第一阶段处理的问题：
 
 - 构建日志仍包含 `@tbmp/mp-cloud-sdk` bare specifier fallback；该问题来自测试项目脚本依赖解析，构建 exit code 为 0。
 - 构建日志仍包含 texture packer 链路的 `ReferenceError: Editor is not defined` 和若干 sprite frame library JSON 缺失；这会造成个别 atlas 资源差异，但当前 baseline parity 的运行条件检查已通过。
-- WeChat DevTools 已通过手工/CLI 打开进入运行调试阶段；`loadFont:fail no permission` 需按 DevTools/appid/local state 权限问题继续排查。现有自动化只能证明入口、adapter、settings、bundle config、subpackage root 和引用完整性，不能替代人工在微信开发者工具中的运行验证。
+- WeChat DevTools 已通过手工/CLI 打开进入运行调试阶段；先前 `loadFont:fail no permission` 在用户更新微信开发者工具后不再复现，当前记录为 DevTools 版本/本地环境相关现象。现有自动化只能证明入口、adapter、settings、bundle config、subpackage root 和引用完整性，不能替代人工在微信开发者工具中的运行验证。
 - `separateEngine`、`localSeparateEngine`、`wasmSubpackage`、`buildOpenDataContextTemplate`、完整 `run` stage 未纳入第一阶段实现验证。
 
 ### 微信开发者工具 CLI 调试事实
@@ -371,7 +372,6 @@ Error: Port is not provided
 ## 待验证项
 
 - DevTools 改写输出目录后，需要重新构建 CLI 输出，再重新执行 baseline parity。
-- 使用相同 `appid` 分别打开 Editor baseline 与 CLI 输出，确认 `loadFont` 权限状态是否一致。
 - 确认 `auto` 命令所需的自动化端口、`ticket` 或 DevTools GUI 设置，不能直接复用普通 IDE HTTP 服务端口结论。
 - 确认 `game.ejs` 所需变量能否由 CLI 当前 `options` / `result.paths` 完整提供。
 - 确认 baseline 中 `subpackages` 的来源，区分 bundle 配置、微信平台 hook 和 settings 语义。
