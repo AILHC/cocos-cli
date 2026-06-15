@@ -1,11 +1,16 @@
-import { IServiceEvents } from '../scene-process/service/core';
+import type { IServiceEvents } from '../scene-process/service/core';
+
+export interface ICustomLayerConfig {
+    name: string;
+    value: number;
+}
 
 export interface IEngineEvents {
     'engine:update': [];
     'engine:ticked': [];
 }
 
-export interface IPublicEngineService extends Omit<IEngineService, keyof IServiceEvents> {}
+export interface IPublicEngineService extends Omit<IEngineService, 'initCustomLayer' | keyof IServiceEvents> {}
 
 export interface IEngineService extends IServiceEvents {
     /**
@@ -17,4 +22,9 @@ export interface IEngineService extends IServiceEvents {
      * 让引擎执行一帧
      */
     repaintInEditMode(): Promise<void>;
+
+    /**
+     * 初始化自定义 Layer 配置
+     */
+    initCustomLayer(layers?: ICustomLayerConfig[]): Promise<void>;
 }

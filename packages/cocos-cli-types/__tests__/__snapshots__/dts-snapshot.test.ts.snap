@@ -3958,8 +3958,8 @@ export declare interface ParticleAssetUserData {
 export declare type Physics = 'cannon' | 'ammo' | 'builtin';
 export declare type Platform = InternalPlatform | string;
 export declare interface PlatformBuildSchema {
-    common: Record<string, ICocosConfigurationPropertySchema>;
-    platformOptions: Record<string, ICocosConfigurationPropertySchema>;
+    common: ICocosConfigurationPropertySchema;
+    platformOptions: ICocosConfigurationPropertySchema;
 }
 export declare interface PlatformBundleConfig {
     platformName: string;
@@ -5497,6 +5497,10 @@ export declare interface ICreatePrefabFromNodeParams {
     overwrite?: boolean;
 }
 export declare type ICreateType = typeof CREATE_TYPES[number];
+export declare interface ICustomLayerConfig {
+    name: string;
+    value: number;
+}
 export declare interface ICutParams {
     paths: string[];
 }
@@ -5526,6 +5530,7 @@ export declare interface IEditorService extends IServiceEvents {
 export declare interface IEngineService extends IServiceEvents {
     init(): Promise<void>;
     repaintInEditMode(): Promise<void>;
+    initCustomLayer(layers?: ICustomLayerConfig[]): Promise<void>;
 }
 export declare interface IExecuteComponentMethodOptions {
     path: string;
@@ -7558,6 +7563,10 @@ export declare interface ICustomJointTextureLayout {
     textureLength: number;
     contents: IChunkContent[];
 }
+export declare interface ICustomLayerConfig {
+    name: string;
+    value: number;
+}
 export declare interface ICutParams {
     paths: string[];
 }
@@ -7642,6 +7651,7 @@ export declare interface IEngineProjectConfig extends Exclude<IEngineConfig, 'in
 export declare interface IEngineService extends IServiceEvents {
     init(): Promise<void>;
     repaintInEditMode(): Promise<void>;
+    initCustomLayer(layers?: ICustomLayerConfig[]): Promise<void>;
 }
 export declare interface IExecuteComponentMethodOptions {
     path: string;
