@@ -7,13 +7,13 @@ import {
     EmbeddedPlayer,
 } from 'cc/editor/embedded-player';
 import { additiveSettingsTag } from 'cc/editor/exotic-animation';
-import { pathToFileURL } from 'url';
+import { readFile } from 'fs-extra';
 import { serializeForLibrary } from '../utils/serialize-library';
 import { splitAnimation } from '../utils/split-animation';
 import { loadAssetSync } from '../utils/load-asset-sync';
 import { getOriginalAnimationLibraryPath } from './original-animation';
 
-import { getDependUUIDList } from '../../utils';
+import { deserialize, getDependUUIDList } from '../../utils';
 import assert from 'assert';
 import { AssetHandler } from '../../../@types/protected';
 import { GltfAnimationAssetUserData } from '../../../@types/userDatas';
@@ -32,7 +32,7 @@ export const GltfAnimationHandler: AssetHandler = {
 
     importer: {
         // 版本号如果变更，则会强制重新导入
-        version: '1.0.18',
+        version: '1.0.17',
         versionCode: 3,
         /**
          * 实际导入流程
@@ -51,20 +51,15 @@ export const GltfAnimationHandler: AssetHandler = {
 
             userData.events ??= [];
 
-            const originalAnimationPath = asset.parent.getFilePath(getOriginalAnimationLibraryPath(userData.gltfIndex));
-            let originalAnimationURL = pathToFileURL(originalAnimationPath).href;
-            if (originalAnimationURL) {
-                originalAnimationURL = originalAnimationURL.replace('.bin', '.cconb');
-            }
-            const originalAnimationClip = await new Promise<cc.AnimationClip>((resolve, reject) => {
-                cc.assetManager.loadAny({ url: originalAnimationURL }, { preset: 'remote' }, null, (err, data: cc.AnimationClip) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(data);
-                    }
-                });
-            });
+            const originalAnimationPath = asset.parent.getFilePath(getOriginalAnimationLibraryPath(userData.gltfIndex))
+                .replace(/\.bin$/, '.cconb');
+            const originalAnimationBytes = await readFile(originalAnimationPath);
+            const { decodeCCONBinary } = await import('cc/editor/serialization');
+            const originalAnimationClip = deserialize(decodeCCONBinary(new Uint8Array(
+                originalAnimationBytes.buffer,
+                originalAnimationBytes.byteOffset,
+                originalAnimationBytes.byteLength,
+            ))) as cc.AnimationClip;
 
             let span = userData.span;
             if (span && span.from === 0 && span.to === asset.parent.userData.duration) {
@@ -153,8 +148,8 @@ export const GltfAnimationHandler: AssetHandler = {
             // Compute hash
             void animationClip.hash;
 
-            const { extension, data } = serializeForLibrary(animationClip);
-            await asset.saveToLibrary(extension, data as any);
+            const { data } = serializeForLibrary(animationClip);
+            await asset.saveToLibrary('.cconb', data as any);
 
             const depends = getDependUUIDList(data as string);
             asset.setData('depends', Array.from(new Set([...depends, ...customDependencies])));

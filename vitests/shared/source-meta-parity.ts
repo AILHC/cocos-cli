@@ -19,11 +19,19 @@ async function collectMetaFiles(dir: string, suffix: string, output: string[]): 
   }
 }
 
-export async function collectSourceMetaSnapshot(root: string, suffix = '.anim.meta'): Promise<SourceMetaSnapshot[]> {
+export async function collectSourceMetaSnapshot(
+  root: string,
+  suffix: string | string[] = '.anim.meta',
+): Promise<SourceMetaSnapshot[]> {
+  const suffixes = Array.isArray(suffix) ? suffix : [suffix];
   const files: string[] = [];
-  await collectMetaFiles(join(root, 'assets'), suffix, files);
 
-  const snapshots = await Promise.all(files.map(async (file) => ({
+  for (const item of suffixes) {
+    await collectMetaFiles(join(root, 'assets'), item, files);
+  }
+
+  const uniqueFiles = Array.from(new Set(files));
+  const snapshots = await Promise.all(uniqueFiles.map(async (file) => ({
     relativePath: relative(root, file).replace(/\\/g, '/'),
     json: JSON.parse(await readFile(file, 'utf8')),
   })));

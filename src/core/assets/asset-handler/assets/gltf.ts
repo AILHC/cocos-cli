@@ -49,7 +49,7 @@ export const GltfHandler: AssetHandlerBase = {
 
     importer: {
         // 版本号如果变更，则会强制重新导入
-        version: '2.3.14',
+        version: '2.3.13',
         versionCode: 3,
 
         /**
@@ -562,8 +562,8 @@ async function saveOriginalAnimations(asset: Asset, glTFConverter: GltfConverter
             // if (compress) {
             //     compressAnimationClip(animation);
             // }
-            const { data, extension } = serializeForLibrary(animation);
-            const libraryPath = getOriginalAnimationLibraryPath(iAnimation);
+            const { data } = serializeForLibrary(animation);
+            const libraryPath = getOriginalAnimationLibraryPath(iAnimation).replace(/\.bin$/, '.cconb');
 
             // @ts-expect-error
             await asset.saveToLibrary(libraryPath, data);
