@@ -78,11 +78,11 @@
 
 ## Task 1: 事实引用校准
 
-- [ ] 复核 `docs/dev/build/issues.md` 的 `BUILD-ISSUE-014`，确认本计划只处理项目自定义 builder hook / build extension hook。
-- [ ] 复核 `docs/dev/build/facts/wechatgame-source-inventory-20260615.md`，记录“`wechatgame` 第一阶段已完成，本计划不重新验证平台源码或平台 parity”。
-- [ ] 复核 `docs/dev/build-extension-hooks-20260612.md` 中 CLI 当前 hook 机制、`build-ex` 入口和历史构建事实。
-- [ ] 用 CodeGraph 复核当前 `PluginManager.getHooksInfo()`、`runPluginTask()`、public/internal hook 调用路径。
-- [ ] 更新 `docs/dev/build-extension-hooks-20260612.md`，只补充与 `BUILD-ISSUE-014` 直接相关的事实；不搬运 `wechatgame` 平台细节。
+- [x] 复核 `docs/dev/build/issues.md` 的 `BUILD-ISSUE-014`，确认本计划只处理项目自定义 builder hook / build extension hook。
+- [x] 复核 `docs/dev/build/facts/wechatgame-source-inventory-20260615.md`，记录“`wechatgame` 第一阶段已完成，本计划不重新验证平台源码或平台 parity”。
+- [x] 复核 `docs/dev/build-extension-hooks-20260612.md` 中 CLI 当前 hook 机制、`build-ex` 入口和历史构建事实。
+- [x] 用 CodeGraph 复核当前 `PluginManager.getHooksInfo()`、`runPluginTask()`、public/internal hook 调用路径。
+- [x] 更新 `docs/dev/build-extension-hooks-20260612.md`，只补充与 `BUILD-ISSUE-014` 直接相关的事实；不搬运 `wechatgame` 平台细节。
 
 ## Task 2: 失败测试与边界测试
 

@@ -48,6 +48,45 @@
 2. 如果后续拿到 `extensions/build-ex` 实物，需要读取其 `package.json`、hook 入口和依赖 API，再判断是否可以无适配接入。
 3. 若要支持项目 extension hook，需要补充明确设计：扫描范围、字段兼容策略、hook 顺序、错误传播、public/internal 调用语义、测试覆盖和与 runtime preview 的边界。
 
+## 2026-06-15 `BUILD-ISSUE-014` 范围校准
+
+本节只补充项目内 build extension hook 接入事实，用于约束 `BUILD-ISSUE-014`。`wechatgame` 第一阶段普通构建、平台高级 options 和 `run` stage 已分别记录在 `docs/dev/build/facts/wechatgame-source-inventory-20260615.md`、`BUILD-ISSUE-012` 和 `BUILD-ISSUE-013`，不作为本问题的前置阻塞。
+
+当前源码复核结果：
+
+1. `BUILD-ISSUE-014` 只处理项目自定义 builder hook / build extension hook 接入 normal build。
+   - Build 问题台账中该问题状态仍为 `open`。
+   - 台账描述的缺口是：CLI 已有 hook 执行机制，但未扫描 `<projectRoot>/extensions/*` 或项目包作为 builder hook 来源。
+   - 因此本问题不重新处理 `wechatgame` `.ccc`、微信平台源码、微信高级选项或微信 DevTools `run` stage parity。
+
+2. 当前 `PluginManager` 的 builder hook 注册仍围绕 platform package。
+   - `PluginManager.init()` 扫描 `pluginRoots`，来源是 CLI 内置平台目录和 CLI workspace 下的 `packages/platforms`。
+   - `internalRegister()` 将 `registerInfo.hooks` 写入 `builderPathsMap[pkgName][platform]`。
+   - `getHooksInfo(platform)` 从 `builderPathsMap[platform]` 读取 hook，并用 `pkgName === platform` 标记 `internal`。
+   - 该机制能承载已注册 platform hook，但没有把项目 extension builder entry 纳入注册来源。
+
+3. 当前 normal build 的 hook 生命周期已存在。
+   - `BuildTask.run()` 会按顺序调用 `onBeforeBuild`、`onBeforeInit`、`onAfterInit`、bundle 相关 hook、`onBeforeBuildAssets`、`onAfterBuildAssets`、`onBeforeCompressSettings`、`onAfterCompressSettings`、`onBeforeCopyBuildTemplate`、`onAfterCopyBuildTemplate`、`onAfterBuild`。
+   - `runPluginTask()` 会按 `hooksInfo.pkgNameOrder` require hook 模块并执行对应函数。
+   - 当 hook module 暴露 `throwError` 或 hook 被标记为 internal 时，hook error 会通过 `onError()` 阻塞构建。
+
+4. 当前 public / internal hook 签名差异仍是接入边界。
+   - `BuildTask.handleHook()` 中 internal hook 使用 `func.call(this, this.options, this.result, this.cache, ...args)`。
+   - public hook 使用 `func(this.result.rawOptions, this.buildResult, ...args)`。
+   - 项目 extension builder hook 应走 public hook 签名，不能因为 package name 与 platform 名称碰撞而被误判为 internal platform hook。
+
+5. 当前项目 extension discovery 只服务 AssetDB mount。
+   - `resolveProjectExtensionAssetDbMounts(projectRoot)` 扫描 `<projectRoot>/extensions/*/package.json`。
+   - 该函数只读取 `contributions["asset-db"].mount`，并返回 `name`、`target`、`library`、`readonly`、`visible`。
+   - malformed `package.json`、缺失 mount path、mount target 不存在时会跳过。
+   - 该函数当前不读取 `contributions.builder`，也不解析 builder entry 或 hook path。
+
+6. 本计划的实现定位是 Editor-like project extension builder host。
+   - CLI 应支持项目 extension 的 `package.json -> contributions.builder -> builder entry -> configs["*"] / configs[platform] -> hooks/options` 接入链路。
+   - CLI 不应内置 `feature-c/build-ex` 的 SDK、hotupdate、cfg merge、混淆、字体替换、资源删除或 `.meta` 改写业务。
+   - build output 级业务逻辑应由项目 extension hook 自身在 public hook 中实现；CLI 只提供 discovery、配置合并、hook 生命周期、错误传播和 `result.dest` / build result 访问能力。
+   - 依赖 `Editor.Message`、AssetDB、源资产或 `.meta` 写入的能力不属于本 MVP；若真实迁移需要，应单独登记为 Editor facade / AssetDB API / unsupported 边界，不能用静默 mock 掩盖。
+
 ## 构建验证记录
 
 ### 2026-06-12 主测试项目 `web-mobile`
