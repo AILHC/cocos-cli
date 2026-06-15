@@ -62,6 +62,7 @@ describe('BuildTaskBase.runPluginTask error context', () => {
     afterEach(() => {
         debugSpy.mockRestore();
         rmSync(tempRoot, { recursive: true, force: true });
+        delete (global as any).__nonFatalOnErrorTriggered;
     });
 
     it('throws fatal hook errors with package name, hook name, and original message', async () => {
@@ -85,5 +86,31 @@ describe('BuildTaskBase.runPluginTask error context', () => {
         await expect(task.runPluginTask('onBeforeBuild'))
             .rejects
             .toThrow(/project-build-ex.*onBeforeBuild.*original boom/);
+    });
+
+    it('keeps public hook errors non-fatal when throwError is not enabled', async () => {
+        const hookPath = join(tempRoot, 'hooks.js');
+        writeFileSync(hookPath, `
+            exports.onBeforeBuild = function onBeforeBuild() {
+                throw new Error('non-fatal boom');
+            };
+            exports.onError = function onError() {
+                global.__nonFatalOnErrorTriggered = true;
+            };
+        `, 'utf8');
+        const task = new TestHookTask({
+            pkgNameOrder: ['project-build-ex'],
+            infos: {
+                'project-build-ex': {
+                    path: hookPath,
+                    internal: false,
+                },
+            },
+        });
+
+        await expect(task.runPluginTask('onBeforeBuild')).resolves.toBeUndefined();
+
+        expect((task as any).error).toBeUndefined();
+        expect((global as any).__nonFatalOnErrorTriggered).toBeUndefined();
     });
 });

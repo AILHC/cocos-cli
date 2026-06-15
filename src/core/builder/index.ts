@@ -14,6 +14,7 @@ import { middlewareService } from '../../server/middleware/core';
 import BuildMiddleware from './build.middleware';
 import { BuildGlobalInfo } from './share/global';
 import { fillIncludeModulesFromProjectConfig } from './share/common-options-validator';
+import type { BuildTask } from './worker/builder';
 
 export async function init(platform?: string, projectRoot?: string) {
     await builderConfig.init();
@@ -64,11 +65,12 @@ export async function createBuildTask<P extends Platform>(platform: P, options?:
 export async function build<P extends Platform>(platform: P, options?: IBuildCommandOption): Promise<IBuildResultData> {
     const startTime = Date.now();
     let buildSuccess = true;
+    let builder: BuildTask | undefined;
 
     // 显示构建开始信息
     newConsole.buildStart(platform);
     try {
-        const builder = await createBuildTask(platform, options);
+        builder = await createBuildTask(platform, options);
 
         // 监听构建进度
         builder.on('update', (message: string, progress: number) => {
@@ -84,6 +86,12 @@ export async function build<P extends Platform>(platform: P, options?: IBuildCom
         return buildSuccess ? builder.buildExitRes : { code: BuildExitCode.BUILD_FAILED, reason: 'Build failed!' };
     } catch (error: any) {
         buildSuccess = false;
+        if (builder) {
+            if (!builder.error) {
+                builder.error = error instanceof Error ? error : new Error(String(error));
+            }
+            await builder.runErrorHook();
+        }
         const duration = formatMSTime(Date.now() - startTime);
         newConsole.error(error);
         newConsole.buildComplete(platform, duration, false);
