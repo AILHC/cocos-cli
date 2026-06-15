@@ -532,10 +532,10 @@ project.time = 1781313354600.38
 
 ## 阶段结论
 
-- CLI build 在当前 Editor baseline 后仍会额外改写 3D source `.meta`，当前剩余差异集中在 `.glb.meta`、`.gltf.meta`、`.fbx.meta`，已登记为 `BUILD-ISSUE-009`。
+- 截至 2026-06-13，CLI build 在当时的 Editor baseline 后仍会额外改写 3D source `.meta`，当时剩余差异集中在 `.glb.meta`、`.gltf.meta`、`.fbx.meta`，已登记为 `BUILD-ISSUE-009`。
 - 非 3D `typescript` `.meta imported: false` 复验后不再复现；旧差异来自移除 `localization-editor` 前的构建污染，已登记为 `BUILD-ISSUE-008 fixed`。
 - local `@cocos/asset-db` 已将 `internal` DB 的 `.internal-data.json`、`.internal-dependency.json` 和 `.internal-info1.0.0.json` 文件名 / schema 收敛到 Editor baseline。`BUILD-ISSUE-007` 仍为 `open`，剩余差异是 `.internal-info1.0.0.json` 中 1 个 engine asset `time` 字段会随当前 engine source mtime 写回，需要继续核对 Editor 在相同 engine source mtime 下的行为。
-- `docs/dev/build/issues.md` 已更新当前状态：`BUILD-ISSUE-007 open`、`BUILD-ISSUE-008 fixed`、`BUILD-ISSUE-009 open`。
+- 2026-06-13 当时 `docs/dev/build/issues.md` 状态为：`BUILD-ISSUE-007 open`、`BUILD-ISSUE-008 fixed`、`BUILD-ISSUE-009 open`。
 
 ## 后续修改方向
 
@@ -543,3 +543,99 @@ project.time = 1781313354600.38
 2. 为 `.gltf/.glb/.fbx.meta` 建立 Editor baseline parity 测试，然后对齐 `gltf` / `fbx` / `gltf-animation` importer version、默认 `userData` schema 和 animation library extension。
 3. 后续如果重新引入 extension asset-db 脚本 mount 并再次复现 TypeScript importer 失败，应作为新的 extension script importer/module graph 问题处理，不能沿用已 fixed 的旧 `BUILD-ISSUE-008` 结论。
 4. 修复后重复本文件中的 build 前 baseline、受控 build、`.meta` diff、`library` 顶层 JSON canonical diff 验证。
+
+## 2026-06-15 BUILD-ISSUE-009 修复记录
+
+本次处理范围：
+
+- `src/core/assets/asset-handler/assets/gltf.ts`
+  - `GltfHandler.importer.version` 对齐 Editor 3.8.6 baseline 为 `2.3.13`。
+  - `saveOriginalAnimations()` 将 `__original-animation-*` library file 保存为 `.cconb`。
+- `src/core/assets/asset-handler/assets/gltf/animation.ts`
+  - `GltfAnimationHandler.importer.version` 对齐 Editor 3.8.6 baseline 为 `1.0.17`。
+  - `gltf-animation` sub asset library file 保存为 `.cconb`。
+  - original animation 读取改为直接读取 `.cconb` 文件，并通过 `decodeCCONBinary()` 和 `deserialize()` 还原 `AnimationClip`。
+- `vitests/shared/source-meta-parity.ts`
+  - `collectSourceMetaSnapshot()` 增加多 suffix 收集能力，保持默认 `.anim.meta` 行为兼容。
+- `vitests/suites/build/3d-source-meta-editor-alignment.test.ts`
+  - 新增 `.gltf.meta` / `.glb.meta` / `.fbx.meta` Editor baseline parity 测试。
+  - 按用户确认口径递归忽略 `userData` 改写，继续强校验 `ver`、`files` 和 subMeta 结构。
+
+验证环境：
+
+- CLI 仓库：`E:\own_space\engines\cocos-cli`
+- 主测试项目：`E:\own_space\engines\cocos-test-projects`
+- Editor baseline project：`E:\own_space\engines\cocos-cli\.codex-tmp\source-meta-editor-parity\run-20260611-174959\editor-project`
+- 测试 engine root：`D:\workspace\engines\cocos\3.8.6`
+
+执行命令：
+
+```powershell
+rtk pwsh -NoProfile -Command "npm run build"
+```
+
+结果：
+
+- 退出码：`0`。
+- 产物生成成功。
+
+修复前后对照验证：
+
+```powershell
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; $env:COCOS_CLI_SOURCE_META_PROJECT_ROOT="E:\own_space\engines\cocos-test-projects"; $env:COCOS_CLI_EDITOR_PROJECT_ROOT="E:\own_space\engines\cocos-cli\.codex-tmp\source-meta-editor-parity\run-20260611-174959\editor-project"; npm run test -- --run suites/build/3d-source-meta-editor-alignment.test.ts'
+```
+
+- 在重新执行 CLI build/import 之前，测试能失败并暴露旧 source `.meta` 中的 `2.3.14`、`.bin`、`1.0.18` 差异，说明测试覆盖了 `BUILD-ISSUE-009` 的核心字段。
+
+第一次受控 CLI build：
+
+```powershell
+rtk pwsh -NoProfile -Command "node .\dist\cli.js build --project 'E:\own_space\engines\cocos-test-projects' --platform web-mobile --build-config 'E:\own_space\engines\cocos-test-projects\profiles\v2\packages\web-mobile.json' --buildPath 'E:\own_space\engines\cocos-test-projects\build' --outputName 'cli-build-issue-009-verify'"
+```
+
+结果：
+
+- 退出码：`0`。
+- `gltf/fbx` 顶层 `ver` 和 `gltf-animation` subMeta `ver` 已写成 Editor baseline 版本。
+- 发现 `gltf-animation` original animation 读取仍尝试读取 `__original-animation-*.bin`，日志出现 `Read file failed __original-animation-*.bin`。该事实说明只改保存 extension 不够，读取链路也必须对齐 `.cconb`。
+
+第二次受控 CLI build：
+
+```powershell
+rtk pwsh -NoProfile -Command "node .\dist\cli.js build --project 'E:\own_space\engines\cocos-test-projects' --platform web-mobile --build-config 'E:\own_space\engines\cocos-test-projects\profiles\v2\packages\web-mobile.json' --buildPath 'E:\own_space\engines\cocos-test-projects\build' --outputName 'cli-build-issue-009-verify-2'"
+```
+
+结果：
+
+- 退出码：`0`。
+- 最新构建日志中不再出现本问题相关的 `__original-animation-*.bin` 读取失败。
+- 构建日志仍包含既有且本问题范围外的 warning/error，例如 Browserslist 过旧、remote bundle server address 缺失、`@tbmp/mp-cloud-sdk` CJS bare specifier fallback、texture-packer / `Editor is not defined`、部分 sprite frame json 缺失；这些未导致本次 build 失败，也不是 `BUILD-ISSUE-009` 的判断依据。
+
+最终 parity 验证：
+
+```powershell
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; $env:COCOS_CLI_SOURCE_META_PROJECT_ROOT="E:\own_space\engines\cocos-test-projects"; $env:COCOS_CLI_EDITOR_PROJECT_ROOT="E:\own_space\engines\cocos-cli\.codex-tmp\source-meta-editor-parity\run-20260611-174959\editor-project"; npm run test -- --run suites/build/3d-source-meta-editor-alignment.test.ts'
+```
+
+结果：
+
+- `vitests/suites/build/3d-source-meta-editor-alignment.test.ts`: `1 passed`。
+- 结论：递归忽略已确认允许改写的 `userData` 后，`.gltf.meta` / `.glb.meta` / `.fbx.meta` 的 `ver`、`files` 和 subMeta 结构与 Editor baseline 一致。
+
+兼容性回归验证：
+
+```powershell
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; $env:COCOS_CLI_SOURCE_META_PROJECT_ROOT="E:\own_space\engines\cocos-test-projects"; $env:COCOS_CLI_EDITOR_PROJECT_ROOT="E:\own_space\engines\cocos-cli\.codex-tmp\source-meta-editor-parity\run-20260611-174959\editor-project"; npm run test -- --run suites/runtime-preview/source-meta-editor-parity.test.ts'
+```
+
+结果：
+
+- `vitests/suites/runtime-preview/source-meta-editor-parity.test.ts`: `1 passed`。
+- 结论：`collectSourceMetaSnapshot()` 的多 suffix 改动未破坏既有 `.anim.meta` parity 测试。
+
+当前结论：
+
+- `BUILD-ISSUE-009` 已修复。
+- version 对齐是与 Editor 3.8.6 baseline 对齐，不是基于测试需要的任意改号。
+- `.cconb` 保存和读取链路已同时对齐。
+- `userData` 改写按已确认口径作为 allowed diff，不作为本问题的失败条件。
