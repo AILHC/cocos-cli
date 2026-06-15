@@ -96,7 +96,10 @@ export abstract class BuildTaskBase extends EventEmitter {
                 this.updateProcess(errorMsg, increment, 'error');
                 this.updateProcess(String(error), increment, 'error');
                 if (hooks && hooks.throwError || info.internal) {
-                    this.onError(error as Error);
+                    const originalMessage = error instanceof Error ? error.message : String(error);
+                    const wrappedError = new Error(`Build plugin "${pkgName}" hook "${funcName}" failed: ${originalMessage}`);
+                    (wrappedError as Error & { cause?: unknown }).cause = error;
+                    this.onError(wrappedError);
                 }
             }
         }

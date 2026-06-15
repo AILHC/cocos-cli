@@ -1,5 +1,5 @@
 import EventEmitter from 'events';
-import { basename, join } from 'path';
+import { basename, dirname, isAbsolute, join, resolve } from 'path';
 import { checkBuildCommonOptionsByKey, checkBundleCompressionSetting } from '../share/common-options-validator';
 import { NATIVE_PLATFORM, PLATFORMS } from '../share/platforms-options';
 import { validator, validatorManager } from '../share/validator-manager';
@@ -19,6 +19,7 @@ import { GlobalPaths } from '../../../global';
 import { existsSync, readdirSync } from 'fs';
 import utils from '../../base/utils';
 import { readJSONSync } from 'fs-extra';
+import { discoverProjectExtensions, ProjectExtensionDiagnostic } from '../../extensions/project-extensions';
 
 export interface InternalPackageInfo {
     name: string; // 插件名
@@ -97,6 +98,7 @@ export class PluginManager extends EventEmitter {
     public configMap: Record<string, Record<string, IInternalBuildPluginConfig>>; // 存储注入进来的 config
     // 存储注册进来的，带有 hooks 的插件路径，[pkgName][platform]: hooks
     private builderPathsMap: Record<string, Record<string, string>> = {};
+    private projectExtensionPkgNamesMap: Record<string, Set<string>> = {};
     private customBuildStagesMap: {
         [pkgName: string]: {
             [platform: string]: IBuildStageItem[];
@@ -299,6 +301,139 @@ export class PluginManager extends EventEmitter {
         console.debug(`[Build] internalRegister pkg(${pkgName}) in ${platform} platform success!`);
     }
 
+    public async registerProjectExtensionBuilders(projectRoot: string, platform: Platform | string): Promise<{
+        registered: string[];
+        diagnostics: ProjectExtensionDiagnostic[];
+    }> {
+        this.clearProjectExtensionBuilders(platform);
+
+        const discovery = discoverProjectExtensions(projectRoot);
+        const builderExtensions = discovery.extensions
+            .filter((extension) => extension.builderEntry)
+            .sort((a, b) => {
+                const nameOrder = a.name.localeCompare(b.name);
+                if (nameOrder) {
+                    return nameOrder;
+                }
+                return a.root.localeCompare(b.root);
+            });
+
+        const seenNames = new Map<string, string>();
+        for (const extension of builderExtensions) {
+            const previousRoot = seenNames.get(extension.name);
+            if (previousRoot) {
+                throw new Error(`Duplicate project extension package name "${extension.name}" in ${previousRoot} and ${extension.root}`);
+            }
+            seenNames.set(extension.name, extension.root);
+        }
+
+        const pendingRegistrations: Array<{
+            pkgName: string;
+            config: IInternalBuildPluginConfig;
+            hooksPath?: string;
+        }> = [];
+
+        for (const extension of builderExtensions) {
+            if (this.configMap[platform]?.[extension.name] || this.builderPathsMap[platform]?.[extension.name]) {
+                throw new Error(`Project extension package name conflicts with registered builder package: ${extension.name}`);
+            }
+            const builderEntry = this.resolveProjectExtensionBuilderEntry(extension.name, extension.builderEntry!);
+            const builderPlugin = Utils.File.requireFile(builderEntry);
+            const pluginExports = builderPlugin.default || builderPlugin;
+            const configs = pluginExports.configs || {};
+            const mergedConfig = this.mergeProjectExtensionBuildConfig(
+                configs['*'] || {},
+                configs[platform] || {},
+            );
+
+            const hooksPath = mergedConfig.hooks
+                ? this.resolveProjectExtensionHooksPath(extension.name, builderEntry, mergedConfig.hooks)
+                : undefined;
+
+            pendingRegistrations.push({
+                pkgName: extension.name,
+                config: mergedConfig,
+                hooksPath,
+            });
+        }
+
+        const registered: string[] = [];
+        for (const registration of pendingRegistrations) {
+            lodash.set(this.configMap, `${platform}.${registration.pkgName}`, registration.config);
+            this.pkgPriorities[registration.pkgName] = registration.config.priority || 0;
+
+            if (typeof registration.config.options === 'object') {
+                lodash.set(this.pkgOptionConfigs, `${platform}.${registration.pkgName}`, registration.config.options);
+                Object.keys(registration.config.options).forEach((key) => {
+                    checkConfigDefault(registration.config.options![key]);
+                });
+            }
+
+            if (registration.hooksPath) {
+                lodash.set(this.builderPathsMap, `${platform}.${registration.pkgName}`, registration.hooksPath);
+            }
+
+            if (!this.projectExtensionPkgNamesMap[platform]) {
+                this.projectExtensionPkgNamesMap[platform] = new Set();
+            }
+            this.projectExtensionPkgNamesMap[platform].add(registration.pkgName);
+            registered.push(registration.pkgName);
+        }
+
+        return {
+            registered,
+            diagnostics: discovery.diagnostics,
+        };
+    }
+
+    private clearProjectExtensionBuilders(platform: Platform | string): void {
+        const registeredNames = this.projectExtensionPkgNamesMap[platform];
+        if (!registeredNames) {
+            return;
+        }
+        for (const pkgName of registeredNames) {
+            delete this.builderPathsMap[platform]?.[pkgName];
+            delete this.pkgOptionConfigs[platform]?.[pkgName];
+            delete this.configMap[platform]?.[pkgName];
+            delete this.pkgPriorities[pkgName];
+        }
+        this.projectExtensionPkgNamesMap[platform] = new Set();
+    }
+
+    private resolveProjectExtensionBuilderEntry(pkgName: string, builderEntry: string): string {
+        try {
+            return require.resolve(builderEntry);
+        } catch {
+            throw new Error(`Project extension "${pkgName}" builder entry not found: ${builderEntry}`);
+        }
+    }
+
+    private resolveProjectExtensionHooksPath(pkgName: string, builderEntry: string, hooks: string): string {
+        const hookRequest = isAbsolute(hooks) ? hooks : resolve(dirname(builderEntry), hooks);
+        try {
+            return require.resolve(hookRequest);
+        } catch {
+            throw new Error(`Project extension "${pkgName}" hooks file not found: ${hooks}`);
+        }
+    }
+
+    private mergeProjectExtensionBuildConfig(
+        wildcardConfig: IInternalBuildPluginConfig,
+        platformConfig: IInternalBuildPluginConfig,
+    ): IInternalBuildPluginConfig {
+        return lodash.mergeWith(
+            {},
+            wildcardConfig,
+            platformConfig,
+            (_targetValue, sourceValue) => {
+                if (Array.isArray(sourceValue)) {
+                    return sourceValue;
+                }
+                return undefined;
+            },
+        );
+    }
+
     _registerI18n(registerInfo: IBuilderRegisterInfo) {
         const { platform, path } = registerInfo;
         const i18nPath = join(path, 'i18n');
@@ -394,7 +529,10 @@ export class PluginManager extends EventEmitter {
         }
 
         // (校验处已经做了错误数据使用默认值的处理)检验数据通过后做一次数据融合
-        const defaultOptions = await this.getOptionsByPlatform(options.platform);
+        const defaultOptions = defaultsDeep(
+            await this.getOptionsByPlatform(options.platform),
+            this.getPackageDefaultOptionsByPlatform(options.platform),
+        );
         // lodash 的 defaultsDeep 会对数组也进行深度合并，不符合我们的使用预期，需要自己编写该函数
         const rightOptions = defaultsDeep(JSON.parse(JSON.stringify(options)), defaultOptions);
         // 传递了 buildStageGroup 的选项，不需要做默认值合并
@@ -494,7 +632,7 @@ export class PluginManager extends EventEmitter {
                 continue;
             }
 
-            const buildConfig = pluginManager.configMap[options.platform as Platform][pkgName];
+            const buildConfig = this.configMap[options.platform as Platform]?.[pkgName];
             if (!buildConfig || !buildConfig.options) {
                 continue;
             }
@@ -508,7 +646,7 @@ export class PluginManager extends EventEmitter {
                     value,
                     buildConfig.options[key].verifyRules!,
                     options,
-                    pluginManager.commonOptionConfig[options.platform as Platform][key]?.verifyKey || (options.platform + pkgName),
+                    this.commonOptionConfig[options.platform as Platform]?.[key]?.verifyKey || (options.platform + pkgName),
                 );
                 if (!error) {
                     continue;
@@ -520,7 +658,7 @@ export class PluginManager extends EventEmitter {
                         buildConfig.options[key].default,
                         buildConfig.options[key].verifyRules!,
                         options,
-                        pluginManager.commonOptionConfig[options.platform as Platform][key]?.verifyKey || (options.platform + pkgName),
+                        this.commonOptionConfig[options.platform as Platform]?.[key]?.verifyKey || (options.platform + pkgName),
                     ));
                 }
                 const verifyLevel: IConsoleType = buildConfig.options[key].verifyLevel || 'error';
@@ -549,6 +687,20 @@ export class PluginManager extends EventEmitter {
         }
 
         return checkRes;
+    }
+
+    private getPackageDefaultOptionsByPlatform(platform: Platform | string): Partial<IBuildTaskOption> {
+        const packageDefaults: Record<string, Record<string, any>> = {};
+        const configs = this.configMap[platform] || {};
+        for (const [pkgName, config] of Object.entries(configs)) {
+            if (!config.options) {
+                continue;
+            }
+            packageDefaults[pkgName] = getOptionsDefault(config.options);
+        }
+        return {
+            packages: packageDefaults,
+        } as Partial<IBuildTaskOption>;
     }
 
     public shouldGenerateOptions(platform: Platform | string): boolean {
@@ -728,6 +880,9 @@ export class PluginManager extends EventEmitter {
             pkgNameOrder: [],
             infos: {},
         };
+        if (!this.builderPathsMap[platform]) {
+            return result;
+        }
         Object.keys(this.builderPathsMap[platform]).forEach((pkgName) => {
             result.infos[pkgName] = {
                 path: this.builderPathsMap[platform][pkgName],
