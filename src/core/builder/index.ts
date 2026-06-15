@@ -15,12 +15,15 @@ import BuildMiddleware from './build.middleware';
 import { BuildGlobalInfo } from './share/global';
 import { fillIncludeModulesFromProjectConfig } from './share/common-options-validator';
 
-export async function init(platform?: string) {
+export async function init(platform?: string, projectRoot?: string) {
     await builderConfig.init();
     await pluginManager.init();
     middlewareService.register('Build', BuildMiddleware);
     if (platform) {
         await pluginManager.register(platform);
+        if (projectRoot) {
+            await pluginManager.registerProjectExtensionBuilders(projectRoot, platform);
+        }
     } else {
         await pluginManager.registerAllPlatform();
     }

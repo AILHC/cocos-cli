@@ -86,42 +86,42 @@
 
 ## Task 2: 失败测试与边界测试
 
-- [ ] 新增失败测试：临时 project root 包含 `extensions/test-build-hook/package.json`，声明 `contributions.builder`，当前 CLI 不应注册该 hook。该测试先失败，证明问题存在。
-- [ ] 新增无 extension 边界测试：项目没有 `extensions/` 时，现有 platform hook 注册顺序和构建行为不变。
-- [ ] 新增 malformed package 测试：损坏 JSON、缺失 `name`、缺失 `contributions.builder` 的 extension 应按明确策略 warning/跳过或 hard fail。
-- [ ] 新增缺失 builder entry 测试：`contributions.builder` 指向不存在文件时的错误策略固定。
-- [ ] 新增缺失 hooks 文件测试：builder entry 存在但 `configs["*"].hooks` 指向不存在文件时的错误策略固定。
-- [ ] 新增 schema 边界测试：`contributions.builder` 支持；`contributes.builder` 默认不作为 project extension schema 支持，除非后续明确兼容。
-- [ ] 新增多 extension 排序测试：多个 project extensions 的 hook 顺序稳定，不依赖文件系统枚举。
-- [ ] 新增同名 extension 测试：两个 extension package name 相同的策略固定为 hard fail 或 deterministic warning/skip。
-- [ ] 新增 public hook 签名测试：project extension hook 接收 `(options, result, ...args)`，并且 `internal` 语义为 `false`。
+- [x] 新增失败测试：临时 project root 包含 `extensions/test-build-hook/package.json`，声明 `contributions.builder`，当前 CLI 不应注册该 hook。该测试先失败，证明问题存在。
+- [x] 新增无 extension 边界测试：项目没有 `extensions/` 时，现有 platform hook 注册顺序和构建行为不变。
+- [x] 新增 malformed package 测试：损坏 JSON、缺失 `name`、缺失 `contributions.builder` 的 extension 应按明确策略 warning/跳过或 hard fail。
+- [x] 新增缺失 builder entry 测试：`contributions.builder` 指向不存在文件时的错误策略固定。
+- [x] 新增缺失 hooks 文件测试：builder entry 存在但 `configs["*"].hooks` 指向不存在文件时的错误策略固定。
+- [x] 新增 schema 边界测试：`contributions.builder` 支持；`contributes.builder` 默认不作为 project extension schema 支持，除非后续明确兼容。
+- [x] 新增多 extension 排序测试：多个 project extensions 的 hook 顺序稳定，不依赖文件系统枚举。
+- [x] 新增同名 extension 测试：两个 extension package name 相同的策略固定为 hard fail 或 deterministic warning/skip。
+- [x] 新增 public hook 签名测试：project extension hook 接收 `(options, result, ...args)`，并且 `internal` 语义为 `false`。
 
 ## Task 3: Project extension discovery
 
-- [ ] 抽出 project extension package discovery，统一扫描 `<projectRoot>/extensions/*/package.json`。
-- [ ] discovery 层只返回 package metadata、extension root、builder entry、asset-db mount 信息；不执行业务副作用。
-- [ ] 现有 AssetDB mount 继续只消费 `contributions["asset-db"].mount`，行为不能回归。
-- [ ] builder hook 只消费 `contributions.builder`，并解析为绝对 builder entry 路径。
-- [ ] 对 malformed package、缺失 builder entry、重复 name 实现 Task 2 中固定的策略。
-- [ ] discovery 结果排序使用明确稳定规则，例如 package name + extension root 路径；若 Editor 事实不同，记录差异。
+- [x] 抽出 project extension package discovery，统一扫描 `<projectRoot>/extensions/*/package.json`。
+- [x] discovery 层只返回 package metadata、extension root、builder entry、asset-db mount 信息；不执行业务副作用。
+- [x] 现有 AssetDB mount 继续只消费 `contributions["asset-db"].mount`，行为不能回归。
+- [x] builder hook 只消费 `contributions.builder`，并解析为绝对 builder entry 路径。
+- [x] 对 malformed package、缺失 builder entry、重复 name 实现 Task 2 中固定的策略。
+- [x] discovery 结果排序使用明确稳定规则，例如 package name + extension root 路径；若 Editor 事实不同，记录差异。
 
 ## Task 4: Builder hook 注册与执行语义
 
-- [ ] 在 `PluginManager` 或相邻 builder 初始化流程中注册 project extension builder。
-- [ ] 加载 builder entry，读取 `configs["*"]` 与 `configs[platform]`。
-- [ ] 解析 hook 文件相对路径，支持 `./hooks`、`./hooks.js` 等 Node require 常见形式。
-- [ ] 生成的 hook info 必须标记为 public hook，不能因为 package name 命中平台名而误判 internal。
-- [ ] 明确排序：内置 platform hook 仍优先；项目 extension hook 使用稳定排序；如后续发现 Editor 顺序不同，记录差异并调整。
-- [ ] `throwError = true` 时 hook 错误阻塞构建，错误信息包含 extension name、hook name、原始错误 message。
+- [x] 在 `PluginManager` 或相邻 builder 初始化流程中注册 project extension builder。
+- [x] 加载 builder entry，读取 `configs["*"]` 与 `configs[platform]`。
+- [x] 解析 hook 文件相对路径，支持 `./hooks`、`./hooks.js` 等 Node require 常见形式。
+- [x] 生成的 hook info 必须标记为 public hook，不能因为 package name 命中平台名而误判 internal。
+- [x] 明确排序：内置 platform hook 仍优先；项目 extension hook 使用稳定排序；如后续发现 Editor 顺序不同，记录差异并调整。
+- [x] `throwError = true` 时 hook 错误阻塞构建，错误信息包含 extension name、hook name、原始错误 message。
 - [ ] non-fatal hook 错误策略与 Editor 对齐；若无法确认，固定 CLI 策略并记录差异。
 - [ ] `onError` 触发条件明确：fatal build error 时是否调用、hook 自身错误时是否调用、non-fatal hook error 是否调用，都需要测试覆盖。
 
 ## Task 5: Extension builder options 合并
 
-- [ ] 支持或明确记录 `configs["*"].options` 与 `configs[platform].options` 默认值合并策略。
-- [ ] `buildConfig_<platform>.json` 中的 `packages["build-ex"]` 必须进入最终 `options.packages["build-ex"]`。
-- [ ] 平台特定配置覆盖通配配置的优先级固定并测试。
-- [ ] 命令行覆盖、完整 buildConfig、extension 默认值之间的优先级固定并测试。
+- [x] 支持或明确记录 `configs["*"].options` 与 `configs[platform].options` 默认值合并策略。
+- [x] `buildConfig_<platform>.json` 中的 `packages["build-ex"]` 必须进入最终 `options.packages["build-ex"]`。
+- [x] 平台特定配置覆盖通配配置的优先级固定并测试。
+- [x] 命令行覆盖、完整 buildConfig、extension 默认值之间的优先级固定并测试。
 - [ ] `profiles/v2/packages/<platform>.json` 只作为 profile adapter 兼容测试输入，不作为 parity baseline。
 - [ ] 若 Editor 默认值只由 UI/profile 写入，CLI 不重复补默认，但必须在事实文档记录依据。
 

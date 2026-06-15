@@ -492,7 +492,7 @@ export default class Launcher {
         await this.import();
         // 执行构建流程
         const { init, build } = await import('./builder');
-        await init(platform);
+        await init(platform, this.projectPath);
         return await build(platform, options);
     }
 

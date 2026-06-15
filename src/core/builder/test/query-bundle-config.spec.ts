@@ -29,6 +29,11 @@ jest.mock('../share/builder-config', () => ({
     default: { commonOptionConfigs: {} },
 }));
 
+jest.mock('../share/common-options-validator', () => ({
+    checkBuildCommonOptionsByKey: jest.fn(),
+    checkBundleCompressionSetting: jest.fn(),
+}));
+
 jest.mock('../share/texture-compress', () => ({
     configGroups: {},
 }));
