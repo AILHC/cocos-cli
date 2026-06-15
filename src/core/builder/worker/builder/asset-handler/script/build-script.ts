@@ -84,7 +84,7 @@ function createModLoRollupPlugin({
                 const importerModLoType = importer ? loadMetaMap[importer]?.type : undefined;
                 if (isBareSpecifier(source) && importerModLoType === 'commonjs') {
                     return {
-                        id: `data:text/javascript,${encodeURIComponent(createCommonJSBareSpecifierFallbackSource())}`,
+                        id: `data:text/javascript,${encodeURIComponent(createCommonJSBareSpecifierFallbackSource(source))}`,
                     };
                 }
                 return this.error(error as Error);

@@ -33,7 +33,7 @@
 | 来源 | 候选 | 迁移方式 | 目标测试 | 备注 |
 | --- | --- | --- | --- | --- |
 | `cocos_work_lab_38x` | `ViewStateGroup` extension asset-db fixture | 复制最小 extension 到 `cocos-test-projects/extensions/ViewStateGroup`，保留 `contributions["asset-db"].mount.path` 和最小 asset 样本 | `editor-cli-output-consistency.test.ts`、`cli-generated-output-integration.test.ts`、后续 extension runtime trigger test | 当前测试仍依赖旧项目 package/output/frozen metadata 事实，迁移后旧项目只作为历史记录 |
-| `feature-c` | `@tbmp/mp-cloud-sdk` CommonJS bare specifier 缺失 | 在 `cocos-test-projects` 新增最小 CommonJS 脚本 fixture，触发 `require("@tbmp/mp-cloud-sdk")`，不提供该 package | `preview-script-recovery.test.ts` 的 unit 之外，新增真实 CLI / programming output integration 断言 `resolution-detail-map.json` | 验证 packer-driver / QuickPack fallback，不引入 package allow-list |
+| `feature-c` | `@tbmp/mp-cloud-sdk` CommonJS bare specifier 缺失 | 在 `cocos-test-projects` 新增最小 CommonJS 脚本 fixture，保留真实 SDK 的延迟执行形态：函数或 platform proxy constructor 内包含 `require("@tbmp/mp-cloud-sdk")`，但 web 启动路径不立即调用；项目不提供该 package | `preview-script-recovery.test.ts` 的 unit 之外，新增真实 CLI / programming output integration 断言 `resolution-detail-map.json` | 验证 packer-driver / QuickPack fallback，不引入 package allow-list |
 | `feature-c` | 大项目 chunk fan-out / prerequisite imports 资源压力 | 在 `cocos-test-projects` 复刻小规模多 chunk fixture 或统计型 fixture | 后续 script runtime map / browser smoke diagnostic test | 不追求复刻 3000+ chunks；只沉淀可控的 depcache / prerequisite imports 行为 |
 | `feature-c` | 2D physics 配置与 3D physics runtime 依赖不一致 | 只记录为真实项目线优先，不立即迁移 | `diagnose:feature-c` | 该问题依赖复杂业务脚本和 engine module 组合，最小复刻前需要先确认是否属于 CLI regression 还是项目配置风险 |
 | `feature-c` | chunk load error / browser error logging | 抽象成 `cocos-test-projects` 的 browser error visibility fixture | `browser-runtime-smoke` 或单独 browser error reporting integration | 只验证错误可见性和分类，不伪造通过 |
@@ -128,9 +128,13 @@ npm --prefix vitests test -- suites/runtime-preview/editor-cli-output-consistenc
 在 `cocos-test-projects` 增加一个最小脚本，例如：
 
 ```js
-const sdk = require('@tbmp/mp-cloud-sdk');
+function createBytedanceCloudProxy() {
+  const sdk = require('@tbmp/mp-cloud-sdk');
+  return new sdk.Cloud();
+}
+
 module.exports = {
-  sdk,
+  createBytedanceCloudProxy,
 };
 ```
 
@@ -140,6 +144,7 @@ module.exports = {
 - 不添加 runtime preview allow-list。
 - 不添加 CLI 参数级 `--script-stub`。
 - 触发点必须是 CommonJS `require()`，不是 ESM `import`。
+- `require("@tbmp/mp-cloud-sdk")` 不能放在模块顶层立即执行；真实 `tdanalytics.mg.cocoscreator.min.js` 中该调用位于 platform proxy constructor 内，web 启动路径不一定实例化该 proxy。fixture 应覆盖 resolver fallback，不应制造真实项目不会出现的顶层 runtime `require()`。
 
 **测试调整：**
 
@@ -257,7 +262,7 @@ npm --prefix vitests run diagnose:feature-c
   - 保留代表性 UUID，用于验证 CLI `library\cli-extensions\view-state-group` output。
   - `cocos-test-projects` 原本 `.gitignore` 忽略整个 `extensions/`，本轮只放开 `extensions/ViewStateGroup/**`，不放开其它 extension 内容。
 - 在主测试项目新增最小 CommonJS bare specifier fixture：`assets\cases\scripting\commonjs-bare-specifier\commonjs-bare-specifier.js`。
-  - 脚本只包含 `require("@tbmp/mp-cloud-sdk")` 和 `module.exports`。
+  - 脚本保留真实 `tdanalytics.mg.cocoscreator.min.js` 的延迟执行形态：导出的函数内部包含 `require("@tbmp/mp-cloud-sdk")`，但模块顶层不立即调用。
   - 不安装 `@tbmp/mp-cloud-sdk`。
   - 不引入 package allow-list、runtime stub 或 `--script-stub`。
 - `editor-cli-output-consistency.test.ts` 的 extension output 测试改为读取主测试项目，不再依赖 `E:\own_space\cocos_work_lab_38x`。
