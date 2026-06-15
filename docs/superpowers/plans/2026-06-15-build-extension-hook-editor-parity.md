@@ -122,8 +122,8 @@
 - [x] `buildConfig_<platform>.json` 中的 `packages["build-ex"]` 必须进入最终 `options.packages["build-ex"]`。
 - [x] 平台特定配置覆盖通配配置的优先级固定并测试。
 - [x] 命令行覆盖、完整 buildConfig、extension 默认值之间的优先级固定并测试。
-- [ ] `profiles/v2/packages/<platform>.json` 只作为 profile adapter 兼容测试输入，不作为 parity baseline。
-- [ ] 若 Editor 默认值只由 UI/profile 写入，CLI 不重复补默认，但必须在事实文档记录依据。
+- [x] `profiles/v2/packages/<platform>.json` 只作为 profile adapter 兼容测试输入，不作为 parity baseline。
+- [x] 若 Editor 默认值只由 UI/profile 写入，CLI 不重复补默认，但必须在事实文档记录依据。
 
 ## Task 6: 裁剪版 `build-ex` fixture
 
@@ -139,7 +139,7 @@
 - [x] fixture 必须包含一个受控失败开关，例如 `options.packages["build-ex"].forceHookError`，用于验证 `throwError = true` 时 CLI build 非 0 退出、错误包含 extension name 和 hook name、`onError` 行为可观测。
 - [x] fixture 不写 `.meta`，不写 `library` 顶层 internal JSON，不改项目源资产。
 - [x] fixture 不复制 `feature-c` 的 `cc_obfuscated_js.json`、热更新脚本、SDK libs、cfg 合并、字体替换、asset 删除逻辑。
-- [ ] `assetHandlers` 不实现；用文档或测试明确 MVP 不支持。
+- [x] `assetHandlers` 不实现；用文档或测试明确 MVP 不支持。
 
 ## Task 7: Hook report 与可观测证据
 
@@ -157,50 +157,50 @@
 
 ## Task 8: Editor / CLI baseline 验证
 
-- [ ] 参考 Cocos Creator 3.8 官方命令行发布文档：
+- [x] 参考 Cocos Creator 3.8 官方命令行发布文档：
   - `https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-in-command-line.html`
   - 文档事实：`--project` 指定项目路径，`--build` 指定构建参数；`configPath` 可加载 JSON 参数文件；`platform` 为必填构建平台；`buildPath` 和 `outputName` 可覆盖输出根目录和发布包目录名；退出码 `32/34/36` 分别表示参数非法、构建过程失败、构建成功。
-- [ ] 优先用 Cocos Creator 编辑器命令行和完整 `buildConfig_web-mobile.json` 构建主测试项目，作为 `web-mobile` hook baseline；如果命令行环境不可用，再退回手动 Editor 构建并记录原因。
-- [ ] Creator 命令行 baseline 必须输出到独立目录，避免覆盖用户已有 Editor baseline 或 CLI 输出目录。示例命令需要按本机 Creator 安装路径修正：
+- [x] 优先用 Cocos Creator 编辑器命令行和完整 `buildConfig_web-mobile.json` 构建主测试项目，作为 `web-mobile` hook baseline；如果命令行环境不可用，再退回手动 Editor 构建并记录原因。
+- [x] Creator 命令行 baseline 必须输出到独立目录，避免覆盖用户已有 Editor baseline 或 CLI 输出目录。示例命令需要按本机 Creator 安装路径修正：
 
 ```powershell
 rtk pwsh -NoLogo -NoProfile -Command '& "D:\cocos_editors\Creator\Creator\3.8.6\CocosCreator.exe" --project "E:\own_space\engines\cocos-test-projects" --build "stage=build;configPath=E:\own_space\engines\cocos-test-projects\buildConfig_web-mobile.json;buildPath=E:\own_space\engines\cocos-test-projects\build;outputName=editor-build-ex-hook-baseline-20260615"'
 ```
 
-- [ ] 如果 Creator 命令行使用 `configPath` 后仍被同一 `--build` 字符串中的 `buildPath/outputName` 覆盖，记录该覆盖行为；若实际不覆盖，改为生成一份临时 baseline config 文件，直接在 JSON 中设置独立输出目录。
-- [ ] 记录 Editor 是否执行 `build-ex` hook、hook report 位置、输出目录、构建前后 git diff。
-- [ ] 记录 Editor 对 `configs["*"]` 与 `configs["web-mobile"]` 的 options 合并结果。
-- [ ] 记录 `throwError` 受控失败时 Editor 是否阻塞构建，以及是否执行 `onError`。
-- [ ] CLI 使用相同完整 `buildConfig_web-mobile.json` 构建独立输出目录：
+- [x] 如果 Creator 命令行使用 `configPath` 后仍被同一 `--build` 字符串中的 `buildPath/outputName` 覆盖，记录该覆盖行为；若实际不覆盖，改为生成一份临时 baseline config 文件，直接在 JSON 中设置独立输出目录。
+- [x] 记录 Editor 是否执行 `build-ex` hook、hook report 位置、输出目录、构建前后 git diff。
+- [x] 记录 Editor 对 `configs["*"]` 与 `configs["web-mobile"]` 的 options 合并结果。
+- [x] 记录 `throwError` 受控失败时 Editor 是否阻塞构建，以及是否执行 `onError`。
+- [x] CLI 使用相同完整 `buildConfig_web-mobile.json` 构建独立输出目录：
 
 ```powershell
 rtk pwsh -NoLogo -NoProfile -Command 'node .\dist\cli.js build --project "E:\own_space\engines\cocos-test-projects" --platform web-mobile --build-config "E:\own_space\engines\cocos-test-projects\buildConfig_web-mobile.json" --buildPath "E:\own_space\engines\cocos-test-projects\build" --outputName "codex-build-ex-hook-check-20260615"'
 ```
 
-- [ ] CLI build 退出码为 `0`，hook report 与 Editor baseline 生命周期一致。
-- [ ] CLI 不产生 Editor baseline 没有的源资产、`.meta` 或 `library` 顶层 JSON 差异。
+- [x] CLI build 退出码为 `0`，hook report 与 Editor baseline 生命周期一致。
+- [x] CLI 不产生 Editor baseline 没有的源资产、`.meta` 或 `library` 顶层 JSON 差异。
 - [x] 受控失败验证：`throwError = true` 时 CLI build 退出非 0，错误信息包含 extension name 和 hook name。
 - [x] non-fatal 验证：关闭 `throwError` 或使用 non-fatal fixture 时，CLI 记录错误但不阻塞；如与 Editor 不一致，记录差异。
-- [ ] 浏览器运行验证：
+- [x] 浏览器运行验证：
 
 ```powershell
 rtk pwsh -NoLogo -NoProfile -Command 'python -m http.server 13340 --directory "E:\own_space\engines\cocos-test-projects\build\codex-build-ex-hook-check-20260615"'
 ```
 
-- [ ] 用 in-app Browser 打开 `http://127.0.0.1:13340/`，页面 title 为 `Cocos Creator | test-cases`，`canvas` 存在，warning/error 中没有新增 hook 相关错误。
+- [x] 用 in-app Browser 打开 `http://127.0.0.1:13340/`，页面 title 为 `Cocos Creator | test-cases`，`canvas` 存在，warning/error 中没有新增 hook 相关错误。
 - [ ] 可选 smoke：在 hook MVP 通过后，用 `buildConfig_wechatgame.json` 做一次 CLI build，确认项目 extension hook 不破坏已完成的 `wechatgame` 普通构建；该 smoke 不作为 MVP 阻塞条件。
 
 ## Task 9: 文档收敛与状态更新
 
-- [ ] 更新 `docs/dev/build-extension-hooks-20260612.md`，记录 project extension builder hook 的最终事实、边界、fixture 裁剪结论和 Editor/CLI baseline 对比结果。
-- [ ] 更新 `docs/dev/build/issues.md` 中 `BUILD-ISSUE-014` 状态；只有验证闭环后才能标记 fixed。
-- [ ] 若行为稳定，回填 `docs/dev/modules/builder.md`：
+- [x] 更新 `docs/dev/build-extension-hooks-20260612.md`，记录 project extension builder hook 的最终事实、边界、fixture 裁剪结论和 Editor/CLI baseline 对比结果。
+- [x] 更新 `docs/dev/build/issues.md` 中 `BUILD-ISSUE-014` 状态；只有验证闭环后才能标记 fixed。
+- [x] 若行为稳定，回填 `docs/dev/modules/builder.md`：
   - 支持的 project extension builder schema。
   - 与 platform internal hook 的差异。
   - hook 排序和错误传播。
   - 不支持或不承诺兼容的 Editor API。
   - `assetHandlers` 的 MVP 边界。
-- [ ] 检查 `git diff`，确认没有误改 `wechatgame` 平台计划、`.codex-tmp`、用户项目缓存、资源 `.meta` 或无关文件。
+- [x] 检查 `git diff`，确认没有误改 `wechatgame` 平台计划、`.codex-tmp`、用户项目缓存、资源 `.meta` 或无关文件。
 
 ## 验收标准
 

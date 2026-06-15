@@ -87,6 +87,85 @@
    - build output 级业务逻辑应由项目 extension hook 自身在 public hook 中实现；CLI 只提供 discovery、配置合并、hook 生命周期、错误传播和 `result.dest` / build result 访问能力。
    - 依赖 `Editor.Message`、AssetDB、源资产或 `.meta` 写入的能力不属于本 MVP；若真实迁移需要，应单独登记为 Editor facade / AssetDB API / unsupported 边界，不能用静默 mock 掩盖。
 
+## 2026-06-15 `BUILD-ISSUE-014` 完成记录
+
+本次实现定位为 Editor-like project extension builder host，不把 `feature-c/build-ex` 的 SDK、hotupdate、cfg merge、混淆、字体替换、资源删除、`.meta` 改写等业务逻辑搬进 CLI。CLI 只提供 project extension discovery、builder entry 加载、hook 注册、options 合并、生命周期和错误传播。
+
+### 实现事实
+
+- 新增 `src/core/extensions/project-extensions.ts`，统一扫描 `<projectRoot>/extensions/*/package.json`。
+- AssetDB mount 继续只消费 `contributions["asset-db"].mount`；builder hook 只消费 Editor extension schema `contributions.builder`。
+- `contributes.builder` 不作为 project extension schema 支持，避免与 CLI platform package schema 混用。
+- builder entry 支持 `configs["*"]` 与 `configs[platform]` 合并；平台配置覆盖通配配置，数组按替换而不是拼接处理。
+- project extension options 默认值会补入最终 `options.packages[extensionName]`，但不会覆盖 build config 或项目保存配置中的 package 值。
+- 内置 platform hook 保持优先；project extension hook 按 package name + extension root 稳定排序。
+- project extension hook 以 public hook 运行，签名为 `(options, result, ...args)`；不会因为 package name 与 platform name 碰撞而被标记为 internal，碰撞会 hard fail。
+- malformed `package.json`、缺失 package name、缺失 `contributions.builder` 采用 warning/skip；缺失 builder entry、缺失 hooks 文件、重复 package name、与既有 builder package 冲突采用 hard fail。
+
+### 错误语义
+
+- public hook 未设置 `throwError` 时，hook 抛错会记录错误但不阻塞构建，也不触发 `onError`。
+- public hook 设置 `throwError = true` 时，hook 抛错会阻塞构建，错误信息包含 extension name、hook name 和原始 error message。
+- 构建 fatal error 时，CLI 会执行已注册 hook 的 `onError`；public `onError` 会收到第三个 `error` 参数。
+- 本机 Editor 3.8.6 baseline 中，受控失败会触发 `onError`，但 fixture 收到的第三个 `error` 为 `undefined`；CLI 当前传入包装后的 `Error`。生命周期一致，错误对象内容存在差异，后续若要求 byte-level parity 需要单独确认 Editor builder API 的真实错误参数 contract。
+
+### 裁剪版 `build-ex` fixture
+
+主测试项目新增本地 fixture：
+
+- `E:\own_space\engines\cocos-test-projects\extensions\build-ex\package.json`
+- `E:\own_space\engines\cocos-test-projects\extensions\build-ex\dist\builder.js`
+- `E:\own_space\engines\cocos-test-projects\extensions\build-ex\dist\hooks.js`
+
+fixture 保留真实 Editor extension 入口结构 `contributions.builder: "./dist/builder.js"`，`builder.js` 声明 `configs["*"]` 和 `configs["web-mobile"]`，`hooks.js` 暴露 `throwError = true` 并实现 `onBeforeBuild`、`onBeforeCompressSettings`、`onAfterBuild`、`onError`。
+
+fixture 读取并记录 `options.platform`、`options.packages["build-ex"].buildVersion`、`gameDebug`、`hotupdateUrl`、`platformFlavor`、`forceHookError`；在 `result.dest` 写入 `build-ex-hook-report.json`、`build-ex-output-marker.json`，受控失败时写入 `build-ex-hook-error-report.json`。
+
+fixture 不写 `.meta`、不写项目源资产、不写 `library` 顶层 internal JSON，不复制 `feature-c` 的私有 SDK、热更新脚本、SDK libs、cfg merge、混淆、字体替换、asset 删除逻辑。`assetHandlers` 不属于本 MVP，当前未实现；依赖 `Editor.Message`、AssetDB、源资产或 `.meta` 写入的能力属于 unsupported / deferred 边界，不能用静默 mock 伪装为已支持。
+
+注意：主测试项目 `.gitignore` 包含 `extensions/*`，因此本地 fixture 路径当前被 ignore；本记录只把它作为本机验证 fixture 事实，不表示已把测试项目 fixture 提交到外部测试项目仓库。
+
+### Editor / CLI baseline 对比
+
+参考 Cocos Creator 3.8 官方命令行发布文档：`--project` 指定项目路径，`--build` 指定构建参数；`configPath` 会加载 JSON 参数文件，同一 `--build` 字符串中的字段会覆盖 `configPath` 内配置；`platform` 为必填；`buildPath` 和 `outputName` 可覆盖输出目录；退出码 `32` / `34` / `36` 分别表示参数非法、构建失败、构建成功。
+
+本机 Editor baseline：
+
+```powershell
+& "D:\cocos_editors\Creator\Creator\3.8.6\CocosCreator.exe" --project "E:\own_space\engines\cocos-test-projects" --build "stage=build;configPath=E:\own_space\engines\cocos-test-projects\buildConfig_web-mobile.json;platform=web-mobile;buildPath=E:\own_space\engines\cocos-test-projects\build;outputName=editor-build-ex-hook-baseline-20260615;logDest=E:\own_space\engines\cocos-cli\.codex-tmp\editor-build-ex-hook-baseline-20260615-run2.log"
+```
+
+结果：
+
+- Editor 退出码为 `36`。
+- 输出目录：`E:\own_space\engines\cocos-test-projects\build\editor-build-ex-hook-baseline-20260615`。
+- `build-ex-hook-report.json` 记录 `onBeforeBuild -> onBeforeCompressSettings -> onAfterBuild`。
+- `options.packages["build-ex"]` 中 build config 值覆盖 extension 默认值，`platformFlavor` 来自 `configs["web-mobile"]`。
+
+CLI baseline：
+
+```powershell
+node .\dist\cli.js build --project "E:\own_space\engines\cocos-test-projects" --platform web-mobile --build-config "E:\own_space\engines\cocos-test-projects\buildConfig_web-mobile.json" --buildPath "E:\own_space\engines\cocos-test-projects\build" --outputName "codex-build-ex-hook-check-20260615"
+```
+
+结果：
+
+- CLI 退出码为 `0`。
+- 输出目录：`E:\own_space\engines\cocos-test-projects\build\codex-build-ex-hook-check-20260615`。
+- `build-ex-hook-report.json` 与 Editor baseline 的 fixture report 一致，均为 `onBeforeBuild -> onBeforeCompressSettings -> onAfterBuild`，关键 options 和 result shape 一致。
+- CLI 与 Editor 的 build-ex fixture 都只写 build output marker，不写项目源资产或 `.meta`。测试项目当前已有大量历史 dirty `.meta` 和配置变更，不能把它们归因于本次 fixture；本轮与 fixture 直接相关的新增路径是被 ignore 的 `extensions/build-ex/` 和未跟踪的 `buildConfig_web-mobile.json`。
+
+受控失败对比：
+
+- Editor 使用 `forceHookError=true` 的临时 build config，退出码为 `34`，触发 `build-ex:onError` 并写出 `build-ex-hook-error-report.json`；fixture 记录的 error message 为 `undefined`。
+- CLI 使用同等临时 build config，退出码为 `34`，错误信息包含 `Build plugin "build-ex" hook "onBeforeBuild" failed: build-ex controlled failure from onBeforeBuild`，触发 `build-ex:onError` 并写出 `build-ex-hook-error-report.json`。
+
+浏览器验证：
+
+- 使用 `python -m http.server 13340 --directory "E:\own_space\engines\cocos-test-projects\build\codex-build-ex-hook-check-20260615"` 启动静态服务。
+- in-app Browser 打开 `http://127.0.0.1:13340/`。
+- 页面 title 为 `Cocos Creator | test-cases`，`canvasCount` 为 `1`，页面 warning/error console 日志为空。
+
 ## 构建验证记录
 
 ### 2026-06-12 主测试项目 `web-mobile`
