@@ -54,6 +54,13 @@ export const SchemaWebMobilePackages = z.object({
     embedWebDebugger: z.boolean().default(false).describe('Whether to embed Web debugger'), // 是否嵌入 Web 端调试工具
 }).describe('Web Mobile Platform Configuration'); // Web Mobile 平台配置
 
+// WeChat Game Platform Configuration // 微信小游戏平台配置
+export const SchemaWechatGamePackages = z.object({
+    appid: z.string().default('').describe('WeChat Mini Game AppID'), // 微信小游戏 AppID
+    orientation: z.enum(['portrait', 'landscape']).default('portrait').describe('Device Orientation'), // 设备方向
+    highPerformanceMode: z.boolean().default(false).describe('Whether to enable iOS high performance mode'), // 是否启用 iOS 高性能模式
+}).describe('WeChat Game Platform Configuration'); // 微信小游戏平台配置
+
 // iOS Configuration // iOS 配置
 const SchemaIOSPackageBase = z.object({
     packageName: z.string()
@@ -199,6 +206,16 @@ export const SchemaWebMobileBuildOption = SchemaBuildBaseOption
     })
     .describe('Web Mobile Complete Build Options (all fields optional)'); // Web Mobile 完整构建选项（所有字段可选）
 
+// WeChat Game Complete Build Options (Input, all fields optional) // 微信小游戏完整构建选项（入参，所有字段可选）
+export const SchemaWechatGameBuildOption = SchemaBuildBaseOption
+    .extend({
+        platform: z.literal('wechatgame').describe('Build Platform'), // 构建平台
+        packages: z.object({
+            wechatgame: SchemaWechatGamePackages.partial()
+        }).optional().describe('WeChat Game Platform Specific Configuration') // 微信小游戏平台特定配置
+    })
+    .describe('WeChat Game Complete Build Options (all fields optional)'); // 微信小游戏完整构建选项（所有字段可选）
+
 // Windows Build Options // Windows 构建选项
 export const SchemaWindowsBuildOption = SchemaBuildBaseOption
     .extend({
@@ -303,6 +320,7 @@ export const SchemaOtherPlatformBuildOption = SchemaBuildBaseOption
 export const SchemaKnownBuildOptions = [
     SchemaWebDesktopBuildOption,
     SchemaWebMobileBuildOption,
+    SchemaWechatGameBuildOption,
     SchemaWindowsBuildOption,
     SchemaIOSBuildOption,
     SchemaMacBuildOption,
@@ -383,6 +401,7 @@ export type TPreviewSettingsResult = z.infer<typeof SchemaPreviewSettingsResult>
 export const SchemaBuildConfigResult = z.union([
     SchemaWebDesktopBuildOption.omit({ configPath: true, skipCheck: true, taskId: true, taskName: true }),
     SchemaWebMobileBuildOption.omit({ configPath: true, skipCheck: true, taskId: true, taskName: true }),
+    SchemaWechatGameBuildOption.omit({ configPath: true, skipCheck: true, taskId: true, taskName: true }),
     SchemaWindowsBuildOption.omit({ configPath: true, skipCheck: true, taskId: true, taskName: true }),
     SchemaIOSBuildOption.omit({ configPath: true, skipCheck: true, taskId: true, taskName: true }),
     SchemaAndroidBuildOption.omit({ configPath: true, skipCheck: true, taskId: true, taskName: true }),
@@ -406,6 +425,7 @@ export type TPolyfills = z.infer<typeof SchemaPolyfills>;
 export type TSceneRef = z.infer<typeof SchemaSceneRef>;
 export type TWebDesktopPackages = z.infer<typeof SchemaWebDesktopPackages>;
 export type TWebMobilePackages = z.infer<typeof SchemaWebMobilePackages>;
+export type TWechatGamePackages = z.infer<typeof SchemaWechatGamePackages>;
 
 // Run API Related Schema // Run API 相关 Schema
 export const SchemaBuildDest = z.string().min(1).describe('Build Output Directory, supports absolute path and project:// protocol URL'); // 构建输出目录，支持绝对路径和 project:// 协议 URL

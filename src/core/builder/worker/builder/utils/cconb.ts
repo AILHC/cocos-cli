@@ -1,4 +1,4 @@
-import { outputFile } from 'fs-extra';
+import { outputFile, outputJSON } from 'fs-extra';
 import { IAsset } from '../../../../assets/@types/protected';
 import { AssetSerializeOptions } from '../../../@types/protected';
 
@@ -12,10 +12,35 @@ export function getCCONFormatAssetInLibrary(asset: IAsset) {
 }
 
 export function getDesiredCCONExtensionMap(serializeOption: AssetSerializeOptions) {
-    return '.cconb';
+    return shouldOutputCCONB(serializeOption) ? '.cconb' : '.ccon';
 }
 
-export async function outputCCONFormat(ccon: unknown, fullBaseName: string) {
-    const { encodeCCONBinary } = require('cc/editor/serialization');
-    await outputFile(`${fullBaseName}.cconb`, encodeCCONBinary(ccon));
+export async function outputCCONFormat(ccon: unknown, fullBaseName: string, serializeOption: AssetSerializeOptions) {
+    if (shouldOutputCCONB(serializeOption)) {
+        const { encodeCCONBinary } = require('cc/editor/serialization');
+        await outputFile(`${fullBaseName}.cconb`, encodeCCONBinary(ccon));
+        return;
+    }
+
+    const { encodeCCONJson } = require('cc/editor/serialization');
+    const chunks = (ccon as { chunks?: Uint8Array[] }).chunks ?? [];
+    const chunkURLs = getCCONChunkURLs(chunks.length);
+    await outputJSON(`${fullBaseName}.json`, encodeCCONJson(ccon, chunkURLs));
+    await Promise.all(chunks.map(async (chunk, index) => {
+        await outputFile(`${fullBaseName}${chunkURLs[index]}`, chunk);
+    }));
+}
+
+function shouldOutputCCONB(serializeOption: AssetSerializeOptions) {
+    return !(serializeOption.exportCCON && serializeOption.useCCONB !== true);
+}
+
+function getCCONChunkURLs(chunkCount: number) {
+    if (chunkCount === 0) {
+        return [];
+    }
+    if (chunkCount === 1) {
+        return ['.bin'];
+    }
+    return Array.from({ length: chunkCount }, (_, index) => `.${index}.bin`);
 }
