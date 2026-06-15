@@ -324,8 +324,8 @@ node .\dist\cli.js build --project 'E:\own_space\engines\cocos-test-projects' --
 Error: Current environment does not provide a require() for requiring '@tbmp/mp-cloud-sdk'.
 ```
 
-- 产物中旧 fallback 为 `export const __cjsMetaURL = '@tbmp/mp-cloud-sdk';`，CommonJS loader 后续仍会把 `@tbmp/mp-cloud-sdk` 当作 host module 调用浏览器环境不存在的 `require()`。
-- 修复后，普通 build 使用的 Rollup plugin fallback 改为注册一个空 CJS module：
+- 当 CommonJS 代码实际执行该 unresolved bare specifier 时，fallback `export const __cjsMetaURL = '@tbmp/mp-cloud-sdk';` 仍会让 CommonJS loader 把 `@tbmp/mp-cloud-sdk` 当作 host module 处理；浏览器环境不存在 host `require()`，因此会报上述错误。
+- 曾尝试把普通 build 使用的 Rollup plugin fallback 改为注册一个空 CJS module：
 
 ```text
 import loader from 'cce:/internal/ml/cjs-loader.mjs';
@@ -338,12 +338,66 @@ export const __cjsMetaURL = import.meta.url;
 - `codex-cjs-fallback-fixed` 产物中已确认 fallback module 包含 `module.exports = {};`，上层 `commonjs-bare-specifier.js` 的 resolve map 仍保留 `@tbmp/mp-cloud-sdk` 键，但目标值改为 fallback module 的 `__cjsMetaURL`。
 - 使用 in-app Browser 打开临时静态服务 URL `http://127.0.0.1:6366/?retry=1781270198041`，页面标题为 `Cocos Creator | test-cases`，当前端口过滤后的 warning/error console 日志数量为 `0`，`Current environment does not provide a require()` 数量为 `0`，`@tbmp/mp-cloud-sdk` 相关 error 数量为 `0`。
 - 验证过程中曾有一次 in-app Browser tab 进入 `This page crashed`，重开 fresh tab 后同一构建产物正常打开；因此最终结论以 fresh tab 的同端口日志为准。
+- 后续复盘确认该空 CJS module 等价于 runtime mock，会把真实缺包分支执行时应暴露的问题隐藏掉；该改法已回退。
 
 阶段性结论：
 
 - `--buildPath` 决定输出根目录，`--outputName` 决定输出文件夹名；两者通过命令行参数覆盖 Creator profile 中的同名字段。
-- 当前普通 build 和 runtime preview 的 CommonJS bare specifier fallback 已改为同一个浏览器可加载的空 CJS module source。
-- 该 fallback 只保证 unresolved CommonJS bare specifier 不再触发浏览器 host `require()`；它不等价于真实安装或实现 `@tbmp/mp-cloud-sdk`。
+- 当前普通 build 和 runtime preview 的 CommonJS bare specifier fallback 已回退为同一个可见 CJS meta module：只导出原始 specifier 的 `__cjsMetaURL`。
+- 该 fallback 只保证 unresolved CommonJS bare specifier 的编译/打包阶段可以继续并记录诊断；如果运行时实际执行缺失平台 SDK 分支，浏览器继续报 `Current environment does not provide a require()` 是合理暴露，不应由 CLI 注入空实现掩盖。
+
+### 2026-06-15 `@tbmp/mp-cloud-sdk` fixture 修正
+
+后续复盘发现，主测试项目中的 `assets/cases/scripting/commonjs-bare-specifier/commonjs-bare-specifier.js` 初版 fixture 与真实 `feature-c` 中的 `tdanalytics.mg.cocoscreator.min.js` 行为不一致：
+
+- 初版 fixture 将 `require("@tbmp/mp-cloud-sdk")` 放在模块顶层，main entry 加载该 CJS facade 时会立即执行。
+- 真实 `tdanalytics.mg.cocoscreator.min.js` 中该 `require()` 位于 platform proxy constructor 内，例如 `var e = require("@tbmp/mp-cloud-sdk"); this.cloud = new e.Cloud`；web 启动路径不一定实例化该 proxy。
+- 真实文件 `.meta` 的 platform plugin 开关为 `loadPluginInWeb: true`、`loadPluginInNative: true`、`loadPluginInMiniGame: true`，初版 fixture 曾为 `false` 并额外带 `moduleId` / `simulateGlobals`。
+
+已将 fixture 修正为：
+
+```js
+function createBytedanceCloudProxy() {
+  const sdk = require('@tbmp/mp-cloud-sdk');
+  return new sdk.Cloud();
+}
+
+module.exports = {
+  createBytedanceCloudProxy,
+};
+```
+
+同步将 fixture `.meta` 的 `loadPluginInWeb` / `loadPluginInNative` / `loadPluginInMiniGame` 设为 `true`，并移除初版 fixture 额外带入的 `moduleId` / `simulateGlobals`。
+
+复验命令：
+
+```powershell
+node ./dist/cli.js build --project E:\own_space\engines\cocos-test-projects --platform web-mobile --build-config E:\own_space\engines\cocos-test-projects\profiles\v2\packages\web-mobile.json --buildPath E:\own_space\engines\cocos-test-projects\build --outputName codex-run-check-fixture-20260615
+```
+
+结果：
+
+- build 退出码为 `0`，输出目录为 `E:\own_space\engines\cocos-test-projects\build\codex-run-check-fixture-20260615`。
+- 构建日志仍记录 `Failed to resolve CommonJS bare specifier "@tbmp/mp-cloud-sdk"` 并使用 fallback；这是编译/打包期的预期诊断。
+- 使用 in-app Browser 打开 `http://127.0.0.1:13332/`，页面标题为 `Cocos Creator | test-cases`，`canvasCount: 1`。
+- 浏览器 warning/error 日志中按 `@tbmp`、`mp-cloud-sdk`、`Current environment`、`commonjs-bare-specifier` 过滤后数量为 `0`。
+- 同次运行仍存在既有 `.anim` 资源 `assets/main/import/1f/1feeb8bd-de73-436b-bc5a-2f806ede2f16.json` 404，这与本 fixture 修正无关。
+
+回退决策：
+
+- 真实 `tdanalytics.mg.cocoscreator.min.js` 的 `require("@tbmp/mp-cloud-sdk")` 是延迟执行的 platform 分支，不会在 web 启动期必然执行。
+- 因此主测试项目 fixture 应对齐真实文件，避免顶层立即 `require()`；CLI 不应为了该错误 fixture 注入 `module.exports = {}` 的 runtime mock。
+- 当前已回退 `createCommonJSBareSpecifierFallbackSource()`：普通 build 与 runtime preview 都生成 `export const __cjsMetaURL = '<specifier>';`，保留编译继续和诊断，不模拟缺失 npm 包。
+- 回归验证：`$env:COCOS_CLI_TEST_ENGINE_ROOT="E:\own_space\engines\3.8.6"; cd vitests; npx vitest run suites/runtime-preview/preview-script-recovery.test.ts` 通过，`14 tests`。
+- CLI 编译验证：`npm run build` 通过，输出只包含既有 circular dependency warning。
+- build 复验命令：
+
+```powershell
+node ./dist/cli.js build --project E:\own_space\engines\cocos-test-projects --platform web-mobile --build-config E:\own_space\engines\cocos-test-projects\profiles\v2\packages\web-mobile.json --buildPath E:\own_space\engines\cocos-test-projects\build --outputName codex-cjs-visible-meta-20260615
+```
+
+- build 退出码为 `0`，输出目录为 `E:\own_space\engines\cocos-test-projects\build\codex-cjs-visible-meta-20260615`；构建日志仍记录 `Failed to resolve CommonJS bare specifier "@tbmp/mp-cloud-sdk"`，这是保留的编译期诊断。
+- 使用 in-app Browser 打开 `http://127.0.0.1:13333/?open=1781495718735`，页面标题为 `Cocos Creator | test-cases`，`canvasCount: 1`；warning/error 日志数为 `0`，按 `@tbmp`、`mp-cloud-sdk`、`Current environment`、`require()`、`commonjs-bare-specifier` 过滤后数量为 `0`。
 
 ### 2026-06-13 `.meta` 变更来源补充记录
 

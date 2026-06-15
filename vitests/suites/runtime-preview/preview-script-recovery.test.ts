@@ -5,7 +5,7 @@ import {
 } from '../../../src/core/scripting/packer-driver/commonjs-bare-specifier-fallback';
 
 describe('runtime preview script recovery', () => {
-  it('falls back unresolved CommonJS bare specifiers to a browser-loadable empty CJS module', () => {
+  it('falls back unresolved CommonJS bare specifiers to a visible CJS meta module', () => {
     const logger = { error: vi.fn() };
     const resolution = createCommonJSBareSpecifierFallbackResolution(
       '@scope/pkg/subpath',
@@ -19,11 +19,10 @@ describe('runtime preview script recovery', () => {
     const fallbackURL = resolution?.resolved.type === 'module' ? resolution.resolved.url : undefined;
     expect(fallbackURL?.protocol).toBe('data:');
     const fallbackSource = decodeURIComponent(fallbackURL?.href ?? '');
-    expect(fallbackSource).toContain("import loader from 'cce:/internal/ml/cjs-loader.mjs';");
-    expect(fallbackSource).toContain('loader.define(import.meta.url, function (_exports, _require, module) {');
-    expect(fallbackSource).toContain('module.exports = {};');
-    expect(fallbackSource).toContain('export const __cjsMetaURL = import.meta.url;');
-    expect(fallbackSource).not.toContain("export const __cjsMetaURL = '@scope/pkg/subpath';");
+    expect(fallbackSource).toContain("export const __cjsMetaURL = '@scope/pkg/subpath';");
+    expect(fallbackSource).not.toContain("import loader from 'cce:/internal/ml/cjs-loader.mjs';");
+    expect(fallbackSource).not.toContain('loader.define(import.meta.url, function (_exports, _require, module) {');
+    expect(fallbackSource).not.toContain('module.exports = {};');
     expect(resolution?.messages).toEqual([
       expect.objectContaining({
         level: 'error',

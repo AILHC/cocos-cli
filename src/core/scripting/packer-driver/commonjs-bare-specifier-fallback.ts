@@ -50,7 +50,7 @@ export function createCommonJSBareSpecifierFallbackResolution(
 
     logger.error(message);
 
-    const source = createCommonJSBareSpecifierFallbackSource();
+    const source = createCommonJSBareSpecifierFallbackSource(specifierValue);
 
     return {
         resolved: {
