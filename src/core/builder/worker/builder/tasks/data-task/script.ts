@@ -12,6 +12,10 @@ export const title = 'i18n:builder.tasks.sort_asset_bundle';
 
 export const name = 'data-task/asset_script';
 
+export function resolveBuildScriptCommonDir(buildDir: string, currentCommonDir?: string) {
+    return currentCommonDir || join(buildDir, 'src', 'chunks');
+}
+
 export async function handle(this: IBuilder, options: IInternalBuildOptions, result: InternalBuildResult, cache: BuilderAssetCache) {
     let queryPluginOptions: FilterPluginOptions = {};
     try {
@@ -46,5 +50,5 @@ export async function handle(this: IBuilder, options: IInternalBuildOptions, res
     }
     const importMapOutFile = join(importMapDir, `import-map${extension}`);
     result.paths.importMap = importMapOutFile;
-    options.buildScriptParam.commonDir = join(result.paths.dir, 'src', 'chunks');
+    options.buildScriptParam.commonDir = resolveBuildScriptCommonDir(result.paths.dir, options.buildScriptParam.commonDir);
 }

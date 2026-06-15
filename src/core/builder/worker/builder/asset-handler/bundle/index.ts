@@ -8,7 +8,7 @@ import type { PacInfo } from '../texture-packer/pac-info';
 import { sortBundleInPac } from './pac';
 import { getCCONFormatAssetInLibrary, getDesiredCCONExtensionMap, hasCCONFormatAssetInLibrary } from '../../utils/cconb';
 import { ScriptBuilder } from '../script';
-import { BuiltinBundleName, BundleCompressionTypes, DefaultBundleConfig, getBundleDefaultName, transformPlatformSettings } from '../../../../share/bundle-utils';
+import { BuiltinBundleName, BundleCompressionTypes, DefaultBundleConfig, getBundleDefaultName } from '../../../../share/bundle-utils';
 import { buildAssetLibrary } from '../../manager/asset-library';
 import { BuilderAssetCache } from '../../manager/asset';
 import { getLibraryDir, queryImageAssetFromSubAssetByUuid } from '../../utils';
@@ -22,7 +22,7 @@ import { newConsole } from '../../../../../base/console';
 import i18n from '../../../../../base/i18n';
 import { IAsset } from '../../../../../assets/@types/protected';
 import { IBundleOptions } from '../../../../@types';
-import { IBundleManager, IBuilder, IInternalBundleBuildOptions, IBuildHooksInfo, IBundle, CustomBundleConfig, BundleRenderConfig, BundlePlatformType, IBundleInitOptions, IBundleBuildOptions, IBuildOptionBase } from '../../../../@types/protected';
+import { IBundleManager, IBuilder, IInternalBundleBuildOptions, IBuildHooksInfo, IBundle, CustomBundleConfig, BundleRenderConfig, IBundleInitOptions, IBundleBuildOptions, IBuildOptionBase } from '../../../../@types/protected';
 import { pluginManager } from '../../../../manager/plugin';
 import utils from '../../../../../base/utils';
 import script from '../../../../../scripting';
@@ -30,6 +30,7 @@ import builderConfig from '../../../../share/builder-config';
 import { IPluginScriptInfo } from '../../../../../scripting/interface';
 import assetQuery from '../../../../../assets/manager/query';
 import { BuildGlobalInfo } from '../../../../share/global';
+import { isCompressionTypeSupported, isMiniGameBundlePlatform, shouldOutputProjectBundleWithExplicitConfigs, transformBundleConfigCustomByPlatformType } from './bundle-output';
 
 const { MAIN, START_SCENE, INTERNAL, RESOURCES } = BuiltinBundleName;
 // 只 Bundle 构建时，可走此类的生成执行函数
@@ -150,16 +151,7 @@ export class BundleManager extends BuildTaskBase implements IBundleManager {
         if (!bundleConfig.default) {
             bundleConfig.default = DefaultBundleConfig;
         }
-        const res: Record<string, any> = {};
-        Object.keys(bundleConfig).forEach((ID) => {
-            const configs = bundleConfig[ID].configs;
-            res[ID] = {};
-            Object.keys(configs).forEach((platformType) => {
-                const platformOption = transformPlatformSettings(configs[platformType as BundlePlatformType], pluginManager.bundleConfigs);
-                Object.assign(res[ID], platformOption);
-            });
-        });
-        BundleManager.BundleConfigs = res;
+        BundleManager.BundleConfigs = transformBundleConfigCustomByPlatformType(bundleConfig, pluginManager.bundleConfigs);
     }
 
     getUserConfig(ID = 'default') {
@@ -315,7 +307,14 @@ export class BundleManager extends BuildTaskBase implements IBundleManager {
                 this.addBundle(config);
             });
         }
-        const otherBundleOutput = options.bundleConfigs.length ? false : (this._task ? true : false);
+        const hasExplicitBundleConfigs = options.bundleConfigs.length > 0;
+        const bundlePlatformType = this.getBundlePlatformType();
+        const applyMiniGameExplicitBundleBehavior = hasExplicitBundleConfigs && isMiniGameBundlePlatform(bundlePlatformType);
+        if (applyMiniGameExplicitBundleBehavior) {
+            this.addSceneBundleConfigs(options.bundleConfigs.map((config) => config.root));
+        }
+        const supportedCompressionTypes = this.getSupportedCompressionTypes();
+        const otherBundleOutput = hasExplicitBundleConfigs ? false : (this._task ? true : false);
         if (!options.buildBundleOnly) {
             // 非只 Bundle 构建模式下，需要补全其他项目内存在的 bundle 信息
             bundleAssets.forEach((assetInfo) => {
@@ -326,7 +325,9 @@ export class BundleManager extends BuildTaskBase implements IBundleManager {
                 if (!config || this.bundleMap[config.name]) {
                     return;
                 }
-                config.output = otherBundleOutput;
+                config.output = applyMiniGameExplicitBundleBehavior ?
+                    shouldOutputProjectBundleWithExplicitConfigs(config, supportedCompressionTypes, bundlePlatformType) :
+                    otherBundleOutput;
                 this.addBundle(config);
             });
         }
@@ -343,6 +344,42 @@ export class BundleManager extends BuildTaskBase implements IBundleManager {
             throw new Error('Invalid bundle config, please check your bundle config');
         }
         this.updateProcess(`Num of bundles: ${this.bundles.length}...`);
+    }
+
+    private addSceneBundleConfigs(existingRoots: string[]) {
+        const roots = new Set(existingRoots.filter(Boolean));
+        const supportedCompressionTypes = this.getSupportedCompressionTypes();
+        const scenes = this.options.scenes ?? [];
+
+        for (const scene of scenes) {
+            const root = (scene as { bundle?: string }).bundle;
+            if (!root || roots.has(root)) {
+                continue;
+            }
+
+            roots.add(root);
+            const config = this.patchProjectBundleConfig({
+                root,
+                name: '',
+            });
+            if (!config) {
+                continue;
+            }
+            if (!isCompressionTypeSupported(config.compressionType, supportedCompressionTypes)) {
+                console.warn(`Skip bundle ${config.name} because compressionType ${config.compressionType} is not supported by ${this.options.platform}.`);
+                continue;
+            }
+            config.output = config.compressionType !== BundleCompressionTypes.SUBPACKAGE;
+            this.addBundle(config);
+        }
+    }
+
+    private getSupportedCompressionTypes() {
+        return pluginManager.bundleConfigs[this.options.platform]?.supportOptions.compressionType ?? [];
+    }
+
+    private getBundlePlatformType() {
+        return pluginManager.bundleConfigs[this.options.platform]?.platformType;
     }
 
     /**

@@ -8,7 +8,7 @@ import { deserialize, EffectAsset, Asset as CCAsset, SceneAsset, LightComponent,
 import { recursively } from '../utils';
 import assert from 'assert';
 import { getCCONFormatAssetInLibrary, outputCCONFormat } from '../utils/cconb';
-import { IAssetInfo, IMetaMap, ISerializedOptions, IUuidDependMap, } from '../../../@types/protected';
+import { AssetSerializeOptions, IAssetInfo, IMetaMap, ISerializedOptions, IUuidDependMap, } from '../../../@types/protected';
 import { BundleFilterConfig } from '../../../@types';
 import assetManager from '../../../../assets/manager/asset';
 import { IAsset, QueryAssetsOption, IAssetInfo as IAssetInfoFromDB } from '../../../../assets/@types/protected';
@@ -347,7 +347,7 @@ class BuildAssetLibrary {
     public async outputCCONAsset(
         uuid: string,
         dest: string,
-        options: ISerializedOptions,
+        options: { debug: boolean; assetSerializeOptions: AssetSerializeOptions },
     ) {
         const instanceRes = await this.getRawInstance(this.getAsset(uuid));
         if (!instanceRes || !instanceRes.asset) {
@@ -369,7 +369,7 @@ class BuildAssetLibrary {
         });
         assert(ccon instanceof CCON);
         try {
-            await outputCCONFormat(ccon, fullBaseName);
+            await outputCCONFormat(ccon, fullBaseName, options.assetSerializeOptions);
         } catch (error) {
             console.error(error);
             console.error(`outputCCONFormat with asset:(${uuid}) failed!`);

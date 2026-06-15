@@ -112,6 +112,8 @@ export interface AssetSerializeOptions {
         glsl3: boolean;
         glsl4: boolean;
     };
+    exportCCON?: boolean;
+    useCCONB?: boolean;
 }
 
 export interface ISerializedOptions {
