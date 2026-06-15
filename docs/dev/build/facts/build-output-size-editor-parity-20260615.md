@@ -159,4 +159,5 @@ rtk pwsh -NoProfile -Command "node .\dist\cli.js build --project 'E:\own_space\e
 
 1. “CLI build 产物比 Editor 大”不是当前构建管线在 `debug:false` 下的必然结果。
 2. 使用完整 `buildConfig_web-mobile.json` 时，CLI 可以生成 `debug:false`、engine compressed 的 release 形态产物，体积不再大于 Editor baseline。
-3. 问题收敛为：直接把 `profiles/v2/packages/web-mobile.json` 作为 `--build-config` 时，CLI adapter 没有合并 Editor task 的完整 options，尤其是 `debug:false`，导致旧 CLI profile wrapper 产物变大。
+3. 当前 parity 验证的标准输入应使用 Editor 导出的完整 `buildConfig_<platform>.json`，例如 `buildConfig_web-mobile.json` 或 `buildConfig_wechatgame.json`。
+4. 直接把 `profiles/v2/packages/web-mobile.json` 作为 `--build-config` 会缺少完整 task options，尤其是 `debug:false`；该路径保留为历史兼容/诊断能力，不作为当前构建 parity 目标。

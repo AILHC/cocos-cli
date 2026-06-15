@@ -12,7 +12,7 @@
 
 ## 当前执行状态（2026-06-15）
 
-- 已进入第一阶段实施；目标已校准为“CLI 构建产物与 Editor 3.8.6 baseline 基本一致，并具备 WeChat DevTools 手工打开运行所需结构”。
+- 第一阶段已阶段性完成；目标已校准为“CLI 构建产物与 Editor 3.8.6 baseline 基本一致，并具备 WeChat DevTools 手工打开运行所需结构”。
 - 已完成普通 `wechatgame` 平台注册、schema、平台 hooks、engine template 渲染、adapter 输出、subpackage `game.js` 输出、remote bundle script 布局、CCON `.json/.bin` 输出和 miniGame explicit bundle config 行为隔离。
 - 第一阶段 schema/type 只承诺 `appid`、`orientation`、`highPerformanceMode`；`buildOpenDataContextTemplate`、`separateEngine`、`localSeparateEngine`、`subpackages`、`wasmSubpackage` 仍是待验证/待实现的 Editor option 事实。
 - 已新增并通过焦点 Jest：
@@ -21,8 +21,12 @@
   - `src/core/builder/test/wechatgame-platform.spec.ts`
   - `src/core/builder/test/build-script-common-dir.spec.ts`
 - 已通过 `npm run build`、真实项目 CLI 构建和 `vitests/suites/build/wechatgame-editor-baseline-parity.test.ts`。
-- 未完成项仍包括：项目自定义模板专项测试、`separateEngine`、`localSeparateEngine`、`wasmSubpackage`、`buildOpenDataContextTemplate`、完整 `run` stage、WeChat DevTools 人工运行验收。
-- 自动化验证已经覆盖入口引用完整性、adapter SHA256、`game.json/project.config.json/settings` 语义、bundle config 存在性、subpackage root 和分区计数；最终运行仍需人工在 WeChat DevTools 打开 `E:\own_space\engines\cocos-test-projects\build\wechatgame-cli`。
+- 用户更新微信开发者工具后，人工测试当前 CLI `wechatgame` 构建产物未再复现先前 `loadFont:fail no permission` 问题；普通微信小游戏产物运行验收阶段性通过。
+- 自动化验证已经覆盖入口引用完整性、adapter SHA256、`game.json/project.config.json/settings` 语义、bundle config 存在性、subpackage root 和分区计数。
+- 未完成项已迁入 issue 台账：
+  - `BUILD-ISSUE-012`：`separateEngine`、`localSeparateEngine`、`wasmSubpackage`、`buildOpenDataContextTemplate` 等高级 Editor options。
+  - `BUILD-ISSUE-013`：`wechatgame` 自动打开微信开发者工具的 `run` stage。
+  - `BUILD-ISSUE-014`：项目自定义 builder hook / build extension hook 接入。
 
 ## 文档归属
 
