@@ -113,8 +113,8 @@
 - [x] 生成的 hook info 必须标记为 public hook，不能因为 package name 命中平台名而误判 internal。
 - [x] 明确排序：内置 platform hook 仍优先；项目 extension hook 使用稳定排序；如后续发现 Editor 顺序不同，记录差异并调整。
 - [x] `throwError = true` 时 hook 错误阻塞构建，错误信息包含 extension name、hook name、原始错误 message。
-- [ ] non-fatal hook 错误策略与 Editor 对齐；若无法确认，固定 CLI 策略并记录差异。
-- [ ] `onError` 触发条件明确：fatal build error 时是否调用、hook 自身错误时是否调用、non-fatal hook error 是否调用，都需要测试覆盖。
+- [x] non-fatal hook 错误策略与 Editor 对齐；若无法确认，固定 CLI 策略并记录差异。
+- [x] `onError` 触发条件明确：fatal build error 时是否调用、hook 自身错误时是否调用、non-fatal hook error 是否调用，都需要测试覆盖。
 
 ## Task 5: Extension builder options 合并
 
@@ -127,33 +127,33 @@
 
 ## Task 6: 裁剪版 `build-ex` fixture
 
-- [ ] 在主测试项目新增 `extensions/build-ex/package.json`，保留真实 Editor extension 入口结构：`contributions.builder: "./dist/builder.js"`。
-- [ ] 新增 `dist/builder.js`，保留 `configs["*"]`，并至少增加 `configs["web-mobile"]` 平台特定配置。
-- [ ] `options` 保留少量代表性字段：字符串、boolean、URL 或版本号，例如 `buildVersion`、`gameDebug`、`hotupdateUrl`；不接入私有 SDK。
-- [ ] 新增 `dist/hooks.js`，保留 `throwError = true`，实现 `onBeforeBuild`、`onBeforeCompressSettings`、`onAfterBuild`、`onError`。
-- [ ] fixture 覆盖 extension package name 到 `options.packages["build-ex"]` 的映射。
-- [ ] fixture 覆盖 `configs["*"]` 与 `configs["web-mobile"]` 的配置合并冲突。
-- [ ] fixture 覆盖 builder entry 到 hooks 的相对路径解析。
-- [ ] fixture 的 hook 必须读取 `options.platform`、`options.packages["build-ex"].buildVersion`、`options.packages["build-ex"].gameDebug`、`options.packages["build-ex"].hotupdateUrl`，并把读取结果写入 hook report；缺失时按受控错误路径失败。
-- [ ] fixture 的 hook 必须在 `result.dest` 下写一个最小非业务 output marker，例如 `build-ex-output-marker.json`，内容只包含 fixture 字段、platform、buildVersion 和 hook 阶段，不包含私有 SDK 或业务发布逻辑。
-- [ ] fixture 必须包含一个受控失败开关，例如 `options.packages["build-ex"].forceHookError`，用于验证 `throwError = true` 时 CLI build 非 0 退出、错误包含 extension name 和 hook name、`onError` 行为可观测。
-- [ ] fixture 不写 `.meta`，不写 `library` 顶层 internal JSON，不改项目源资产。
-- [ ] fixture 不复制 `feature-c` 的 `cc_obfuscated_js.json`、热更新脚本、SDK libs、cfg 合并、字体替换、asset 删除逻辑。
+- [x] 在主测试项目新增 `extensions/build-ex/package.json`，保留真实 Editor extension 入口结构：`contributions.builder: "./dist/builder.js"`。
+- [x] 新增 `dist/builder.js`，保留 `configs["*"]`，并至少增加 `configs["web-mobile"]` 平台特定配置。
+- [x] `options` 保留少量代表性字段：字符串、boolean、URL 或版本号，例如 `buildVersion`、`gameDebug`、`hotupdateUrl`；不接入私有 SDK。
+- [x] 新增 `dist/hooks.js`，保留 `throwError = true`，实现 `onBeforeBuild`、`onBeforeCompressSettings`、`onAfterBuild`、`onError`。
+- [x] fixture 覆盖 extension package name 到 `options.packages["build-ex"]` 的映射。
+- [x] fixture 覆盖 `configs["*"]` 与 `configs["web-mobile"]` 的配置合并冲突。
+- [x] fixture 覆盖 builder entry 到 hooks 的相对路径解析。
+- [x] fixture 的 hook 必须读取 `options.platform`、`options.packages["build-ex"].buildVersion`、`options.packages["build-ex"].gameDebug`、`options.packages["build-ex"].hotupdateUrl`，并把读取结果写入 hook report；缺失时按受控错误路径失败。
+- [x] fixture 的 hook 必须在 `result.dest` 下写一个最小非业务 output marker，例如 `build-ex-output-marker.json`，内容只包含 fixture 字段、platform、buildVersion 和 hook 阶段，不包含私有 SDK 或业务发布逻辑。
+- [x] fixture 必须包含一个受控失败开关，例如 `options.packages["build-ex"].forceHookError`，用于验证 `throwError = true` 时 CLI build 非 0 退出、错误包含 extension name 和 hook name、`onError` 行为可观测。
+- [x] fixture 不写 `.meta`，不写 `library` 顶层 internal JSON，不改项目源资产。
+- [x] fixture 不复制 `feature-c` 的 `cc_obfuscated_js.json`、热更新脚本、SDK libs、cfg 合并、字体替换、asset 删除逻辑。
 - [ ] `assetHandlers` 不实现；用文档或测试明确 MVP 不支持。
 
 ## Task 7: Hook report 与可观测证据
 
-- [ ] `onBeforeBuild` 记录 `platform`、`packages["build-ex"]` 关键字段、`result.dest` 可见性和执行顺序。
-- [ ] `onBeforeCompressSettings` 记录是否可访问 `result.settings.assets`，但不依赖具体 hash。
-- [ ] `onAfterBuild` 写入输出目录下的 `build-ex-hook-report.json`，并写入 `build-ex-output-marker.json`，验证 extension hook 能影响 build output，但不复制 `feature-c/build-ex` 的业务发布逻辑。
-- [ ] `onError` 在受控失败用例中记录错误 marker。
-- [ ] `build-ex-hook-report.json` 固定 schema：
+- [x] `onBeforeBuild` 记录 `platform`、`packages["build-ex"]` 关键字段、`result.dest` 可见性和执行顺序。
+- [x] `onBeforeCompressSettings` 记录是否可访问 `result.settings.assets`，但不依赖具体 hash。
+- [x] `onAfterBuild` 写入输出目录下的 `build-ex-hook-report.json`，并写入 `build-ex-output-marker.json`，验证 extension hook 能影响 build output，但不复制 `feature-c/build-ex` 的业务发布逻辑。
+- [x] `onError` 在受控失败用例中记录错误 marker。
+- [x] `build-ex-hook-report.json` 固定 schema：
   - `events[]`：hook name、extension name、platform、fatal/non-fatal 标记、顺序号。
   - `optionsSnapshot`：只记录 `platform`、`packages["build-ex"]`、fixture 相关 platform option。
   - `resultShape`：记录 `dest` 是否存在、`settings.assets` 是否可访问、可用 result API key。
   - `writes[]`：记录 hook 写入的相对路径和写入阶段。
   - `errors[]`：记录受控失败 hook name、message、是否触发 `onError`。
-- [ ] 动态字段白名单：时间戳、绝对路径、hash、随机输出文件名；其它字段必须可与 Editor baseline 对比。
+- [x] 动态字段白名单：时间戳、绝对路径、hash、随机输出文件名；其它字段必须可与 Editor baseline 对比。
 
 ## Task 8: Editor / CLI baseline 验证
 
@@ -179,8 +179,8 @@ rtk pwsh -NoLogo -NoProfile -Command 'node .\dist\cli.js build --project "E:\own
 
 - [ ] CLI build 退出码为 `0`，hook report 与 Editor baseline 生命周期一致。
 - [ ] CLI 不产生 Editor baseline 没有的源资产、`.meta` 或 `library` 顶层 JSON 差异。
-- [ ] 受控失败验证：`throwError = true` 时 CLI build 退出非 0，错误信息包含 extension name 和 hook name。
-- [ ] non-fatal 验证：关闭 `throwError` 或使用 non-fatal fixture 时，CLI 记录错误但不阻塞；如与 Editor 不一致，记录差异。
+- [x] 受控失败验证：`throwError = true` 时 CLI build 退出非 0，错误信息包含 extension name 和 hook name。
+- [x] non-fatal 验证：关闭 `throwError` 或使用 non-fatal fixture 时，CLI 记录错误但不阻塞；如与 Editor 不一致，记录差异。
 - [ ] 浏览器运行验证：
 
 ```powershell

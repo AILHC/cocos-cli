@@ -533,6 +533,7 @@ export class BuildTask extends BuildTaskBase implements IBuilder {
     async runErrorHook() {
         try {
             const funcName = 'onError';
+            const buildError = this.error;
             for (const pkgName of this.hooksInfo.pkgNameOrder) {
                 const info = this.hooksInfo.infos[pkgName];
                 let hooks: any;
@@ -544,10 +545,10 @@ export class BuildTask extends BuildTaskBase implements IBuilder {
                         console.debug(`// ---- ${pkgName}:(${funcName}) ----`);
                         newConsole.trackMemoryStart(timeLabel);
                         if (info.internal) {
-                            await hooks[funcName].call(this, this.options, this.result, this.cache);
+                            await hooks[funcName].call(this, this.options, this.result, this.cache, buildError);
                         } else {
                             // @ts-ignore
-                            await hooks[funcName](this.result.rawOptions, this.buildResult);
+                            await hooks[funcName](this.result.rawOptions, this.buildResult, buildError);
                         }
                         newConsole.trackMemoryEnd(timeLabel);
                         console.debug(`// ---- ${pkgName}:(${funcName}) success ----`);
