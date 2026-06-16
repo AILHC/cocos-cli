@@ -11,6 +11,7 @@ import { Engine } from '../../../../../../engine';
 import { configurationManager } from '../../../../../../configuration';
 import { ISplashSetting } from '../../../../../../engine/@types/config';
 import { GlobalPaths } from '../../../../../../../global';
+import { DEFAULT_PHYSICS_MATERIAL_UUID, findFeatureDeclaringDependentAsset } from '../../../../../share/engine-feature-assets';
 
 const layerMask: number[] = [];
 for (let i = 0; i <= 19; i++) {
@@ -77,17 +78,13 @@ export async function getSplashSettings(useSplashScreen: boolean, preview: boole
 
 export async function getPhysicsConfig(includeModules: string[], physicsConfig: IPhysicsConfig): Promise<IPhysicsConfig> {
     // 添加物理引擎模块标记
-    let physicsEngine = '';
-    const engineList = ['physics-cannon', 'physics-ammo', 'physics-builtin', 'physics-physx'];
-    for (let i = 0; i < engineList.length; i++) {
-        if (includeModules.indexOf(engineList[i]) >= 0) {
-            physicsEngine = engineList[i];
-            break;
-        }
-    }
+    const physicsEngine = await findFeatureDeclaringDependentAsset(includeModules, DEFAULT_PHYSICS_MATERIAL_UUID);
 
-    // 不论引擎对物理模块的剔除情况，物理配置都输出
-    return Object.assign({ physicsEngine }, physicsConfig);
+    const settingsPhysicsConfig = Object.assign({ physicsEngine }, physicsConfig);
+    if (!physicsEngine) {
+        delete settingsPhysicsConfig.defaultMaterial;
+    }
+    return settingsPhysicsConfig;
 }
 
 export function formatSplashScreen(splashScreen: ISplashSetting) {

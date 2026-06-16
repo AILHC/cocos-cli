@@ -841,6 +841,173 @@ TypeError: asset.addRef is not a function
 - 这些运行时错误发生在 `build-ex` 已完成且 `__GAME_BUILD_CFG__` 已注入之后，后续应按产物资源/engine module/runtime asset type 继续对比 Editor 或业务发布产物。
 - 真实项目工作树存在构建副作用：`assets/resources/merged_cfg_0.json` 至 `assets/resources/merged_cfg_3.json` 从 `{}` 变为合并后的配置内容；`assets/product.meta`、`assets/tmp_cfg.meta` 内容 diff 为空但 `git status` 仍显示 modified。未用宽泛 git restore 自动回滚这些真实项目文件。
 
+## Attempt 11: `default-physics-material` 产物不一致修复与复验
+
+针对 Attempt 10 运行时报错：
+
+```text
+Can not find class 'cc.PhysicsMaterial'
+TypeError: asset.addRef is not a function
+    at ResourceManager.onLoad (.../assets/main/index.a78d9.js:319720:21)
+```
+
+重新追踪产物资源后确认，异常资源不是 `feature-c/assets` 下的业务源资源；在源资产目录中搜索 uuid 未命中。异常 uuid 来自构建产物中的 internal builtin：
+
+```text
+db:/internal/physics/default-physics-material
+uuid: ba21476f-2866-4f81-9c4d-6e359316e448
+```
+
+旧产物证据：
+
+- `assets/internal/config.787eb.json` 中将该 uuid 映射为 `["db:/internal/physics/default-physics-material", "cc.PhysicsMaterial", 1]`。
+- `src/settings.320c5.json` 中 `engine.builtinAssets` 包含该 uuid，且 `settings.physics.defaultMaterial` 指向该 uuid。
+- 旧产物 `cocos-js` 中搜索不到 `PhysicsMaterial`，说明当前 includeModules 没有打入 3D physics 对应 class，但 settings/internal config 仍输出了 3D physics material。
+- 运行时该 internal resource 被反序列化为普通 `Object`，字段包括 `_name`、`_friction`、`_rollingFriction`、`_spinningFriction`、`_restitution`、`_uuid`，没有 `addRef()`，因此触发 `ResourceManager.onLoad()` 中的 `asset.addRef()` 异常。
+
+主测试项目复现：
+
+- 使用 `E:\own_space\engines\cocos-test-projects`，start scene 为 `db://assets/cases/middleware/spine/SpineCollider.scene`。
+- 临时配置不包含 `physics-cannon`、`physics-ammo`、`physics-builtin`、`physics-physx`，但保留 2D physics 模块。
+- 修复前产物 `codex-physics-material-repro-20260616` 可复现同一个坏 asset：
+
+```json
+{
+  "key": "ba21476f-2866-4f81-9c4d-6e359316e448",
+  "ctor": "Object",
+  "keys": ["_name", "_friction", "_rollingFriction", "_spinningFriction", "_restitution", "_uuid"]
+}
+```
+
+- 对照配置保留 `physics-cannon` 后，产物 `codex-physics-material-control-20260616` 中没有坏 asset，说明问题边界是“没有 3D physics backend 时仍输出 3D physics default material”。
+
+代码修复：
+
+- 新增 builder feature asset helper，读取 engine `cc.config.json`，按 `includeModules` 对应的 feature graph 递归收集 `dependentAssets`。
+- `checkProjectSetting()` 不再写死 backend feature 名称，而是判断当前 `includeModules` 的 `dependentAssets` 是否包含 `ba21476f-2866-4f81-9c4d-6e359316e448`。不包含时，从 `options.physicsConfig` 删除 `defaultMaterial`，避免 `BundleManager` 把该 uuid 作为 builtin root asset 输出。
+- `getPhysicsConfig()` 在 settings 生成阶段通过同一 feature graph 反查声明该 dependent asset 的 feature，作为 `physicsEngine`；若没有 feature 声明该 asset，则同步删除 `defaultMaterial`。
+- `physics-framework` 本身提供 `cc.PhysicsMaterial` class，但 engine `cc.config.json` 没有把 default physics material 挂在 `physics-framework` 的 `dependentAssets` 上，因此只有声明该 dependent asset 的 backend feature 才会输出默认材质。
+
+验证命令：
+
+```powershell
+rtk proxy npx jest src/core/builder/test/physics-default-material.spec.ts --runInBand
+rtk proxy npx jest src/core/builder/test/check-options.spec.ts src/core/builder/test/pack-auto-atlas-option.spec.ts --runInBand
+rtk npm run build
+```
+
+结果：
+
+- `physics-default-material.spec.ts` 3 条通过，覆盖无 3D backend、仅 `physics-framework`、有 backend 三种情况。
+- `check-options.spec.ts` 与 `pack-auto-atlas-option.spec.ts` 共 10 条通过，覆盖 `checkProjectSetting()` 的 root asset 输入。
+- `npm run build` 退出码 `0`，`dist/cli.js` 已更新。
+
+主测试项目修复后复验：
+
+- 输出目录：
+
+```text
+E:\own_space\engines\cocos-test-projects\build\codex-physics-material-repro-fixed-20260616
+```
+
+- 构建结果：
+
+```text
+Build completed successfully for web-mobile in 20 s
+Build Dest: project://build/codex-physics-material-repro-fixed-20260616
+```
+
+- 产物搜索 `ba21476f-2866-4f81-9c4d-6e359316e448`、`default-physics-material`、`PhysicsMaterial` 均无命中。
+- `src/settings.json` 中 `physics.physicsEngine` 为 `""`，没有 `defaultMaterial`。
+- `engine.builtinAssets` 不含该 uuid。
+- `assets/internal/config.json` 中没有该 uuid、`default-physics-material` 或 `PhysicsMaterial` 映射。
+- 本地运行地址：`http://127.0.0.1:17895/index.html`。
+- 浏览器日志中未出现 `Can not find class 'cc.PhysicsMaterial'`、`asset.addRef` 或对应 `TypeError`。该测试项目自身仍有既存 `Please load bundle resources first` 错误，不属于本条修复范围。
+
+按 feature graph 重构后再次复验主测试项目：
+
+- 输出目录：
+
+```text
+E:\own_space\engines\cocos-test-projects\build\codex-physics-material-repro-featuregraph-20260616
+```
+
+- 构建结果：
+
+```text
+Build completed successfully for web-mobile in 30 s
+Build Dest: project://build/codex-physics-material-repro-featuregraph-20260616
+```
+
+- 产物搜索 `ba21476f-2866-4f81-9c4d-6e359316e448`、`default-physics-material`、`PhysicsMaterial` 均无命中。
+- `src/settings.json` 中 `physics.physicsEngine` 为 `""`，没有 `defaultMaterial`。
+- `engine.builtinAssets` 不含该 uuid。
+- `assets/internal/config.json` 中没有该 uuid、`default-physics-material` 或 `PhysicsMaterial` 映射。
+
+真实 `feature-c` 修复后复验：
+
+构建命令仍使用 no-atlas + skip texture 临时配置，并设置 12GB heap：
+
+```powershell
+[Environment]::SetEnvironmentVariable('NODE_OPTIONS','--max-old-space-size=12288','Process')
+node .\dist\cli.js build --project D:\ps_copy\p6\trunk\Project\GameClient\feature-c --platform web-mobile --build-config .codex-tmp\p6_buildConfig_web-mobile-debug-noatlas-skiptex.json --outputName codex-p6-web-mobile-cli-editor-facade-physicsfix-20260616
+```
+
+输出目录：
+
+```text
+D:\ps_copy\p6\trunk\Project\GameClient\feature-c\build\codex-p6-web-mobile-cli-editor-facade-physicsfix-20260616
+```
+
+结果：
+
+```text
+Build completed successfully for web-mobile in 8 min 49 s
+Build Dest: project://build/codex-p6-web-mobile-cli-editor-facade-physicsfix-20260616
+```
+
+产物验证：
+
+- 全产物搜索 `ba21476f-2866-4f81-9c4d-6e359316e448`、`default-physics-material`、`PhysicsMaterial` 均无命中。
+- `src/settings.ab8e1.json` 中 `physics.physicsEngine` 为 `""`，没有 `defaultMaterial`。
+- `engine.builtinAssets` 不含该 uuid。
+- `assets/internal/config.f462a.json` 中没有该 uuid、`default-physics-material` 或 `PhysicsMaterial` 映射。
+
+浏览器运行复验：
+
+- 本地静态服务：`http://127.0.0.1:17896/index.html`
+- 页面进入 `Enter Game`，日志出现：
+
+```text
+Success to load scene: db://assets/scenes/start.scene
+--------------------------Enter Game--------------------------------
+```
+
+- 按 `17896` 过滤后的 console 中未出现：
+
+```text
+Can not find class 'cc.PhysicsMaterial'
+asset.addRef
+TypeError
+```
+
+- 通过 CDP 在页面主上下文读取 `window.cc.assetManager.assets`，结果：
+
+```json
+{
+  "hasCc": true,
+  "total": 108,
+  "bad": [],
+  "addRefError": null
+}
+```
+
+当前判断：
+
+- `cc.PhysicsMaterial` class 缺失与 `asset.addRef is not a function` 是 CLI 产物不一致问题：没有 3D physics backend 时仍输出了 3D physics default material。
+- 修复后，主测试项目复现产物和真实 `feature-c` no-atlas + skip texture 产物均不再输出该 internal builtin，运行期也不再出现这两条目标错误。
+- 本条不表示 `feature-c` 所有业务运行风险已消除；构建日志中仍有既存 SDK/platform warning、循环依赖 warning 和若干业务 `cc property undefined type` warning。
+
 ## 待跟踪问题
 
 - 默认 Node heap 对真实项目脚本打包不足，需确认 Editor/业务发布链路的 heap 策略。
@@ -849,4 +1016,4 @@ TypeError: asset.addRef is not a function
 - image pack 阶段读取带 query string 的 library JSON 失败，并移除 sprite frame，需确认是否与 Editor 行为一致。
 - 原始 `packAutoAtlas=true` 路径仍在 `Pack Images start` 后无进展，需定位 image pack / atlas / worker lifecycle、错误传播和 fail-fast 策略。
 - `packAutoAtlas=false` gating 已修复并验证；后续继续排查自动图集问题时，应使用原始 `packAutoAtlas=true` 路径复现。
-- 最新 no-atlas + skip texture 产物浏览器烟测能加载 canvas，`__GAME_BUILD_CFG__` 已注入，但仍报 `cc.PhysicsMaterial` class 缺失和 `asset.addRef is not a function`，需对比 Editor 产物或业务发布产物确认 engine module、资源输出和 runtime asset type 差异。
+- `cc.PhysicsMaterial` class 缺失和 `asset.addRef is not a function` 已定位并修复为无 3D physics backend 时不再输出 `db:/internal/physics/default-physics-material`；后续若出现新的运行时错误，应按新的 console 栈和失败资源重新登记。
