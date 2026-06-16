@@ -596,12 +596,136 @@ D:\ps_copy\p6\trunk\Project\GameClient\feature-c/assets/resources/cfg
 当前判断：
 
 - extension host/fail-fast 方向正确：前置失败从 `Editor is not defined` 前移修复为明确缺失 `asset-db.save-asset-meta` 支持。
-- 下一步只能按真实日志补 `asset-db.save-asset-meta`，并继续复跑真实构建以观察下一个 unsupported API；不能提前用空返回值模拟完整 Editor。
+- 下一步应避免把真实 `feature-c` 作为高频构建循环。先读取真实 `feature-c/extensions/build-ex/source/hooks.ts` 中的 Editor 调用清单，在主测试项目临时副本中复现这些调用；真实 `feature-c` 仅作为低频 checkpoint。不能提前用空返回值模拟完整 Editor。
+
+## Attempt 9: 主测试项目 fixture 复现 `build-ex` Editor 调用清单
+
+用户指出真实项目 `feature-c` 构建耗时高，不应作为高频验证循环；应使用主测试项目，尽量还原 `feature-c` 真实 `build-ex` 对 Editor 的调用。按此调整验证策略后，读取真实 `feature-c/extensions/build-ex/source/hooks.ts`，确认本轮需要覆盖的 `Editor.Message` 调用包括：
+
+```text
+asset-db.query-asset-meta
+asset-db.save-asset-meta
+asset-db.query-uuid
+asset-db.refresh-asset
+asset-db.reimport-asset
+asset-db.save-asset
+asset-db.move-asset
+asset-db.delete-asset
+```
+
+代码基线：
+
+```text
+ca9cc4c fix: ignore internal AssetDB timers in Editor facade
+```
+
+随后补齐受限 `Editor` facade 的 AssetDB message 支持，全部委托现有 `assetManager`：
+
+- `query-asset-meta` -> `assetManager.queryAssetMeta()`
+- `save-asset-meta` -> `assetManager.saveAssetMeta()`
+- `query-uuid` -> `assetManager.queryUUID()`
+- `refresh-asset` -> `assetManager.refreshAsset()`
+- `reimport-asset` -> `assetManager.reimportAsset()`
+- `save-asset` -> `assetManager.saveAsset()`
+- `move-asset` -> `assetManager.moveAsset()`，并将 Editor 侧真实传入的 `override` option 映射为 CLI 内部的 `overwrite`
+- `delete-asset` -> `assetManager.removeAsset(..., { useTrash: false })`
+
+单测验证：
+
+```powershell
+npx jest src/core/extensions/test/editor-facade.spec.ts --runInBand
+npx jest src/core/builder/test/run-error-hook.spec.ts src/core/builder/test/run-plugin-task-error.spec.ts src/core/builder/test/project-extension-builder-hooks.spec.ts --runInBand
+npm run build
+```
+
+结果：
+
+- `src/core/extensions/test/editor-facade.spec.ts` 19 条通过。
+- hook/fatal/onError 相关 20 条通过。
+- `npm run build` 通过，`dist/cli.js` 已更新。
+
+fixture 验证方式：
+
+- 从 `tests/fixtures/projects/asset-operation` 复制临时项目：
+
+```text
+E:\own_space\engines\cocos-cli\.codex-tmp\asset-operation-build-ex-facade
+```
+
+- 在临时项目注入最小 `extensions/build-ex`，只复现真实 `build-ex` 的 Editor 调用形态，不复制 SDK、hotupdate、cfg merge、混淆、字体替换、资源删除等业务逻辑。
+- hook module 顶层读取 `Editor.Project.path`。
+- `onBeforeBuild` 依次执行 `query-asset-meta`、`save-asset-meta`、`refresh-asset`、`query-uuid`、`save-asset`、`reimport-asset`、`move-asset`、`delete-asset`，其中 `move-asset` 使用真实 `build-ex` 调用形态 `{ override: true, rename: true }`；并用 `Editor.Message.send()` 覆盖 queued `reimport-asset` 与零延迟 timer 内 `refresh-asset`。
+- 只修改临时项目中的 `assets/atlas.meta` 和 `assets/facade_tmp/*`。
+
+构建命令：
+
+```powershell
+node .\dist\cli.js build --project .codex-tmp\asset-operation-build-ex-facade --platform web-mobile --build-config .codex-tmp\asset-operation-build-ex-facade\build-ex-facade-config.json --outputName codex-build-ex-facade-fixture *> .codex-tmp\asset-operation-build-ex-facade.stdout.log
+```
+
+结果：退出码 `0`，构建成功：
+
+```text
+build-ex:onBeforeBuild starting...
+asset-change db://assets/atlas
+asset-change db://assets/facade_tmp
+asset-change db://assets/facade_tmp/source.txt
+asset-change db://assets/facade_tmp/moved.txt
+asset-delete db://assets/facade_tmp/delete.txt
+asset-change db://assets/atlas/star.png
+build-ex:onBeforeBuild completed in 732ms
+Build completed successfully for web-mobile in 20 s
+Build Dest: project://build/codex-build-ex-facade-fixture
+```
+
+验证结果：
+
+1. 未出现：
+
+```text
+Unsupported Editor.Message
+Editor is not defined
+```
+
+2. hook marker 存在，且 module load 与 hook execution 看到的 `Editor.Project.path` 一致：
+
+```json
+{
+  "projectPathAtLoad": "E:\\own_space\\engines\\cocos-cli\\.codex-tmp\\asset-operation-build-ex-facade",
+  "projectPathAtHook": "E:\\own_space\\engines\\cocos-cli\\.codex-tmp\\asset-operation-build-ex-facade",
+  "platform": "web-mobile",
+  "sourceUuid": "649f5d18-eef7-4a2d-b55f-63d38eecebf8"
+}
+```
+
+3. `onError` marker 不存在，说明本次 fixture hook 没有走错误恢复路径。
+
+4. 临时项目 `assets/atlas.meta` 被 `save-asset-meta` 写入：
+
+```json
+"userData": {
+  "buildExFacadeFixture": "all-editor-asset-db-messages",
+  "projectName": "asset-operation-build-ex-facade"
+}
+```
+
+5. 临时项目 `assets/facade_tmp/source.txt` 经 `save-asset` 后被 `move-asset` 移动为 `moved.txt`，内容为：
+
+```text
+facade saved through save-asset
+```
+
+6. 临时项目 `assets/facade_tmp/delete.txt` 已被 `delete-asset` 删除。
+
+当前判断：
+
+- 受限 `Editor` facade 已能覆盖真实 `feature-c/build-ex` 本轮源码清单中出现的 AssetDB message，并且没有用空 mock、`true` 或 no-op 掩盖行为。
+- 本轮高频验证应继续使用主测试项目临时 fixture。真实 `feature-c` 只在 fixture 覆盖完整调用清单后作为低频 checkpoint，用于确认是否还有未被源码清单覆盖的运行时调用或业务数据问题。
 
 ## 待跟踪问题
 
 - 默认 Node heap 对真实项目脚本打包不足，需确认 Editor/业务发布链路的 heap 策略。
-- 真实 `feature-c/extensions/build-ex` 已能在 CLI project extension `Editor` facade scope 内进入 `onBeforeBuild`，但当前第一处 unsupported API 为 `asset-db.save-asset-meta`，仍需按真实日志逐项补 AssetDB message 支持。
+- 真实 `feature-c/extensions/build-ex` 已能在 CLI project extension `Editor` facade scope 内进入 `onBeforeBuild`；主测试项目 fixture 已验证 `feature-c/build-ex` 当前源码清单中的 `asset-db` message facade 支持。下一次真实 `feature-c` checkpoint 应只用于低频确认是否还有新的 unsupported API 或后续业务构建问题。
 - `@tbmp/mp-cloud-sdk` 加载期间出现 `swan is not defined`，需确认是否会影响真实目标平台构建产物。
 - image pack 阶段读取带 query string 的 library JSON 失败，并移除 sprite frame，需确认是否与 Editor 行为一致。
 - 原始 `packAutoAtlas=true` 路径仍在 `Pack Images start` 后无进展，需定位 image pack / atlas / worker lifecycle、错误传播和 fail-fast 策略。

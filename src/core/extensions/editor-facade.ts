@@ -54,9 +54,9 @@ async function handleEditorMessage(
     if (message === 'move-asset') {
         return runWithNativeSetTimeout(async () => {
             const { assetManager } = await import('../assets');
-            const [source, target, options] = args as [string, string, { overwrite?: unknown; rename?: unknown } | undefined];
+            const [source, target, options] = args as [string, string, { overwrite?: unknown; override?: unknown; rename?: unknown } | undefined];
             return assetManager.moveAsset(source, target, {
-                overwrite: Boolean(options?.overwrite),
+                overwrite: Boolean(options?.overwrite ?? options?.override),
                 rename: Boolean(options?.rename),
             });
         });
@@ -70,12 +70,52 @@ async function handleEditorMessage(
         });
     }
 
+    if (message === 'query-asset-meta') {
+        return runWithNativeSetTimeout(async () => {
+            const { assetManager } = await import('../assets');
+            const [target] = args as [string];
+            return assetManager.queryAssetMeta(target);
+        });
+    }
+
+    if (message === 'query-uuid') {
+        return runWithNativeSetTimeout(async () => {
+            const { assetManager } = await import('../assets');
+            const [urlOrPath] = args as [string];
+            return assetManager.queryUUID(urlOrPath) || '';
+        });
+    }
+
     if (message === 'save-asset-meta') {
         return runWithNativeSetTimeout(async () => {
             const { assetManager } = await import('../assets');
             const [target, rawMeta] = args as [string, unknown];
             const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
             return assetManager.saveAssetMeta(target, meta as any);
+        });
+    }
+
+    if (message === 'refresh-asset') {
+        return runWithNativeSetTimeout(async () => {
+            const { assetManager } = await import('../assets');
+            const [target] = args as [string];
+            return assetManager.refreshAsset(target);
+        });
+    }
+
+    if (message === 'reimport-asset') {
+        return runWithNativeSetTimeout(async () => {
+            const { assetManager } = await import('../assets');
+            const [target] = args as [string];
+            return assetManager.reimportAsset(target);
+        });
+    }
+
+    if (message === 'save-asset') {
+        return runWithNativeSetTimeout(async () => {
+            const { assetManager } = await import('../assets');
+            const [target, content] = args as [string, string | Buffer];
+            return assetManager.saveAsset(target, content);
         });
     }
 
