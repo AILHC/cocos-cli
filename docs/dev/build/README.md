@@ -8,12 +8,13 @@
 2. 当前关键事实：[facts/meta-library-editor-parity-20260613.md](facts/meta-library-editor-parity-20260613.md)
 3. 产物体积 Editor parity 事实：[facts/build-output-size-editor-parity-20260615.md](facts/build-output-size-editor-parity-20260615.md)
 4. 微信小游戏平台事实来源清单：[facts/wechatgame-source-inventory-20260615.md](facts/wechatgame-source-inventory-20260615.md)
-5. `wechatgame` 平台重写实施计划：[../../superpowers/plans/2026-06-15-wechatgame-platform-implementation.md](../../superpowers/plans/2026-06-15-wechatgame-platform-implementation.md)
-6. `cocos.config.json` Editor-owned 配置运行时合并规格：[../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md](../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md)
-7. `cocos.config.json` Editor-owned 配置运行时合并实施计划：[../../superpowers/plans/2026-06-13-cocos-config-editor-owned-runtime-merge.md](../../superpowers/plans/2026-06-13-cocos-config-editor-owned-runtime-merge.md)
-8. 项目状态写入一致性阶段计划：[../../superpowers/plans/2026-06-13-meta-library-editor-parity.md](../../superpowers/plans/2026-06-13-meta-library-editor-parity.md)
-9. `@cocos/asset-db` 定制源码接管计划：[../../superpowers/plans/2026-06-13-asset-db-custom-source.md](../../superpowers/plans/2026-06-13-asset-db-custom-source.md)
-10. 项目 build extension hook Editor parity 计划：[../../superpowers/plans/2026-06-15-build-extension-hook-editor-parity.md](../../superpowers/plans/2026-06-15-build-extension-hook-editor-parity.md)
+5. `feature-c` 构建适配会话复盘：[facts/build-adaptation-session-retrospective-20260616.md](facts/build-adaptation-session-retrospective-20260616.md)
+6. `wechatgame` 平台重写实施计划：[../../superpowers/plans/2026-06-15-wechatgame-platform-implementation.md](../../superpowers/plans/2026-06-15-wechatgame-platform-implementation.md)
+7. `cocos.config.json` Editor-owned 配置运行时合并规格：[../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md](../../superpowers/specs/2026-06-13-cocos-config-editor-owned-runtime-merge-design.md)
+8. `cocos.config.json` Editor-owned 配置运行时合并实施计划：[../../superpowers/plans/2026-06-13-cocos-config-editor-owned-runtime-merge.md](../../superpowers/plans/2026-06-13-cocos-config-editor-owned-runtime-merge.md)
+9. 项目状态写入一致性阶段计划：[../../superpowers/plans/2026-06-13-meta-library-editor-parity.md](../../superpowers/plans/2026-06-13-meta-library-editor-parity.md)
+10. `@cocos/asset-db` 定制源码接管计划：[../../superpowers/plans/2026-06-13-asset-db-custom-source.md](../../superpowers/plans/2026-06-13-asset-db-custom-source.md)
+11. 项目 build extension hook Editor parity 计划：[../../superpowers/plans/2026-06-15-build-extension-hook-editor-parity.md](../../superpowers/plans/2026-06-15-build-extension-hook-editor-parity.md)
 
 ## Related Stable Modules
 
