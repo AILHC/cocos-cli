@@ -16,10 +16,29 @@ type EditorMessageKind = 'request' | 'send';
 
 type PendingOperation = () => Promise<unknown>;
 
+type NativeSetTimeout = (...args: any[]) => ReturnType<typeof globalThis.setTimeout>;
+
 const pendingOperations = new WeakMap<EditorFacade, PendingOperation[]>();
+let activeNativeSetTimeout: NativeSetTimeout | undefined;
 
 function getUnsupportedError(kind: EditorMessageKind, channel: string, message: string) {
     return new Error(`Unsupported Editor.Message ${kind}: ${channel}.${message}`);
+}
+
+async function runWithNativeSetTimeout<T>(runner: () => Promise<T> | T): Promise<T> {
+    if (!activeNativeSetTimeout) {
+        return await Promise.resolve(runner());
+    }
+
+    const globalObject = globalThis as any;
+    const currentSetTimeout = globalObject.setTimeout;
+    globalObject.setTimeout = activeNativeSetTimeout;
+
+    try {
+        return await Promise.resolve(runner());
+    } finally {
+        globalObject.setTimeout = currentSetTimeout;
+    }
 }
 
 async function handleEditorMessage(
@@ -33,25 +52,31 @@ async function handleEditorMessage(
     }
 
     if (message === 'move-asset') {
-        const { assetManager } = await import('../assets');
-        const [source, target, options] = args as [string, string, { overwrite?: unknown; rename?: unknown } | undefined];
-        return assetManager.moveAsset(source, target, {
-            overwrite: Boolean(options?.overwrite),
-            rename: Boolean(options?.rename),
+        return runWithNativeSetTimeout(async () => {
+            const { assetManager } = await import('../assets');
+            const [source, target, options] = args as [string, string, { overwrite?: unknown; rename?: unknown } | undefined];
+            return assetManager.moveAsset(source, target, {
+                overwrite: Boolean(options?.overwrite),
+                rename: Boolean(options?.rename),
+            });
         });
     }
 
     if (message === 'delete-asset') {
-        const { assetManager } = await import('../assets');
-        const [target] = args as [string];
-        return assetManager.removeAsset(target, { useTrash: false });
+        return runWithNativeSetTimeout(async () => {
+            const { assetManager } = await import('../assets');
+            const [target] = args as [string];
+            return assetManager.removeAsset(target, { useTrash: false });
+        });
     }
 
     if (message === 'save-asset-meta') {
-        const { assetManager } = await import('../assets');
-        const [target, rawMeta] = args as [string, unknown];
-        const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
-        return assetManager.saveAssetMeta(target, meta as any);
+        return runWithNativeSetTimeout(async () => {
+            const { assetManager } = await import('../assets');
+            const [target, rawMeta] = args as [string, unknown];
+            const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
+            return assetManager.saveAssetMeta(target, meta as any);
+        });
     }
 
     throw getUnsupportedError(kind, channel, message);
@@ -99,6 +124,7 @@ export async function withEditorFacade<T>(
     const previousEditor = globalObject.Editor;
     const hadPreviousEditor = Object.prototype.hasOwnProperty.call(globalObject, 'Editor');
     const previousSetTimeout = globalObject.setTimeout;
+    const previousActiveSetTimeout = activeNativeSetTimeout;
 
     const facade = createEditorFacade(context);
     const timerFailures: Error[] = [];
@@ -142,6 +168,7 @@ export async function withEditorFacade<T>(
     };
 
     globalObject.Editor = facade;
+    activeNativeSetTimeout = previousSetTimeout;
     globalObject.setTimeout = wrappedSetTimeout;
 
     let runResult: T;
@@ -161,6 +188,7 @@ export async function withEditorFacade<T>(
         error = runErr;
     } finally {
         globalObject.setTimeout = previousSetTimeout;
+        activeNativeSetTimeout = previousActiveSetTimeout;
         if (hadPreviousEditor) {
             globalObject.Editor = previousEditor;
         } else {
