@@ -15,15 +15,15 @@ import { formatMSTime, getBuildPath } from '../../share/utils';
 import { BuildTemplate } from './manager/build-template';
 import { newConsole } from '../../../base/console';
 import { ITaskResultMap } from '../../@types/builder';
-import { IBuilder, IInternalBuildOptions, IBuildHooksInfo, IBuildTask, IPluginHookName, IBuildOptionBase, IBuildResultData, IBuildUtils } from '../../@types/protected';
+import { IBuilder, IInternalBuildOptions, IBuildHooksInfo, IBuildTask, IPluginHookName, IBuildOptionBase, IBuildResultData, IBuildUtils, IBuildHookInfo } from '../../@types/protected';
 import { assetDBManager } from '../../../assets';
-import Utils from '../../../base/utils';
 import { pluginManager } from '../../manager/plugin';
 import i18n from '../../../base/i18n';
 import { checkProjectSetting } from '../../share/common-options-validator';
 import { I18nKeys } from '../../../../i18n/types/generated';
 import * as buildUtils from './utils';
 import utils from '../../../base/utils';
+import { loadAndRunBuildHook } from './manager/hook-runner';
 
 export class BuildTask extends BuildTaskBase implements IBuilder {
     public cache: BuilderAssetCache;
@@ -514,7 +514,7 @@ export class BuildTask extends BuildTaskBase implements IBuilder {
         }
     }
 
-    async handleHook(func: Function, internal: boolean, ...args: any[]) {
+    async handleHook(func: Function, internal: boolean, _info?: IBuildHookInfo, ...args: any[]) {
         if (internal) {
             await func.call(this, this.options, this.result, this.cache, ...args);
         } else {
@@ -536,26 +536,35 @@ export class BuildTask extends BuildTaskBase implements IBuilder {
             const buildError = this.error;
             for (const pkgName of this.hooksInfo.pkgNameOrder) {
                 const info = this.hooksInfo.infos[pkgName];
-                let hooks: any;
                 const timeLabel = `${pkgName}:(${funcName})`;
+                let hasHook = false;
                 try {
-                    hooks = Utils.File.requireFile(info.path);
-                    if (hooks[funcName]) {
-                        this.updateProcess(`${timeLabel} start...`);
-                        console.debug(`// ---- ${pkgName}:(${funcName}) ----`);
-                        newConsole.trackMemoryStart(timeLabel);
-                        if (info.internal) {
-                            await hooks[funcName].call(this, this.options, this.result, this.cache, buildError);
-                        } else {
-                            // @ts-ignore
-                            await hooks[funcName](this.result.rawOptions, this.buildResult, buildError);
-                        }
+                    await loadAndRunBuildHook({
+                        pkgName,
+                        funcName,
+                        info,
+                        invoke: async (hook) => {
+                            hasHook = true;
+                            this.updateProcess(`${timeLabel} start...`);
+                            console.debug(`// ---- ${pkgName}:(${funcName}) ----`);
+                            newConsole.trackMemoryStart(timeLabel);
+                            if (info.internal) {
+                                await hook.call(this, this.options, this.result, this.cache, buildError);
+                            } else {
+                                // @ts-ignore
+                                await hook(this.result.rawOptions, this.buildResult, buildError);
+                            }
+                            console.debug(`// ---- ${pkgName}:(${funcName}) success ----`);
+                            this.updateProcess(`${pkgName}:(${funcName})`);
+                        },
+                    });
+                    if (hasHook) {
                         newConsole.trackMemoryEnd(timeLabel);
-                        console.debug(`// ---- ${pkgName}:(${funcName}) success ----`);
-                        this.updateProcess(`${pkgName}:(${funcName})`);
                     }
                 } catch (error: any) {
-                    newConsole.trackMemoryEnd(timeLabel);
+                    if (hasHook) {
+                        newConsole.trackMemoryEnd(timeLabel);
+                    }
                     // @ts-ignore
                     console.error((new BuildError(`Run build plugin ${pkgName}:(${funcName}) failed!`)).stack);
                 }

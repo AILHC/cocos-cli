@@ -1,9 +1,10 @@
 import EventEmitter from 'events';
 import { newConsole } from '../../../../base/console';
 import { IBuildOptionBase, IConsoleType } from '../../../@types';
-import { BuildExitCode, IBuildHooksInfo, IBuildResultSuccess } from '../../../@types/protected';
+import { BuildExitCode, IBuildHooksInfo, IBuildHookInfo, IBuildResultSuccess } from '../../../@types/protected';
 import Utils from '../../../../base/utils';
 import i18n from '../../../../base/i18n';
+import { loadAndRunBuildHook, shouldFailBuildForHook, wrapBuildHookError } from './hook-runner';
 
 export abstract class BuildTaskBase extends EventEmitter {
     // break 原因
@@ -55,7 +56,7 @@ export abstract class BuildTaskBase extends EventEmitter {
         newConsole[outputType](progressMessage);
     }
 
-    abstract handleHook(func: Function, internal: boolean, ...args: any[]): Promise<void>;
+    abstract handleHook(func: Function, internal: boolean, info?: IBuildHookInfo, ...args: any[]): Promise<void>;
     abstract run(): Promise<boolean>;
 
     public async runPluginTask(funcName: string, weight?: number) {
@@ -72,15 +73,25 @@ export abstract class BuildTaskBase extends EventEmitter {
             const pkgName = this.hooksInfo.pkgNameOrder[i];
             const info = this.hooksInfo.infos[pkgName];
             let hooks: any;
+            let calledHookExports: any;
+            let hookCalled = false;
             try {
                 const trickTimeLabel = `// ---- build task ${pkgName}：${funcName} ----`;
                 newConsole.trackTimeStart(trickTimeLabel);
-                hooks = Utils.File.requireFile(info.path);
-                if (hooks[funcName]) {
-                    // 使用新的 console 方法显示插件任务开始
-                    newConsole.pluginTask(pkgName, funcName, 'start');
-                    console.debug(trickTimeLabel);
-                    await this.handleHook(hooks[funcName], info.internal);
+                hooks = await loadAndRunBuildHook({
+                    pkgName,
+                    funcName,
+                    info,
+                    invoke: async (hook, invokeHooks) => {
+                        calledHookExports = invokeHooks;
+                        hookCalled = true;
+                        // 使用新的 console 方法显示插件任务开始
+                        newConsole.pluginTask(pkgName, funcName, 'start');
+                        console.debug(trickTimeLabel);
+                        await this.handleHook(hook, info.internal, info);
+                    },
+                });
+                if (hookCalled) {
                     const time = newConsole.trackTimeEnd(trickTimeLabel, { output: true });
                     // 使用新的 console 方法显示插件任务完成
                     newConsole.pluginTask(pkgName, funcName, 'complete', `${time}ms`);
@@ -95,11 +106,9 @@ export abstract class BuildTaskBase extends EventEmitter {
                 newConsole.pluginTask(pkgName, funcName, 'error');
                 this.updateProcess(errorMsg, increment, 'error');
                 this.updateProcess(String(error), increment, 'error');
-                if ((hooks && hooks.throwError) || info.internal || info.fatal) {
-                    const originalMessage = error instanceof Error ? error.message : String(error);
-                    const wrappedError = new Error(`Build plugin "${pkgName}" hook "${funcName}" failed: ${originalMessage}`);
-                    (wrappedError as Error & { cause?: unknown }).cause = error;
-                    this.onError(wrappedError);
+                const hooksForFailure = hooks || calledHookExports;
+                if (shouldFailBuildForHook(hooksForFailure, info)) {
+                    this.onError(wrapBuildHookError(pkgName, funcName, error));
                 }
             }
         }

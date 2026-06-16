@@ -22,7 +22,7 @@ import { newConsole } from '../../../../../base/console';
 import i18n from '../../../../../base/i18n';
 import { IAsset } from '../../../../../assets/@types/protected';
 import { IBundleOptions } from '../../../../@types';
-import { IBundleManager, IBuilder, IInternalBundleBuildOptions, IBuildHooksInfo, IBundle, CustomBundleConfig, BundleRenderConfig, IBundleInitOptions, IBundleBuildOptions, IBuildOptionBase } from '../../../../@types/protected';
+import { IBundleManager, IBuilder, IInternalBundleBuildOptions, IBuildHooksInfo, IBuildHookInfo, IBundle, CustomBundleConfig, BundleRenderConfig, IBundleInitOptions, IBundleBuildOptions, IBuildOptionBase } from '../../../../@types/protected';
 import { pluginManager } from '../../../../manager/plugin';
 import utils from '../../../../../base/utils';
 import script from '../../../../../scripting';
@@ -842,7 +842,7 @@ export class BundleManager extends BuildTaskBase implements IBundleManager {
         this.updateProcess('Output asset in bundles success');
     }
 
-    async handleHook(func: Function, internal: boolean, ...args: any[]) {
+    async handleHook(func: Function, internal: boolean, _info?: IBuildHookInfo, ...args: any[]) {
         if (internal) {
             await func.call(this, this.options, this.bundles, this.cache);
         } else {

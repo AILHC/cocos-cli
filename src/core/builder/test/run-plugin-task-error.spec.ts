@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { BuildTaskBase } from '../worker/builder/manager/task-base';
-import type { IBuildHooksInfo } from '../@types/protected';
+import type { IBuildHookInfo, IBuildHooksInfo } from '../@types/protected';
 
 jest.mock('../../base/i18n', () => {
     const mock = {
@@ -41,8 +41,8 @@ class TestHookTask extends BuildTaskBase {
         this.hooksInfo = hooksInfo;
     }
 
-    async handleHook(func: Function): Promise<void> {
-        await func();
+    async handleHook(func: Function, _internal: boolean, _info?: IBuildHookInfo, ...args: any[]): Promise<void> {
+        await func(this.options, ...args);
     }
 
     async run(): Promise<boolean> {

@@ -1,8 +1,10 @@
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { PluginManager } from '../manager/plugin';
 import builderConfig from '../share/builder-config';
+import { BuildTaskBase } from '../worker/builder/manager/task-base';
+import type { IBuildHookInfo, IBuildHooksInfo } from '../@types/protected';
 
 jest.mock('../../base/i18n', () => {
     const mock = {
@@ -453,5 +455,66 @@ describe('PluginManager project extension builder hooks', () => {
             buildVersion: 'from-saved-project-config',
             gameDebug: false,
         });
+    });
+
+    class FacadeHookTask extends BuildTaskBase {
+        public hooksInfo: IBuildHooksInfo;
+        public options: any = {};
+        public hookMap = {
+            onBeforeBuild: 'onBeforeBuild',
+        };
+
+        constructor(hooksInfo: IBuildHooksInfo) {
+            super('facade-hook-task', 'facade-hook-task');
+            this.hooksInfo = hooksInfo;
+        }
+
+        async handleHook(func: Function, _internal: boolean, _info?: IBuildHookInfo, ...args: any[]) {
+            await func(this.options, ...args);
+        }
+
+        async run(): Promise<boolean> {
+            return true;
+        }
+    }
+
+    it('runs project extension onBeforeBuild hooks with Editor facade context', async () => {
+        const markerFile = join(projectRoot, 'facade-hook-marker.txt');
+        const extensionRoot = createExtension(projectRoot, 'build-ex', {
+            name: 'build-ex',
+            contributions: {
+                builder: './dist/builder.js',
+            },
+        }, {
+            'dist/builder.js': `module.exports = {
+                configs: { '*': { hooks: './hooks.js' } }
+            };`,
+            'dist/hooks.js': `
+                const fs = require('fs');
+                const markerPath = ${JSON.stringify(markerFile)};
+                const projectRoot = Editor.Project.path;
+                exports.onBeforeBuild = function () {
+                    fs.writeFileSync(markerPath, projectRoot, 'utf8');
+                };
+            `,
+        });
+        const task = new FacadeHookTask({
+            pkgNameOrder: ['build-ex'],
+            infos: {
+                'build-ex': {
+                    path: join(extensionRoot, 'dist', 'hooks.js'),
+                    internal: false,
+                    source: 'project-extension',
+                    projectRoot,
+                    fatal: true,
+                    editorFacade: true,
+                },
+            },
+        });
+
+        await task.runPluginTask('onBeforeBuild');
+
+        const marker = readFileSync(markerFile, 'utf8');
+        expect(marker).toBe(projectRoot);
     });
 });

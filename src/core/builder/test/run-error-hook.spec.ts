@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { BuildTask } from '../worker/builder';
@@ -101,7 +101,7 @@ describe('BuildTask.runErrorHook', () => {
     });
 
     it('passes the build error as the third argument to public onError hooks', async () => {
-        const hookPath = join(tempRoot, 'hooks.js');
+        const hookPath = join(tempRoot, 'public-error-hooks.js');
         writeFileSync(hookPath, `
             exports.onError = function onError(options, result, error) {
                 global.__runErrorHookArgs = {
@@ -138,5 +138,45 @@ describe('BuildTask.runErrorHook', () => {
             hasResult: true,
             errorMessage: 'fatal build failure',
         });
+    });
+
+    it('runs project extension onError with Editor facade installed', async () => {
+        const markerFile = join(tempRoot, 'run-error-hook-marker.txt');
+        const hookPath = join(tempRoot, 'public-error-hooks.js');
+        writeFileSync(hookPath, `
+            const fs = require('fs');
+            const markerPath = ${JSON.stringify(markerFile)};
+            const projectRoot = Editor.Project.path;
+            exports.onError = function onError(options, result, error) {
+                fs.writeFileSync(markerPath, projectRoot, 'utf8');
+            };
+        `, 'utf8');
+        const buildError = new Error('fatal build failure');
+        const fakeTask = {
+            hooksInfo: {
+                pkgNameOrder: ['build-ex'],
+                infos: {
+                    'build-ex': {
+                        path: hookPath,
+                        internal: false,
+                        source: 'project-extension',
+                        fatal: true,
+                        editorFacade: true,
+                        projectRoot: tempRoot,
+                    },
+                },
+            },
+            result: {
+                rawOptions: { platform: 'web-mobile' },
+            },
+            buildResult: { dest: 'build-output' },
+            error: buildError,
+            updateProcess: jest.fn(),
+            postBuild: jest.fn(),
+        };
+
+        await BuildTask.prototype.runErrorHook.call(fakeTask as any);
+
+        expect(readFileSync(markerFile, 'utf8')).toBe(tempRoot);
     });
 });
