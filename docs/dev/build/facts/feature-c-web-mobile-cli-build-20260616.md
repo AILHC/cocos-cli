@@ -465,6 +465,79 @@ ReferenceError: Editor is not defined
 - Attempt 4/5 的挂起根因被进一步收敛到自动图集 `packImage()` 路径，而不是最终 texture compression 应用缺失。
 - `build-ex` 业务 hook 仍未真实可用，问题属于 Editor runtime API 兼容/迁移范围，不能用空 mock 当作完成。
 
+## Attempt 7: 对 Attempt 6 产物做浏览器运行烟测
+
+产物目录：
+
+```text
+D:\ps_copy\p6\trunk\Project\GameClient\feature-c\build\codex-p6-web-mobile-cli-debug-noatlas-skiptex-fixed-20260616
+```
+
+启动方式：
+
+```powershell
+python -m http.server 17890 --bind 127.0.0.1 --directory "D:\ps_copy\p6\trunk\Project\GameClient\feature-c\build\codex-p6-web-mobile-cli-debug-noatlas-skiptex-fixed-20260616"
+```
+
+访问地址：
+
+```text
+http://127.0.0.1:17890/index.html
+```
+
+观察到的关键事实：
+
+1. 页面能加载，标题为：
+
+```text
+Cocos Creator | Client
+```
+
+2. DOM 中存在 `GameCanvas`：
+
+```text
+id: GameCanvas
+width: 1280
+height: 720
+clientWidth: 1280
+clientHeight: 720
+```
+
+3. 静态服务器日志中，启动阶段采样到的本地产物请求均为 `200`，包括：
+
+```text
+/index.html
+/src/settings.b58d8.json
+/assets/main/config.a78d9.json
+/assets/main/index.a78d9.js
+/assets/resources/config.5fa89.json
+/assets/resources/index.5fa89.js
+/cocos-js/_virtual_cc-Cjt4rBEL.js
+```
+
+4. 浏览器 console 持续报业务运行时错误：
+
+```text
+TypeError: Cannot read properties of undefined (reading '0')
+    at CCCameraCaptureHelper.init (http://127.0.0.1:17890/assets/main/index.a78d9.js:77925:45)
+    at GameWorld.init (http://127.0.0.1:17890/assets/main/index.a78d9.js:202385:39)
+    at InitMode.gd_update (http://127.0.0.1:17890/assets/main/index.a78d9.js:232926:25)
+    at ModeManager.gmode_update (http://127.0.0.1:17890/assets/main/index.a78d9.js:256528:37)
+    at GameWorld.on_update (http://127.0.0.1:17890/assets/main/index.a78d9.js:202431:29)
+```
+
+5. console 同时反复出现：
+
+```text
+【ta】track_once client_load_config
+```
+
+当前判断：
+
+- 该产物“能被浏览器加载并创建 Cocos canvas”，但不能判断为“正常可运行”。
+- 当前烟测失败点是业务脚本运行时异常，不是采样范围内的静态资源 404。
+- 由于 Attempt 6 已确认真实 `build-ex` 业务 hook 仍因 `Editor is not defined` 未执行，不能排除该运行时异常与缺失的业务构建处理有关；但当前没有足够证据确认直接因果。
+
 ## 待跟踪问题
 
 - 默认 Node heap 对真实项目脚本打包不足，需确认 Editor/业务发布链路的 heap 策略。
@@ -473,3 +546,4 @@ ReferenceError: Editor is not defined
 - image pack 阶段读取带 query string 的 library JSON 失败，并移除 sprite frame，需确认是否与 Editor 行为一致。
 - 原始 `packAutoAtlas=true` 路径仍在 `Pack Images start` 后无进展，需定位 image pack / atlas / worker lifecycle、错误传播和 fail-fast 策略。
 - `packAutoAtlas=false` gating 已修复并验证；后续继续排查自动图集问题时，应使用原始 `packAutoAtlas=true` 路径复现。
+- no-atlas + skip texture 产物浏览器烟测能加载 canvas，但 `CCCameraCaptureHelper.init` 持续抛 `Cannot read properties of undefined (reading '0')`，需对比 Editor 产物或业务发布产物确认运行时配置差异。
