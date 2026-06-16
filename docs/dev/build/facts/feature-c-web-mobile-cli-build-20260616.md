@@ -18,6 +18,37 @@
   - `md5Cache: true`
   - `packages["build-ex"]` 包含 `buildVersion`、`hotupdate`、`sdkLogin`、`sdkEnv`、`sdkDebug`、`sdk_platform` 等业务字段。
 
+## 真实打包机 CocosCreator 命令行脚本事实
+
+用户补充指出 `D:\ps_copy\p6\tools` 下存在真实打包机使用 CocosCreator 命令行打包的脚本。已核对 web-mobile 相关脚本：
+
+- `D:\ps_copy\p6\tools\Packer\BuildWebMobileJenkins.sh`
+- `D:\ps_copy\p6\tools\Packer\BuildWebMobileJenkins_QuickGame.sh`
+- `D:\ps_copy\p6\tools\Packer\BuildWebMobileWithoutUploadJenkins.sh`
+
+三者核心调用均使用 CocosCreator `--build` 分号参数字符串，而不是只读取 JSON：
+
+```bash
+CocosCreator --engine $ENGINE_PATH --project $WORKSPACE/$PROJECT_DIR/Client --build "platform=$PLATFORM;configPath=$WORKSPACE/Configs/$COCOS_BUILD_CONFIG;sourceMaps=true;server=$CDN_URL;logDest=$LOG_PATH;outputName=$TAG-$PLATFORM-$ENV-build;buildPath=$WORKSPACE/build;debug=$DEBUG;packages=$PACKAGES"
+```
+
+`BuildWebMobileWithoutUploadJenkins.sh` 没有 `--engine`，但 `--build` 参数形态一致。
+
+当前事实：
+
+- `configPath` 由 `$COCOS_BUILD_CONFIG` 指向同一份平台构建配置。
+- debug/release 不是通过换 `web-mobile` 配置文件控制，而是通过外部 `$DEBUG` 覆盖 `debug` 字段。
+- 远端目录和输出目录通过 `$ENV` 参与：`outputName=$TAG-$PLATFORM-$ENV-build`，上传目标也包含 `$ENV`。
+- `sourceMaps=true` 在脚本中覆盖传入，即使 `p6_buildConfig_web-mobile.json` 内是 `sourceMaps: false`。
+- `packages=$PACKAGES` 由外部传入，用于覆盖/注入 package options；脚本本身不定义 `$PACKAGES` 的结构。
+- `p6_buildConfig_web-mobile.json` 本身是 release-like baseline：`debug:false`、`sourceMaps:false`、`packAutoAtlas:true`、`skipCompressTexture:false`、`outputName:"web-mobile"`，且 `packages["build-ex"].gameDebug`、`sdkEnv`、`sdkDebug` 等业务字段存在。
+
+与当前 cocos-cli 的差异：
+
+- `src/commands/build.ts` 当前只暴露 `--build-config`、`--taskId`、`--buildPath`、`--outputName`、`--ndkPath`、`--sdkPath`。
+- `src/commands/build-config.ts` 的 `mergeBuildConfigData()` 会把 commander 已识别的 command options 覆盖到 build config 上，但当前没有 Creator-compatible `--build "k=v;..."` 解析入口，也没有完整 CLI flags 覆盖 `debug`、`sourceMaps`、`packages`。
+- 因此，若目标是复用真实打包机“同一 config 打 debug/release”的工作流，CLI 还需要单独设计参数覆盖兼容；不能只用当前 `--build-config` 行为代表真实打包机语义。
+
 ## 项目工作区状态
 
 构建前真实项目已有未提交改动：
