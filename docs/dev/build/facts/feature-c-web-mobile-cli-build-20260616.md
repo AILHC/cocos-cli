@@ -722,12 +722,131 @@ facade saved through save-asset
 - 受限 `Editor` facade 已能覆盖真实 `feature-c/build-ex` 本轮源码清单中出现的 AssetDB message，并且没有用空 mock、`true` 或 no-op 掩盖行为。
 - 本轮高频验证应继续使用主测试项目临时 fixture。真实 `feature-c` 只在 fixture 覆盖完整调用清单后作为低频 checkpoint，用于确认是否还有未被源码清单覆盖的运行时调用或业务数据问题。
 
+## Attempt 10: 真实 `feature-c` no-atlas + skip texture checkpoint 与运行烟测
+
+代码基线：
+
+```text
+2e743de feat: support fact-based Editor asset-db messages
+```
+
+构建前已执行：
+
+```powershell
+npm run build
+```
+
+结果：通过，`dist/cli.js` 已更新。
+
+真实项目仍使用临时 no-atlas + skip texture 配置，避免回到已知 `packAutoAtlas=true` 挂起路径：
+
+```text
+E:\own_space\engines\cocos-cli\.codex-tmp\p6_buildConfig_web-mobile-debug-noatlas-skiptex.json
+```
+
+第一次命令因 `rtk pwsh` 中 `$env:NODE_OPTIONS` 写法被错误展开，实际未给当前 `node` 设置 12GB heap，构建在 `Package scripts` 阶段 OOM：
+
+```text
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+```
+
+该次 OOM 发生在 `build-ex:onBeforeBuild` 已完成之后，真实 `build-ex` 已将 `assets/resources/cfg` 临时移动到 `assets/tmp_cfg`，失败后项目资源目录停留在中间态。随后用正确的 process env 写法重新构建时，因 `assets/resources/cfg` 缺失立即失败：
+
+```text
+Error: ENOENT: no such file or directory, scandir 'D:\ps_copy\p6\trunk\Project\GameClient\feature-c\assets\resources\cfg'
+```
+
+恢复 `assets/tmp_cfg` 到 `assets/resources/cfg` 及对应 `.meta` 后，使用正确 env 重新执行：
+
+```powershell
+[Environment]::SetEnvironmentVariable('NODE_OPTIONS','--max-old-space-size=12288','Process')
+node .\dist\cli.js build --project D:\ps_copy\p6\trunk\Project\GameClient\feature-c --platform web-mobile --build-config .codex-tmp\p6_buildConfig_web-mobile-debug-noatlas-skiptex.json --outputName codex-p6-web-mobile-cli-editor-facade-final-heap12g-rerun-20260616 *> .codex-tmp\p6-web-mobile-editor-facade-final-heap12g-rerun.stdout.log
+```
+
+输出目录：
+
+```text
+D:\ps_copy\p6\trunk\Project\GameClient\feature-c\build\codex-p6-web-mobile-cli-editor-facade-final-heap12g-rerun-20260616
+```
+
+构建结果：退出码 `0`，最终成功：
+
+```text
+build-ex:onBeforeBuild starting...
+build-ex:onBeforeBuild completed in 70865ms
+...
+web-mobile:onAfterBuild completed
+build-ex:onAfterBuild starting...
+build-ex:onAfterBuild completed in 81851ms
+Build completed successfully for web-mobile in 12 min 16 s
+Build Dest: project://build/codex-p6-web-mobile-cli-editor-facade-final-heap12g-rerun-20260616
+```
+
+本次真实构建观察到：
+
+1. 未出现 `Unsupported Editor.Message`。
+2. 未出现 `ReferenceError: Editor is not defined`。
+3. `build-ex:onBeforeBuild` 和 `build-ex:onAfterBuild` 均执行完成。
+4. 最终 `index.html` 存在。
+5. 最终 `index.html` 未包含 `__REPLACE_GAME_BUILD_CFG__`；已写入 `__GAME_BUILD_CFG__`，采样字段包括 `buildVersion:"1.0"`、`gameDebug:true`、`sdkEnv:"sandbox"`、`packageId:"1"`。
+6. `Build Assets` 成功期间仍出现 `[Global] 未捕获的异常: the worker has exited`，但本次 no-atlas + skip texture 构建未被该日志阻断。
+
+浏览器运行烟测：
+
+- 本地静态服务：`http://127.0.0.1:17892/index.html`
+- 产物目录：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\build\codex-p6-web-mobile-cli-editor-facade-final-heap12g-rerun-20260616`
+- Codex Browser webview attach 两次超时，改用本机 Playwright + Chrome headless 采样 15 秒。
+
+运行观察：
+
+1. 页面加载完成，标题为 `Cocos Creator | Client`。
+2. `window.__GAME_BUILD_CFG__` 存在，关键字段为：
+
+```json
+{
+  "buildVersion": "1.0",
+  "gameDebug": true,
+  "sdkEnv": "sandbox",
+  "packageId": "1"
+}
+```
+
+3. DOM 中存在 `GameCanvas`：
+
+```text
+id: GameCanvas
+width: 1280
+height: 720
+clientWidth: 1280
+clientHeight: 720
+```
+
+4. 采样范围内关键本地产物请求均为 `200`，包括 `index.html`、`settings.320c5.json`、`assets/main/config.a78d9.json`、`assets/resources/config.7dc7d.json`、`assets/resources/index.7dc7d.js`、`assets/main/index.a78d9.js` 和 `cocos-js` 资源。
+5. 未出现旧产物中的 `__REPLACE_GAME_BUILD_CFG__ is not defined`。
+6. 运行期仍有 console error：
+
+```text
+Can not find class 'cc.PhysicsMaterial'
+TypeError: asset.addRef is not a function
+    at ResourceManager.onLoad (http://127.0.0.1:17892/assets/main/index.a78d9.js:319720:21)
+```
+
+7. 还有非阻断性采样噪声：`favicon.ico` 404，以及 `cc._imgName`、`cc.render3D`、`AKNativeVideoPlayer`、`AKVideoPlayer` 相关 warning。
+8. 15 秒采样中未再观察到 Attempt 7 的 `CCCameraCaptureHelper.init` 栈。
+
+当前判断：
+
+- 真实 `feature-c/build-ex` 在本轮 no-atlas + skip texture checkpoint 中已能通过受限 `Editor` facade 完成 `onBeforeBuild` 和 `onAfterBuild`，`__GAME_BUILD_CFG__` 注入也已完成；这验证了本轮 `asset-db` facade 对真实调用清单的覆盖。
+- 该产物仍不能判断为“无运行时错误”：当前最新运行期错误是 `cc.PhysicsMaterial` class 缺失和 `ResourceManager.onLoad` 中 `asset.addRef is not a function`。
+- 这些运行时错误发生在 `build-ex` 已完成且 `__GAME_BUILD_CFG__` 已注入之后，后续应按产物资源/engine module/runtime asset type 继续对比 Editor 或业务发布产物。
+- 真实项目工作树存在构建副作用：`assets/resources/merged_cfg_0.json` 至 `assets/resources/merged_cfg_3.json` 从 `{}` 变为合并后的配置内容；`assets/product.meta`、`assets/tmp_cfg.meta` 内容 diff 为空但 `git status` 仍显示 modified。未用宽泛 git restore 自动回滚这些真实项目文件。
+
 ## 待跟踪问题
 
 - 默认 Node heap 对真实项目脚本打包不足，需确认 Editor/业务发布链路的 heap 策略。
-- 真实 `feature-c/extensions/build-ex` 已能在 CLI project extension `Editor` facade scope 内进入 `onBeforeBuild`；主测试项目 fixture 已验证 `feature-c/build-ex` 当前源码清单中的 `asset-db` message facade 支持。下一次真实 `feature-c` checkpoint 应只用于低频确认是否还有新的 unsupported API 或后续业务构建问题。
+- 真实 `feature-c/extensions/build-ex` 已能在 no-atlas + skip texture checkpoint 中完成 `onBeforeBuild` 和 `onAfterBuild`；后续新增 Editor API 支持仍应先用主测试项目 fixture 复现真实调用，再低频运行真实 `feature-c`。
 - `@tbmp/mp-cloud-sdk` 加载期间出现 `swan is not defined`，需确认是否会影响真实目标平台构建产物。
 - image pack 阶段读取带 query string 的 library JSON 失败，并移除 sprite frame，需确认是否与 Editor 行为一致。
 - 原始 `packAutoAtlas=true` 路径仍在 `Pack Images start` 后无进展，需定位 image pack / atlas / worker lifecycle、错误传播和 fail-fast 策略。
 - `packAutoAtlas=false` gating 已修复并验证；后续继续排查自动图集问题时，应使用原始 `packAutoAtlas=true` 路径复现。
-- no-atlas + skip texture 产物浏览器烟测能加载 canvas，但 `CCCameraCaptureHelper.init` 持续抛 `Cannot read properties of undefined (reading '0')`，需对比 Editor 产物或业务发布产物确认运行时配置差异。
+- 最新 no-atlas + skip texture 产物浏览器烟测能加载 canvas，`__GAME_BUILD_CFG__` 已注入，但仍报 `cc.PhysicsMaterial` class 缺失和 `asset.addRef is not a function`，需对比 Editor 产物或业务发布产物确认 engine module、资源输出和 runtime asset type 差异。
