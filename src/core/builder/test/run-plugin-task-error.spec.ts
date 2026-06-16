@@ -88,6 +88,40 @@ describe('BuildTaskBase.runPluginTask error context', () => {
             .toThrow(/project-build-ex.*onBeforeBuild.*original boom/);
     });
 
+    it('fails project extension hook errors even without exported throwError', async () => {
+        const hookPath = join(tempRoot, 'project-extension-fatal-hook.js');
+        writeFileSync(hookPath, `
+            exports.onBeforeBuild = async function () {
+                throw new Error('project extension exploded');
+            };
+        `, 'utf8');
+        const onError = jest.fn(function (this: TestHookTask, error: Error, throwError = true) {
+            this.error = error;
+            if (throwError) {
+                throw error;
+            }
+        });
+        const task = new TestHookTask({
+            pkgNameOrder: ['build-ex'],
+            infos: {
+                'build-ex': {
+                    path: hookPath,
+                    internal: false,
+                    source: 'project-extension',
+                    projectRoot: tempRoot,
+                    fatal: true,
+                    editorFacade: true,
+                },
+            },
+        });
+        task.onError = onError;
+
+        await expect(task.runPluginTask('onBeforeBuild'))
+            .rejects
+            .toThrow('Build plugin "build-ex" hook "onBeforeBuild" failed: project extension exploded');
+        expect(onError).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps public hook errors non-fatal when throwError is not enabled', async () => {
         const hookPath = join(tempRoot, 'hooks.js');
         writeFileSync(hookPath, `
@@ -110,6 +144,10 @@ describe('BuildTaskBase.runPluginTask error context', () => {
 
         await expect(task.runPluginTask('onBeforeBuild')).resolves.toBeUndefined();
 
+        expect(task.hooksInfo.infos['project-build-ex']).toEqual({
+            path: hookPath,
+            internal: false,
+        });
         expect((task as any).error).toBeUndefined();
         expect((global as any).__nonFatalOnErrorTriggered).toBeUndefined();
     });

@@ -164,9 +164,20 @@ export interface IBuildStageTask {
     saveOptions(): Promise<void>;
 }
 
+export type IBuildHookSource = 'platform' | 'registered-builder' | 'project-extension';
+
+export interface IBuildHookInfo {
+    path: string;
+    internal: boolean;
+    source?: IBuildHookSource;
+    projectRoot?: string;
+    fatal?: boolean;
+    editorFacade?: boolean;
+}
+
 export interface IBuildHooksInfo {
     pkgNameOrder: string[];
-    infos: Record<string, { path: string; internal: boolean }>;
+    infos: Record<string, IBuildHookInfo>;
 }
 
 export interface IBundle {
