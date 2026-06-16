@@ -26,6 +26,7 @@
 
 - `BUILD-ISSUE-015`：真实 `feature-c` 默认 Node heap 在 `Package scripts` 阶段 OOM。12GB heap 可越过该阶段，但 production 默认策略仍需确认 Editor 或业务发布链路是否设置 heap。
 - `BUILD-ISSUE-017`：真实 `feature-c` 原始 `packAutoAtlas=true` 路径仍在 `Pack Images start` 后出现 worker exit 和长时间无进展。当前证据把范围收敛到 image pack / atlas / worker lifecycle，不是单纯 texture compression 可执行程序缺失。
+- `BUILD-ISSUE-020`：真实打包机用 CocosCreator `--build "configPath=...;debug=$DEBUG;sourceMaps=true;packages=$PACKAGES;..."` 在同一份平台 config 上覆盖 debug/release 参数；当前 cocos-cli 没有 Creator-compatible `--build` 分号参数入口，也未完整暴露 `debug`、`sourceMaps`、`packages` 覆盖。
 - `@tbmp/mp-cloud-sdk` / `swan is not defined`、循环依赖、`cc property undefined type` 等日志仍是非目标风险，不能因为当前 web-mobile checkpoint 通过就判定业务运行完全无风险。
 - runtime preview 的 internal asset 查询策略与 normal build feature graph 策略不同。当前修复只针对 normal build 产物一致性；若后续 runtime preview 暴露同类问题，需要另行基于其入口事实判断。
 
@@ -38,6 +39,18 @@
 ### `packAutoAtlas=false` 曾未生效
 
 早期临时配置设置 `packAutoAtlas=false` 后仍进入 `Pack Images start`，原因是 `BundleManager.buildAsset()` 无条件执行 `packImage()`。修复 gating 后，真实 `feature-c` no-atlas + skip texture 构建未再进入 `Pack Images start`，并成功生成 `index.html`。因此后续自动图集挂起必须回到 `packAutoAtlas=true` 路径复现。
+
+### 自动图集和纹理压缩状态
+
+自动图集完整路径尚未通过真实 `feature-c` 构建验证。已有事实是：原始 `packAutoAtlas=true`、`skipCompressTexture=false` 的 release-like 配置在 `Pack Images start` 后 worker 退出并长时间无进展；`debug=true`、`skipCompressTexture=true` 仍停在 `Pack Images start`。这说明当前 blocker 更接近自动图集 `packImage()` / worker lifecycle，而不是最终 texture compression 可执行程序缺失。
+
+纹理压缩本身也不能判断为已通过：release-like 路径曾出现 `Compress astc success`，但随后停在 `execute compress task 2/24804` 附近；no-atlas + skip texture 成功构建刻意绕开了自动图集和最终纹理压缩，不能作为自动图集或纹理压缩通过的证据。
+
+### 真实打包机参数覆盖方式
+
+`D:\ps_copy\p6\tools\Packer\BuildWebMobileJenkins.sh`、`BuildWebMobileJenkins_QuickGame.sh` 和 `BuildWebMobileWithoutUploadJenkins.sh` 使用 CocosCreator `--build` 分号参数字符串。关键字段包括 `configPath=$WORKSPACE/Configs/$COCOS_BUILD_CONFIG`、`debug=$DEBUG`、`sourceMaps=true`、`outputName=$TAG-$PLATFORM-$ENV-build`、`buildPath=$WORKSPACE/build`、`packages=$PACKAGES`。因此真实打包机可以用同一份 `web-mobile` config 通过外部变量打 debug/release。
+
+当前 cocos-cli 只支持 `--build-config`，并额外暴露 `--buildPath`、`--outputName`、SDK/NDK 覆盖；没有 Creator-compatible `--build "k=v;..."` 入口。若后续要对齐真实打包机工作流，需要单独设计参数覆盖兼容，而不是把某次临时 JSON 改写当作等价行为。
 
 ### `Editor` facade 必须 fail fast
 
@@ -111,5 +124,6 @@ rtk npm run build
 
 - 继续排查 `BUILD-ISSUE-017`，优先给 image pack / atlas worker 边界加诊断：worker 启动参数、退出码、最后处理 asset uuid、带 `?_t=` 的 library URL 是否被当作 filesystem path。
 - 对 `BUILD-ISSUE-015` 补事实：确认 Editor CLI、业务发布脚本或 CI 是否设置 Node heap，再决定 CLI 是否需要诊断提示、文档化参数或子进程 heap 策略。
+- 对 `BUILD-ISSUE-020` 补设计：决定支持 Creator-compatible `--build` string，还是显式增加 `--debug`、`--sourceMaps`、`--packages` 等覆盖参数；无论哪种都需要测试同一 config 的 debug/release 覆盖语义。
 - 保持 `Editor` facade 的事实门槛：只有真实源码或可复现 fixture 证明需要某个 API，才新增支持；unsupported 继续 fail fast。
 - 后续新增 runtime error 时，不复用 `BUILD-ISSUE-019`；按新的 console 栈、失败资源 uuid 和产物映射重新登记。
