@@ -538,10 +538,70 @@ TypeError: Cannot read properties of undefined (reading '0')
 - 当前烟测失败点是业务脚本运行时异常，不是采样范围内的静态资源 404。
 - 由于 Attempt 6 已确认真实 `build-ex` 业务 hook 仍因 `Editor is not defined` 未执行，不能排除该运行时异常与缺失的业务构建处理有关；但当前没有足够证据确认直接因果。
 
+## Attempt 8: project extension `Editor` facade checkpoint
+
+代码基线：
+
+```text
+6b467dc fix: lazy load Editor facade asset APIs
+```
+
+先执行：
+
+```powershell
+npm run build
+```
+
+结果：通过，`dist/cli.js` 已更新。
+
+第一次真实构建命令沿用计划中的 `--output-name` 参数，CLI 立即失败：
+
+```text
+error: unknown option '--output-name'
+(Did you mean --outputName?)
+```
+
+因此本次 checkpoint 改用当前 CLI 支持的 `--outputName`：
+
+```powershell
+$env:NODE_OPTIONS="--max-old-space-size=12288"
+node .\dist\cli.js build --project D:\ps_copy\p6\trunk\Project\GameClient\feature-c --platform web-mobile --build-config D:\ps_copy\p6\trunk\Project\GameClient\feature-c\build_configs\p6_buildConfig_web-mobile.json --outputName codex-p6-web-mobile-cli-editor-facade-checkpoint-20260616 *> .codex-tmp\p6-web-mobile-editor-facade-checkpoint.stdout.log
+```
+
+结果：构建在 `build-ex:onBeforeBuild` fail fast，退出码非 0。关键日志：
+
+```text
+build-ex:onBeforeBuild starting...
+[build-ex]  build-ex onBeforeBuild
+[build-ex]  D:\ps_copy\p6\trunk\Project\GameClient\feature-c/assets/resources/cfg
+Error: Unsupported Editor.Message request: asset-db.save-asset-meta
+build-ex:(onError) start...
+WARN  build-ex run onError
+Error: Build plugin "build-ex" hook "onBeforeBuild" failed: Unsupported Editor.Message request: asset-db.save-asset-meta
+```
+
+观察到的关键事实：
+
+1. 日志中未再出现 `ReferenceError: Editor is not defined` 或 `Editor is not defined`。
+2. `build-ex` module 顶层和 `onBeforeBuild` 已能进入 `Editor.Project.path` 依赖路径之后的业务代码，日志打印到项目资源路径：
+
+```text
+D:\ps_copy\p6\trunk\Project\GameClient\feature-c/assets/resources/cfg
+```
+
+3. unsupported `Editor.Message` 没有被 no-op 或空 mock 掩盖，而是以 `Unsupported Editor.Message request: asset-db.save-asset-meta` 中断构建。
+4. project extension hook failure 已触发现有 `onError` 流程，日志中出现 `build-ex run onError`。
+5. 因构建在 4% 处中断，未生成本次 output 的 `index.html`，无法验证 `__REPLACE_GAME_BUILD_CFG__` 替换。
+
+当前判断：
+
+- extension host/fail-fast 方向正确：前置失败从 `Editor is not defined` 前移修复为明确缺失 `asset-db.save-asset-meta` 支持。
+- 下一步只能按真实日志补 `asset-db.save-asset-meta`，并继续复跑真实构建以观察下一个 unsupported API；不能提前用空返回值模拟完整 Editor。
+
 ## 待跟踪问题
 
 - 默认 Node heap 对真实项目脚本打包不足，需确认 Editor/业务发布链路的 heap 策略。
-- 真实 `feature-c/extensions/build-ex` 依赖 `Editor` global，当前 CLI extension host 只能调用 hook，不能执行这些 Editor runtime 业务逻辑。
+- 真实 `feature-c/extensions/build-ex` 已能在 CLI project extension `Editor` facade scope 内进入 `onBeforeBuild`，但当前第一处 unsupported API 为 `asset-db.save-asset-meta`，仍需按真实日志逐项补 AssetDB message 支持。
 - `@tbmp/mp-cloud-sdk` 加载期间出现 `swan is not defined`，需确认是否会影响真实目标平台构建产物。
 - image pack 阶段读取带 query string 的 library JSON 失败，并移除 sprite frame，需确认是否与 Editor 行为一致。
 - 原始 `packAutoAtlas=true` 路径仍在 `Pack Images start` 后无进展，需定位 image pack / atlas / worker lifecycle、错误传播和 fail-fast 策略。
