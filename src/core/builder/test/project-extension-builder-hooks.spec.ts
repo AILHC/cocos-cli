@@ -166,9 +166,13 @@ describe('PluginManager project extension builder hooks', () => {
         const hooksInfo = pm.getHooksInfo(PLATFORM);
 
         expect(result.registered).toEqual(['test-build-hook']);
-        expect(hooksInfo.infos['test-build-hook']).toEqual({
+        expect(hooksInfo.infos['test-build-hook']).toMatchObject({
             path: join(extensionRoot, 'dist', 'hooks.js'),
             internal: false,
+            source: 'project-extension',
+            projectRoot,
+            fatal: true,
+            editorFacade: true,
         });
         expect(hooksInfo.pkgNameOrder).toEqual([PLATFORM, 'test-build-hook']);
         expect((pm as any).pkgOptionConfigs[PLATFORM]['test-build-hook'].buildVersion.default).toBe('base-version');
@@ -300,9 +304,10 @@ describe('PluginManager project extension builder hooks', () => {
             .rejects
             .toThrow(/Project extension package name conflicts with registered builder package.*web-mobile/);
 
-        expect(pm.getHooksInfo(PLATFORM).infos[PLATFORM]).toEqual({
+        expect(pm.getHooksInfo(PLATFORM).infos[PLATFORM]).toMatchObject({
             path: join('builtin', 'web-mobile-hooks.js'),
             internal: true,
+            source: 'platform',
         });
     });
 
@@ -352,7 +357,7 @@ describe('PluginManager project extension builder hooks', () => {
         const hooksInfo = pm.getHooksInfo(PLATFORM);
         const options = (pm as any).pkgOptionConfigs[PLATFORM]['merge-hook'];
 
-        expect(hooksInfo.infos['merge-hook']).toEqual({
+        expect(hooksInfo.infos['merge-hook']).toMatchObject({
             path: join(extensionRoot, 'dist', 'web-hooks.js'),
             internal: false,
         });

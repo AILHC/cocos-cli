@@ -99,6 +99,7 @@ export class PluginManager extends EventEmitter {
     // 存储注册进来的，带有 hooks 的插件路径，[pkgName][platform]: hooks
     private builderPathsMap: Record<string, Record<string, string>> = {};
     private projectExtensionPkgNamesMap: Record<string, Set<string>> = {};
+    private projectExtensionProjectRootsMap: Record<string, Record<string, string>> = {};
     private customBuildStagesMap: {
         [pkgName: string]: {
             [platform: string]: IBuildStageItem[];
@@ -377,6 +378,10 @@ export class PluginManager extends EventEmitter {
                 this.projectExtensionPkgNamesMap[platform] = new Set();
             }
             this.projectExtensionPkgNamesMap[platform].add(registration.pkgName);
+            if (!this.projectExtensionProjectRootsMap[platform]) {
+                this.projectExtensionProjectRootsMap[platform] = {};
+            }
+            this.projectExtensionProjectRootsMap[platform][registration.pkgName] = projectRoot;
             registered.push(registration.pkgName);
         }
 
@@ -396,6 +401,7 @@ export class PluginManager extends EventEmitter {
             delete this.pkgOptionConfigs[platform]?.[pkgName];
             delete this.configMap[platform]?.[pkgName];
             delete this.pkgPriorities[pkgName];
+            delete this.projectExtensionProjectRootsMap[platform]?.[pkgName];
         }
         this.projectExtensionPkgNamesMap[platform] = new Set();
     }
@@ -884,9 +890,14 @@ export class PluginManager extends EventEmitter {
             return result;
         }
         Object.keys(this.builderPathsMap[platform]).forEach((pkgName) => {
+            const isProjectExtension = this.projectExtensionPkgNamesMap[platform]?.has(pkgName) === true;
             result.infos[pkgName] = {
                 path: this.builderPathsMap[platform][pkgName],
                 internal: pkgName === platform,
+                source: pkgName === platform ? 'platform' : isProjectExtension ? 'project-extension' : 'registered-builder',
+                projectRoot: isProjectExtension ? this.projectExtensionProjectRootsMap[platform]?.[pkgName] : undefined,
+                fatal: isProjectExtension ? true : undefined,
+                editorFacade: isProjectExtension ? true : undefined,
             };
         });
         result.pkgNameOrder = this.sortPkgNameWidthPriority(Object.keys(result.infos));
