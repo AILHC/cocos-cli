@@ -15,6 +15,8 @@ import { Engine } from '../../engine';
 import builderConfig from './builder-config';
 import { validatorManager } from './validator-manager';
 import { CocosConfigLoader } from '../../configuration/migration/cocos-config-loader';
+import { DEFAULT_PHYSICS_MATERIAL_UUID, featureListIncludesDependentAsset } from './engine-feature-assets';
+
 interface ModuleConfig {
     match: (module: string) => boolean;
     default: string | boolean;
@@ -389,6 +391,8 @@ export async function checkProjectSetting(options: IInternalBuildOptions | IInte
     options.engineInfo = options.engineInfo || Engine.getInfo();
 
     const { designResolution, renderPipeline, physicsConfig, customLayers, sortingLayers, macroConfig, includeModules } = Engine.getConfig();
+    const activeIncludeModules = options.includeModules?.length ? options.includeModules : includeModules;
+    const hasDefaultPhysicsMaterialFeature = await featureListIncludesDependentAsset(activeIncludeModules ?? [], DEFAULT_PHYSICS_MATERIAL_UUID);
     // 默认 Canvas 设置
     if (!options.designResolution) {
         options.designResolution = designResolution;
@@ -403,10 +407,14 @@ export async function checkProjectSetting(options: IInternalBuildOptions | IInte
 
     // physicsConfig
     if (!options.physicsConfig) {
-        options.physicsConfig = physicsConfig;
+        options.physicsConfig = { ...physicsConfig };
+    }
+    if (hasDefaultPhysicsMaterialFeature) {
         if (!options.physicsConfig.defaultMaterial) {
-            options.physicsConfig.defaultMaterial = 'ba21476f-2866-4f81-9c4d-6e359316e448';
+            options.physicsConfig.defaultMaterial = DEFAULT_PHYSICS_MATERIAL_UUID;
         }
+    } else {
+        delete options.physicsConfig.defaultMaterial;
     }
 
     // customLayers
