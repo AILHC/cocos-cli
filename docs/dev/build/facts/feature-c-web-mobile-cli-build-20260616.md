@@ -34,6 +34,17 @@ CocosCreator --engine $ENGINE_PATH --project $WORKSPACE/$PROJECT_DIR/Client --bu
 
 `BuildWebMobileWithoutUploadJenkins.sh` 没有 `--engine`，但 `--build` 参数形态一致。
 
+官方依据：
+
+- Cocos Creator 3.8 [命令行发布项目](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-in-command-line.html) / [Publish from the Command Line](https://docs.cocos.com/creator/3.8/manual/en/editor/publish/publish-in-command-line.html)：
+  - `--build` 用于指定构建项目使用的参数。
+  - `--build` 后不指定参数时使用 Build panel 当前参数；指定额外参数时会覆盖默认参数。
+  - 文档示例使用 `--build "platform=web-desktop;debug=true"`。
+  - 可选参数列出 `configPath`、`outputName`、`platform`、`buildPath`、`debug`、`packages` 等。
+  - `configPath` 会按 JSON 文件格式加载构建参数；中文文档还明确当命令行配置与 `configPath` 内配置冲突时，`configPath` 指定的配置会被覆盖。
+- Cocos Creator 3.8 [构建发布面板详解](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/build-panel.html) / [About the Build Panel](https://docs.cocos.com/creator/3.8/manual/en/editor/publish/build-panel.html)：Build panel 的 Export 会导出当前平台构建选项 JSON，命令行构建时把该 JSON 路径指定为 `configPath`。
+- Cocos Creator 3.8 [构建选项介绍](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/build-options.html) / [General Build Options](https://docs.cocos.com/creator/3.8/manual/en/editor/publish/build-options.html)：`Source Maps` 是通用构建选项；`Skip Compress Texture` 的命令参数名为 `skipCompressTexture`。
+
 当前事实：
 
 - `configPath` 由 `$COCOS_BUILD_CONFIG` 指向同一份平台构建配置。
