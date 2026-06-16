@@ -50,6 +50,8 @@
 
 `D:\ps_copy\p6\tools\Packer\BuildWebMobileJenkins.sh`、`BuildWebMobileJenkins_QuickGame.sh` 和 `BuildWebMobileWithoutUploadJenkins.sh` 使用 CocosCreator `--build` 分号参数字符串。关键字段包括 `configPath=$WORKSPACE/Configs/$COCOS_BUILD_CONFIG`、`debug=$DEBUG`、`sourceMaps=true`、`outputName=$TAG-$PLATFORM-$ENV-build`、`buildPath=$WORKSPACE/build`、`packages=$PACKAGES`。因此真实打包机可以用同一份 `web-mobile` config 通过外部变量打 debug/release。
 
+该行为有官方依据：Cocos Creator 3.8 [命令行发布项目](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-in-command-line.html) / [Publish from the Command Line](https://docs.cocos.com/creator/3.8/manual/en/editor/publish/publish-in-command-line.html) 文档说明 `--build` 指定构建参数、额外参数会覆盖默认参数，并列出 `configPath`、`outputName`、`buildPath`、`debug`、`packages` 等参数；[构建发布面板详解](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/build-panel.html) / [About the Build Panel](https://docs.cocos.com/creator/3.8/manual/en/editor/publish/build-panel.html) 说明 Build panel Export 的 JSON 在命令行里通过 `configPath` 使用；[构建选项介绍](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/build-options.html) / [General Build Options](https://docs.cocos.com/creator/3.8/manual/en/editor/publish/build-options.html) 记录了 `Source Maps` 和 `skipCompressTexture` 等通用构建选项。
+
 当前 cocos-cli 只支持 `--build-config`，并额外暴露 `--buildPath`、`--outputName`、SDK/NDK 覆盖；没有 Creator-compatible `--build "k=v;..."` 入口。若后续要对齐真实打包机工作流，需要单独设计参数覆盖兼容，而不是把某次临时 JSON 改写当作等价行为。
 
 ### `Editor` facade 必须 fail fast
