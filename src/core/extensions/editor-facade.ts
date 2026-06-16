@@ -1,5 +1,3 @@
-import { assetManager } from '../assets';
-
 export interface EditorFacadeContext {
     projectRoot: string;
 }
@@ -35,6 +33,7 @@ async function handleEditorMessage(
     }
 
     if (message === 'move-asset') {
+        const { assetManager } = await import('../assets');
         const [source, target, options] = args as [string, string, { overwrite?: unknown; rename?: unknown } | undefined];
         return assetManager.moveAsset(source, target, {
             overwrite: Boolean(options?.overwrite),
@@ -43,6 +42,7 @@ async function handleEditorMessage(
     }
 
     if (message === 'delete-asset') {
+        const { assetManager } = await import('../assets');
         const [target] = args as [string];
         return assetManager.removeAsset(target, { useTrash: false });
     }
