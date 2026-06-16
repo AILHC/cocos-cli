@@ -12,7 +12,7 @@
 
 ## 计划修订约束
 
-- 本计划中的实现代码以当前源码事实为准：`TestHookTask` 构造参数是 `IBuildHooksInfo`，`assetManager.moveAsset()` option 字段是 `overwrite` / `rename`，不是 `override`。
+- 本计划中的实现代码以当前源码事实为准：`TestHookTask` 构造参数是 `IBuildHooksInfo`，`assetManager.moveAsset()` option 字段是 `overwrite` / `rename`；但 `Editor.Message.request('asset-db', 'move-asset', ...)` 需要兼容 Editor 侧真实传入的 `override` 并映射为 CLI 内部的 `overwrite`。
 - `Editor.Message.request()` 和 `Editor.Message.send()` 必须共用 async dispatcher；`send()` 只负责把 Promise 放进 facade pending queue。不得引入 sync-only `handleEditorMessageSync()` 分支。
 - unsupported error message 必须区分调用方式：`Unsupported Editor.Message request: ${channel}.${message}` 或 `Unsupported Editor.Message send: ${channel}.${message}`。
 - timer 策略是有界支持：hook scope 内创建的 `setTimeout(..., 0)` 可以在 facade teardown 前 drain；正延迟 timer、drain 后仍未执行的 timer、以及 timer callback 内继续安排的新延迟 timer 都必须 fail fast，错误写明 `Editor.Message send scheduled after hook scope`。
@@ -879,7 +879,7 @@ rtk pwsh -NoProfile -Command "git add docs/dev/build/facts/feature-c-web-mobile-
 - Modify: `docs/dev/build/issues.md`
 - Modify: `docs/dev/build/facts/feature-c-web-mobile-cli-build-20260616.md`
 
-Only execute this task for APIs observed in Task 4 logs. The initial allowlist is based on `feature-c/extensions/build-ex/source/hooks.ts` inventory:
+Only execute this task for APIs observed in Task 4 logs or confirmed by reading `feature-c/extensions/build-ex/source/hooks.ts`. Do not use the real `feature-c` project for the high-frequency implementation loop. Use the main test project fixture first, and only run the real project as a low-frequency checkpoint after the fixture path passes.
 
 ```text
 asset-db.query-asset-meta
@@ -899,7 +899,7 @@ jest.mock('../../assets', () => ({
     assetManager: {
         moveAsset: jest.fn(async () => ({ uuid: 'moved-uuid' })),
         removeAsset: jest.fn(async () => ({ uuid: 'removed-uuid' })),
-        queryAssetInfo: jest.fn(() => ({ uuid: 'asset-uuid' })),
+        queryUUID: jest.fn(() => 'asset-uuid'),
         queryAssetMeta: jest.fn(() => ({ userData: {} })),
         saveAssetMeta: jest.fn(async () => undefined),
         refreshAsset: jest.fn(async () => 1),
@@ -912,11 +912,11 @@ jest.mock('../../assets', () => ({
 For `query-uuid`, add:
 
 ```ts
-it('delegates query-uuid to assetManager.queryAssetInfo', async () => {
+it('delegates query-uuid to assetManager.queryUUID', async () => {
     const editor = createEditorFacade({ projectRoot });
     const uuid = await editor.Message.request('asset-db', 'query-uuid', 'db://assets/scripts');
     expect(uuid).toBe('asset-uuid');
-    expect(assetManager.queryAssetInfo).toHaveBeenCalledWith('db://assets/scripts');
+    expect(assetManager.queryUUID).toHaveBeenCalledWith('db://assets/scripts');
 });
 ```
 
@@ -934,11 +934,7 @@ For `refresh-asset`, `reimport-asset`, and `save-asset`, use the same mocked `as
 
 - [ ] **Step 2: Implement exact delegations**
 
-In `src/core/extensions/editor-facade.ts`, import the existing asset APIs:
-
-```ts
-import { assetManager } from '../assets';
-```
+In `src/core/extensions/editor-facade.ts`, keep the existing lazy `import('../assets')` pattern inside supported message branches so builder hook unit tests do not load the full AssetDB stack at module import time.
 
 Extend the async `handleEditorMessage()` dispatcher. Keep `request()` and `send()` on the same dispatcher: `request()` awaits the Promise, `send()` queues the Promise for `drainEditorFacade()`.
 
@@ -950,7 +946,7 @@ async function handleEditorMessage(kind: 'request' | 'send', projectRoot: string
     if (message === 'move-asset') {
         const [source, target, options = {}] = args;
         return assetManager.moveAsset(source, target, {
-            overwrite: Boolean(options.overwrite),
+            overwrite: Boolean(options.overwrite ?? options.override),
             rename: Boolean(options.rename),
         });
     }
@@ -969,8 +965,7 @@ async function handleEditorMessage(kind: 'request' | 'send', projectRoot: string
     }
     if (message === 'query-uuid') {
         const [target] = args;
-        const info = await assetManager.queryAssetInfo(target);
-        return info?.uuid || '';
+        return assetManager.queryUUID(target) || '';
     }
     if (message === 'refresh-asset') {
         const [target] = args;
@@ -1002,8 +997,7 @@ if (message === 'save-asset-meta') {
 }
 if (message === 'query-uuid') {
     const [target] = args;
-    const info = await assetManager.queryAssetInfo(target);
-    return info?.uuid || '';
+    return assetManager.queryUUID(target) || '';
 }
 if (message === 'refresh-asset') {
     const [target] = args;
@@ -1035,7 +1029,7 @@ rtk pwsh -NoProfile -Command "npx jest src/core/extensions/test/editor-facade.sp
 
 Expected: PASS.
 
-- [ ] **Step 4: Rebuild CLI dist before real build checkpoint**
+- [ ] **Step 4: Rebuild CLI dist before fixture checkpoint**
 
 ```powershell
 rtk pwsh -NoProfile -Command 'npm run build'
@@ -1043,21 +1037,34 @@ rtk pwsh -NoProfile -Command 'npm run build'
 
 Expected: PASS.
 
-- [ ] **Step 5: Re-run real build and repeat classification**
+- [ ] **Step 5: Verify with a main test project fixture that mirrors real build-ex Editor calls**
 
-Use the Task 4 command with a new output name:
+Create a temporary copy of the main test project fixture under `.codex-tmp`, inject a minimal `extensions/build-ex` package, and make that hook exercise the real `feature-c/build-ex` Editor call shapes against fixture-owned assets:
+
+- module top-level reads `Editor.Project.path`;
+- `onBeforeBuild` calls `query-asset-meta`, mutates `userData`, then calls `save-asset-meta`;
+- calls `query-uuid`, `refresh-asset`, `reimport-asset`, and `save-asset` against assets that exist in the fixture;
+- uses `move-asset` / `delete-asset` only on fixture-owned temporary assets;
+- writes a marker file under the copied project root so the test can prove the hook executed under facade scope.
+
+Use the current CLI option spelling:
 
 ```powershell
-rtk pwsh -NoProfile -Command '$env:NODE_OPTIONS="--max-old-space-size=12288"; node .\dist\cli.js build --project D:\ps_copy\p6\trunk\Project\GameClient\feature-c --platform web-mobile --build-config D:\ps_copy\p6\trunk\Project\GameClient\feature-c\build_configs\p6_buildConfig_web-mobile.json --output-name codex-p6-web-mobile-cli-editor-facade-api-checkpoint-20260616 *> .codex-tmp\p6-web-mobile-editor-facade-api-checkpoint.stdout.log'
+rtk pwsh -NoProfile -Command 'node .\dist\cli.js build --project .codex-tmp\<fixture-project> --platform web-mobile --build-config .codex-tmp\<fixture-project>\build-ex-facade-config.json --outputName codex-build-ex-facade-fixture *> .codex-tmp\build-ex-facade-fixture.stdout.log'
 ```
 
 Expected:
 
 - Every newly supported `Editor.Message` API is backed by existing CLI `assetManager` behavior or explicit filesystem operation.
-- Unsupported API still fails the build.
+- Unsupported API still fails the build; no empty mock, `true`, or no-op is accepted.
 - No `ReferenceError: Editor is not defined`.
+- The fixture build exits successfully only when the injected hook marker exists and the fixture asset/meta change is observable in the copied project.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Optional low-frequency real feature-c checkpoint**
+
+Run the real project only after the fixture validates the full observed API inventory, or when a new failure cannot be reproduced in the fixture. Use `--outputName`, not `--output-name`, and record the runtime cost and first unsupported API in the fact doc.
+
+- [ ] **Step 7: Commit**
 
 ```powershell
 rtk pwsh -NoProfile -Command "git add src/core/extensions/editor-facade.ts src/core/extensions/test/editor-facade.spec.ts docs/dev/build/facts/feature-c-web-mobile-cli-build-20260616.md docs/dev/build/issues.md; git commit -m 'feat: support fact-based Editor asset-db messages'"
