@@ -223,7 +223,9 @@ export class BundleManager extends BuildTaskBase implements IBundleManager {
 
     public async buildAsset() {
         // 先自动图集再纹理压缩
-        await this.packImage();
+        if (this.options.packAutoAtlas !== false) {
+            await this.packImage();
+        }
         await this.compressImage();
         await this.outputAssets();
     }
