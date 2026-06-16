@@ -10,6 +10,7 @@ jest.mock('../../assets', () => ({
     assetManager: {
         moveAsset: jest.fn(async () => ({ uuid: 'moved-uuid' })),
         removeAsset: jest.fn(async () => ({ uuid: 'removed-uuid' })),
+        saveAssetMeta: jest.fn(async () => undefined),
     },
 }));
 
@@ -57,6 +58,37 @@ describe('project extension Editor facade', () => {
         expect(assetManager.removeAsset).toHaveBeenCalledWith('db://assets/tmp_cfg', {
             useTrash: false,
         });
+    });
+
+    it('delegates save-asset-meta request to assetManager.saveAssetMeta and parses string meta', async () => {
+        const editor = createEditorFacade({ projectRoot });
+        const meta = {
+            width: 32,
+            packed: true,
+        };
+
+        await editor.Message.request('asset-db', 'save-asset-meta', 'db://assets/atlas', JSON.stringify(meta));
+
+        expect(assetManager.saveAssetMeta).toHaveBeenCalledWith(
+            'db://assets/atlas',
+            meta,
+        );
+    });
+
+    it('delegates save-asset-meta request to assetManager.saveAssetMeta with raw object', async () => {
+        const editor = createEditorFacade({ projectRoot });
+        const meta = {
+            width: 32,
+            packed: true,
+        };
+
+        await editor.Message.request('asset-db', 'save-asset-meta', 'db://assets/atlas', meta);
+
+        expect(assetManager.saveAssetMeta).toHaveBeenCalledWith(
+            'db://assets/atlas',
+            meta,
+        );
+        expect((assetManager.saveAssetMeta as jest.Mock).mock.calls[0][1]).toBe(meta);
     });
 
     it('unsupported request throws Unsupported Editor.Message request: asset-db.query-assets', async () => {

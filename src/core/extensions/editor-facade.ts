@@ -47,6 +47,13 @@ async function handleEditorMessage(
         return assetManager.removeAsset(target, { useTrash: false });
     }
 
+    if (message === 'save-asset-meta') {
+        const { assetManager } = await import('../assets');
+        const [target, rawMeta] = args as [string, unknown];
+        const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
+        return assetManager.saveAssetMeta(target, meta as any);
+    }
+
     throw getUnsupportedError(kind, channel, message);
 }
 
