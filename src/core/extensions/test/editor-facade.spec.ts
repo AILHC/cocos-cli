@@ -104,6 +104,21 @@ describe('project extension Editor facade', () => {
         })).rejects.toThrow('Unsupported Editor.Message send: asset-db.query-assets');
     });
 
+    it('delegated API internal delayed setTimeout should not trigger send-scope timer failure', async () => {
+        (assetManager.saveAssetMeta as jest.Mock).mockImplementationOnce(() => new Promise<void>((resolve) => {
+            setTimeout(() => {
+                resolve(undefined);
+            }, 10);
+        }));
+
+        await expect(withEditorFacade({ projectRoot }, async () => {
+            await (globalThis as any).Editor.Message.request('asset-db', 'save-asset-meta', 'db://assets/atlas', JSON.stringify({
+                width: 32,
+                packed: true,
+            }));
+        })).resolves.toBeUndefined();
+    });
+
     it('queue send operations and drain before teardown', async () => {
         await withEditorFacade({ projectRoot }, async () => {
             (globalThis as any).Editor.Message.send('asset-db', 'move-asset', 'db://assets/tmp_cfg', 'db://assets/resources/cfg', {
