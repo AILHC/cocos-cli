@@ -5,9 +5,9 @@ import { roundToPowerOfTwo } from './utils';
 import { quickSpawn } from '../../utils';
 import i18n from '../../../../../base/i18n';
 import { ICompressConfig, ITextureCompressType } from '../../../../@types';
-import { GlobalPaths } from '../../../../../../global';
 import utils from '../../../../../base/utils';
 import builderConfig from '../../../../share/builder-config';
+import { resolveTextureCompressTool, resolveTextureCompressToolPath } from './tool-resolver';
 const Sharp = require('sharp');
 
 /**
@@ -49,10 +49,10 @@ export async function compressWebp(option: ICompressConfig) {
     // 工具可能不会自动生成输出目录文件夹
     ensureDirSync(dirname(dest));
     console.debug('start compress webp', src, dest, format);
-    let webpTool = Path.join(GlobalPaths.staticDir, 'tools/libwebp_darwin/bin/cwebp');
-    if (process.platform === 'win32') {
-        webpTool = Path.join(GlobalPaths.staticDir, 'tools/libwebp_win32/bin/cwebp.exe');
-    }
+    const webpToolResolution = await resolveTextureCompressToolPath(process.platform === 'win32'
+        ? Path.join('libwebp_win32', 'bin', 'cwebp.exe')
+        : Path.join('libwebp_darwin', 'bin', 'cwebp'));
+    const webpTool = webpToolResolution.path;
     const args = [src, '-o', dest, '-q', String(compressOptions.quality), '-quiet', '-exact'];
     console.debug(`webp compress command : ${webpTool} ${args.join(' ')}`);
     await quickSpawn(webpTool, args, {
@@ -68,22 +68,7 @@ export async function compressWebp(option: ICompressConfig) {
  */
 export async function compressPVR(option: ICompressConfig) {
     console.debug('start compress pvr', option);
-    let src = option.src;
-    if (option.format.endsWith('rgb_a')) {
-        const tempDest = Path.join(builderConfig.projectTempDir, 'builder', 'CompressTexture', 'pvr_alpha', option.uuid + Path.extname(src));
-        await createAlphaAtlas(src, tempDest);
-        src = tempDest;
-    }
     const { dest, format, compressOptions } = option;
-    // 工具可能不会自动生成输出目录文件夹
-    ensureDirSync(dirname(dest));
-    // https://github.com/cocos/cocos-editor/pull/1046
-    // PVR 升级的已知问题：ios 上似乎会出现渲染效果异常？？暂不确定
-    // https://docs.imgtec.com/tools-manuals/pvrtextool-manual/html/topics/cli/command-line-options.html#encode-format-desc
-    let pvrTool = Path.join(GlobalPaths.staticDir, 'tools/PVRTexTool_darwin/PVRTexToolCLI');
-    if (process.platform === 'win32') {
-        pvrTool = Path.join(GlobalPaths.staticDir, 'tools/PVRTexTool_win32/PVRTexToolCLI.exe');
-    }
 
     const compressFormatMap: Record<string, string> = {
         pvrtc_4bits_rgba: 'PVRTC1_4',
@@ -94,13 +79,28 @@ export async function compressPVR(option: ICompressConfig) {
         pvrtc_2bits_rgb_a: 'PVRTC1_2_RGB',
     };
 
-    // 根据 option.format 转换格式
     const compressFormat = compressFormatMap[format];
     if (!compressFormat) {
         console.error(`Invalid pvr compress format ${format}`);
         return;
     }
 
+    let src = option.src;
+    if (option.format.endsWith('rgb_a')) {
+        const tempDest = Path.join(builderConfig.projectTempDir, 'builder', 'CompressTexture', 'pvr_alpha', option.uuid + Path.extname(src));
+        await createAlphaAtlas(src, tempDest);
+        src = tempDest;
+    }
+
+    const resolveResult = await resolveTextureCompressTool('pvr');
+    const pvrTool = resolveResult.path;
+
+    console.log(`pvrtc tool resolved: path=${resolveResult.path}, source=${resolveResult.source}, version=${resolveResult.version}`);
+
+    // 工具可能不会自动生成输出目录文件夹
+    ensureDirSync(dirname(dest));
+
+    // 根据 option.format 转换格式
     const quality = 'pvrtc' + compressOptions.quality;
     const pvrOpts = [
         '-i',
@@ -168,10 +168,9 @@ export async function compressEtc(option: ICompressConfig) {
         src = tempDest;
     }
 
-    let etcTool = Path.join(GlobalPaths.staticDir, 'tools/mali_darwin/etcpack');
-    if (process.platform === 'win32') {
-        etcTool = Path.join(GlobalPaths.staticDir, 'tools/mali_win32/etcpack.exe');
-    }
+    let etcTool = (await resolveTextureCompressToolPath(process.platform === 'win32'
+        ? Path.join('mali_win32', 'etcpack.exe')
+        : Path.join('mali_darwin', 'etcpack'))).path;
 
     const toolDir = Path.dirname(etcTool);
     etcTool = '.' + Path.sep + Path.basename(etcTool);
@@ -244,10 +243,9 @@ export async function compressAstc(option: ICompressConfig) {
     ensureDirSync(dirname(dest));
     // 参考：https://github.com/cocos-creator/3d-tasks/issues/6855
     // https://github.com/ARM-software/astc-encoder
-    let astcTool = Path.join(GlobalPaths.staticDir, 'tools/astc-encoder/astcenc');
-    if (process.platform === 'win32') {
-        astcTool = Path.join(GlobalPaths.staticDir, 'tools/astc-encoder/astcenc.exe');
-    }
+    const astcTool = (await resolveTextureCompressToolPath(process.platform === 'win32'
+        ? Path.join('astc-encoder', 'astcenc.exe')
+        : Path.join('astc-encoder', 'astcenc'))).path;
 
     const compressFormatMap: Record<string, string> = {
         astc_4x4: '4x4',
