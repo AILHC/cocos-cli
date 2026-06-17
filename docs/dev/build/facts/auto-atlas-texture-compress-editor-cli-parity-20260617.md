@@ -683,6 +683,32 @@ cocos4 对比：
   - `f8048f67-ba80-4b35-9450-33cf6254fbf3.pvr`
 - parity：`npm --prefix vitests test -- suites/build/wechatgame-editor-baseline-parity.test.ts`，1 test passed。
 
+### Review 后入口修复与最终复验
+
+最终 review 发现两个必须补齐的事实：
+
+- `src/api/builder/builder.ts` 的 `BuilderApi.build()` 会直接调用 `core/builder.build()`，不经过 `Launcher.build()`；因此从 `CocosAPI.startup()` 或 MCP server 进入的 build 仍会复用已启动进程的 `editor-nodejs` runtime，无法获得 normal build 需要的 `build-nodejs`。
+- MCP tool registry 保存的是 class prototype，`McpMiddleware` 执行 tool 时原先直接把 prototype 当 instance 调用；只在 `CocosAPI._init()` 创建 `new BuilderApi(() => this._projectPath)` 不足以修复 MCP 路径。
+- 3.8.6 dev-cli 编译产物中 `NODEJS=true` 是编译常量；Editor-like 场景通过 `CC_EDITOR=true` 进入 `editor-nodejs` 时也同时满足 `NODEJS`。因此 `editor-path-replace.ts` 不能把 `NODEJS` 分支放在 `EDITOR` 分支前，否则会破坏原 Editor `Editor.Message.request('asset-db', 'query-asset-info')` 行为。
+
+对应修复：
+
+- `CocosAPI.startup(projectPath)` 后，`BuilderApi` 保存 projectPath provider；`BuilderApi.build()` 在已知 projectPath 时写入临时 options JSON，并用独立 Node 子进程执行 `CocosAPI.buildProject(projectPath, platform, options)`，从而重新经过 `Launcher.build()` 的 `build-nodejs` 初始化。未知 projectPath 时保留旧 direct fallback。
+- `McpMiddleware` 接受 projectPath provider；`start-mcp-server` 与 MCP 测试 helper 传入当前 projectPath；执行 `BuilderApi` tool 时创建带 provider 的真实 `BuilderApi` 实例。
+- parent process 通过 sentinel JSON 读取子进程 build result，并在 `finally` 清理临时 options 文件。
+- `editor-path-replace.ts` 的分支顺序保持 `EDITOR` 优先、`NODEJS` 次之，并在异常路径 drain 同 uuid 的 `resolveMap` 等待队列。
+
+新增验证：
+
+- `rtk npm test -- src/core/builder/test/builder-api-build.spec.ts src/core/builder/test/wechatgame-platform.spec.ts --runInBand`：2 suites / 9 tests passed。
+- `rtk npm run build`：通过。
+- `rtk npm run compiler:engine`：通过。
+- `wechatgame` after-review-fixes 输出：`E:\own_space\engines\cocos-test-projects\build\cli-build-issue-021-current-wechatgame-20260617-after-review-fixes`
+- after-review-fixes 构建退出码：`0`；日志包含 `Pack Images success`、`Compress image success`、`Build Assets success`。
+- after-review-fixes 运行时快照：`CC_EDITOR=false`、`CC_PREVIEW=false`、`CC_NODEJS=true`、`CC_BUILD=false`、`appendTimeStamp=false`。
+- after-review-fixes parity：`npm --prefix vitests test -- suites/build/wechatgame-editor-baseline-parity.test.ts`，1 test passed。
+- after-review-fixes 构建日志未命中：`Editor is not defined`、`Read json failed`、`remote/internal/cc.config.json`、`sprite frame can`、`ENOENT.*?_t=`。
+
 残余警告：
 
 - `Failed to resolve CommonJS bare specifier "@tbmp/mp-cloud-sdk"`：项目脚本依赖问题，build 已按现有 fallback 继续。
@@ -691,4 +717,5 @@ cocos4 对比：
 
 未完成验证：
 
-- runtime preview、scene process、MCP/API startup、programming facet 尚未完整回归。
+- runtime preview、scene process、programming facet 尚未完整回归。
+- MCP/API startup 已覆盖 build 子进程隔离路径和 MCP middleware tool 调用路径单元测试，但尚未跑真实 MCP server HTTP 端到端构建。

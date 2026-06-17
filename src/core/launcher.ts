@@ -19,6 +19,8 @@ interface RuntimePreviewStageDiagnostics {
     stageError: (stage: string, error: unknown) => void;
 }
 
+type EngineRuntimeMode = 'editor-nodejs' | 'build-nodejs';
+
 type RuntimePreviewDiagnosticsGlobal = typeof globalThis & {
     __cocosCliRuntimePreviewDiagnostics?: {
         event: (line: string) => void;
@@ -156,7 +158,11 @@ export default class Launcher {
         return this._engineRootResolution;
     }
 
-    private async init(options: { serverURL?: string; diagnostics?: RuntimePreviewStageDiagnostics } = {}) {
+    private async init(options: {
+        serverURL?: string;
+        diagnostics?: RuntimePreviewStageDiagnostics;
+        engineRuntimeMode?: EngineRuntimeMode;
+    } = {}) {
         if (this._init) {
             return;
         }
@@ -177,7 +183,12 @@ export default class Launcher {
         const { initEngine } = await import('./engine');
         options.diagnostics?.stageStart('engine:init');
         try {
-            await initEngine((await this.resolveEngineRoot()).engineRoot, this.projectPath, options.serverURL);
+            await initEngine(
+                (await this.resolveEngineRoot()).engineRoot,
+                this.projectPath,
+                options.serverURL,
+                options.engineRuntimeMode,
+            );
             options.diagnostics?.stageDone('engine:init');
         } catch (error) {
             options.diagnostics?.stageError('engine:init', error);
@@ -193,12 +204,17 @@ export default class Launcher {
         serverURL?: string;
         diagnostics?: RuntimePreviewStageDiagnostics;
         clearRuntimePreviewProgrammingCache?: boolean;
+        engineRuntimeMode?: EngineRuntimeMode;
     } = {}) {
         if (this._import) {
             return;
         }
         this._import = true;
-        await this.init({ serverURL: options.serverURL, diagnostics: options.diagnostics });
+        await this.init({
+            serverURL: options.serverURL,
+            diagnostics: options.diagnostics,
+            engineRuntimeMode: options.engineRuntimeMode,
+        });
         // 在导入资源之前，初始化 scripting 模块，才能正常导入编译脚本
         const { Engine } = await import('./engine');
         await scripting.initialize(this.projectPath, (await this.resolveEngineRoot()).engineRoot, Engine.getConfig().includeModules);
@@ -489,7 +505,9 @@ export default class Launcher {
     async build(platform: Platform, options: Partial<IBuildCommandOption>) {
         GlobalConfig.mode = 'simple';
         // 先导入项目
-        await this.import();
+        await this.import({
+            engineRuntimeMode: 'build-nodejs',
+        });
         // 执行构建流程
         const { init, build } = await import('./builder');
         await init(platform, this.projectPath);

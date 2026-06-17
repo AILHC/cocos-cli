@@ -35,7 +35,7 @@ export async function startMCPServer(folder: string) {
     const cocosAPI = await CocosAPI.create();
     await cocosAPI.startup(folder);
 
-    const middleware = new McpMiddleware();
+    const middleware = new McpMiddleware(() => folder);
     register('mcp', middleware.getMiddlewareContribution());
     const url = getServerUrl();
     return { cocosAPI, middleware, url };
