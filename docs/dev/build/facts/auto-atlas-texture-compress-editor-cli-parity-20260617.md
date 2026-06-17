@@ -719,3 +719,56 @@ cocos4 对比：
 
 - runtime preview、scene process、programming facet 尚未完整回归。
 - MCP/API startup 已覆盖 build 子进程隔离路径和 MCP middleware tool 调用路径单元测试，但尚未跑真实 MCP server HTTP 端到端构建。
+
+## BUILD-ISSUE-021 产物运行验证补充
+
+### web-mobile 浏览器运行验证
+
+验证对象：
+
+- 输出目录：`E:\own_space\engines\cocos-test-projects\build\cli-build-issue-021-current-web-mobile-20260617-after-texture-serialize`
+- 本地 URL：`http://127.0.0.1:18121/index.html`
+
+验证过程：
+
+- 用本地静态服务打开上述 `web-mobile` 输出目录。
+- 使用 in-app browser 打开 `index.html`。
+- 读取 browser console：`error` 数量为 `0`。
+- 读取 browser log：出现 `LoadScene db://assets/cases/animation/EasingMethods.scene: 99.97412109375 ms`。
+- 截图观察到场景已渲染：蓝色背景、`EasingMethods.scene` 中的 `Sine` 标签、运动曲线和中文说明文本。
+
+判断：
+
+- 本轮只能证明该 `web-mobile` 构建产物可在浏览器中启动并渲染首个加载 scene，且未观察到 console error。
+- 本轮没有覆盖完整交互、全部 scene 切换或所有资源路径。
+
+### wechatgame 微信开发者工具打开验证
+
+验证对象：
+
+- 输出目录：`E:\own_space\engines\cocos-test-projects\build\cli-build-issue-021-current-wechatgame-20260617-after-review-fixes`
+- 产物入口检查：目录存在 `project.config.json`、`game.json`、`game.js`、`web-adapter.js`、`engine-adapter.js`。
+
+工具定位：
+
+- 通过 Windows 快捷方式定位到微信开发者工具安装路径：`E:\programs\微信web开发者工具\微信开发者工具.exe`。
+- 同目录存在 CLI：`E:\programs\微信web开发者工具\cli.bat`。
+
+执行命令：
+
+```powershell
+& "E:\programs\微信web开发者工具\cli.bat" open --project "E:\own_space\engines\cocos-test-projects\build\cli-build-issue-021-current-wechatgame-20260617-after-review-fixes" --lang zh
+```
+
+CLI 输出：
+
+```text
+× IDE may already started at port 41192, trying to connect
+√ IDE 启动成功，HTTP 服务地址 http://127.0.0.1:28361
+√ open
+```
+
+判断：
+
+- 本轮证明该 `wechatgame` 构建目录可被微信开发者工具 CLI 作为项目打开。
+- 本轮没有进一步读取微信开发者工具模拟器 console，也没有覆盖微信小游戏运行时完整交互。
