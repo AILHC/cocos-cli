@@ -17,6 +17,7 @@ export class CocosAPI {
     public builder!: BuilderApi;
     public configuration!: ConfigurationApi;
     public system!: SystemApi;
+    private _projectPath?: string;
 
     static async create() {
         const api = new CocosAPI();
@@ -41,7 +42,7 @@ export class CocosAPI {
         const { AssetsApi } = await import('../api/assets/assets');
         this.assets = new AssetsApi();
         const { BuilderApi } = await import('../api/builder/builder');
-        this.builder = new BuilderApi();
+        this.builder = new BuilderApi(() => this._projectPath);
         const { ConfigurationApi } = await import('../api/configuration/configuration');
         this.configuration = new ConfigurationApi();
         const { SystemApi } = await import('../api/system/system');
@@ -53,8 +54,8 @@ export class CocosAPI {
      * @param projectPath 
      * @param port 
      */
-    public startupMcpServer(@param(SchemaProjectPath) projectPath: TProjectPath, @param(SchemaPort) port?: TPort) {
-        this.startup(projectPath, port);
+    public async startupMcpServer(@param(SchemaProjectPath) projectPath: TProjectPath, @param(SchemaPort) port?: TPort) {
+        await this.startup(projectPath, port);
     }
 
     /**
@@ -64,6 +65,7 @@ export class CocosAPI {
         const { default: Launcher } = await import('../core/launcher');
         const launcher = new Launcher(projectPath);
         await launcher.startup(port);
+        this._projectPath = projectPath;
     }
 
     /**

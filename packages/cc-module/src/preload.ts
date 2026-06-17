@@ -1,6 +1,9 @@
 import { join } from 'path';
 import { EngineLoader } from './loader';
 import sharp from 'sharp';
+
+export type EngineRuntimeMode = 'editor-nodejs' | 'build-nodejs';
+
 let hasPreload = false;
 
 /**
@@ -25,15 +28,19 @@ async function preload(options: {
      */
     requiredModules: string[];
     editor?: boolean;
+    runtimeMode?: EngineRuntimeMode;
 }) {
     try {
         if (hasPreload) {
             throw new Error('You can only preload engine once.');
         }
         hasPreload = true;
+        const isEditorRuntime = options.runtimeMode
+            ? options.runtimeMode === 'editor-nodejs'
+            : !!options.editor;
 
         // @ts-ignore
-        globalThis.CC_EDITOR = !!options.editor;
+        globalThis.CC_EDITOR = isEditorRuntime;
         // @ts-ignore
         globalThis.CC_PREVIEW = false;
         // @ts-ignore

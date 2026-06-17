@@ -19,7 +19,7 @@ export class McpMiddleware {
     private resourceManager: ResourceManager;
     private builderHook: BuilderHook;
 
-    constructor() {
+    constructor(private readonly getProjectPath?: () => string | undefined) {
         this.builderHook = new BuilderHook();
         // 创建 MCP server
         this.server = new McpServer({
@@ -301,6 +301,10 @@ export class McpMiddleware {
      * 获取工具实例
      */
     private async getToolInstance(target: any): Promise<any> {
+        if (target?.constructor?.name === 'BuilderApi') {
+            return new target.constructor(this.getProjectPath);
+        }
+
         // 如果 target 已经是实例，直接返回
         if (typeof target === 'object' && target !== null) {
             return target;

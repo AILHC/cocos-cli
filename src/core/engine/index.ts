@@ -12,6 +12,18 @@ import { createEngineMetadataNodes } from './metadata';
 import { installUuidUtilsCompatibility } from './editor-extends/uuid-utils-compatibility';
 import i18n from '../base/i18n';
 
+export type EngineRuntimeMode = 'editor-nodejs' | 'build-nodejs';
+
+declare module './@types/config' {
+    interface IInitEngineInfo {
+        runtimeMode?: EngineRuntimeMode;
+    }
+}
+
+type IInitEngineOptions = IInitEngineInfo & {
+    editor?: boolean;
+};
+
 /**
  * 整合 engine 的一些编译、配置读取等功能
  */
@@ -353,14 +365,19 @@ class EngineManager implements IEngine {
      * @param onBeforeGameInit - 在初始化之前需要做的工作
      * @param onAfterGameInit - 在初始化之后需要做的工作
      */
-    async initEngine(info: IInitEngineInfo, onBeforeGameInit?: () => Promise<void>, onAfterGameInit?: () => Promise<void>) {
+    async initEngine(info: IInitEngineOptions, onBeforeGameInit?: () => Promise<void>, onAfterGameInit?: () => Promise<void>) {
+        const runtimeMode = info.runtimeMode
+            ?? (typeof info.editor === 'boolean'
+                ? (info.editor ? 'editor-nodejs' : 'build-nodejs')
+                : 'editor-nodejs');
         const { default: preload } = await import('cc/preload');
         await this.importEditorExtensions();
         await preload({
             engineRoot: this._info.typescript.path,
             engineDev: join(this._info.typescript.path, 'bin', '.cache', 'dev-cli'),
             writablePath: info.writablePath,
-            editor: true,
+            editor: runtimeMode === 'editor-nodejs',
+            runtimeMode,
             requiredModules: [
                 'cc',
                 'cc/editor/populate-internal-constants',
@@ -570,7 +587,12 @@ export { Engine };
  * @param projectPath
  * @param serverURL
  */
-export async function initEngine(enginePath: string, projectPath: string, serverURL?: string) {
+export async function initEngine(
+    enginePath: string,
+    projectPath: string,
+    serverURL?: string,
+    runtimeMode: EngineRuntimeMode = 'editor-nodejs',
+) {
     await Engine.init(enginePath);
     // 这里 importBase 与 nativeBase 用服务器是为了让服务器转换资源真实存放的路径
     await Engine.initEngine({
@@ -578,5 +600,6 @@ export async function initEngine(enginePath: string, projectPath: string, server
         importBase: serverURL ?? join(projectPath, 'library'),
         nativeBase: serverURL ?? join(projectPath, 'library'),
         writablePath: join(projectPath, 'temp'),
+        runtimeMode,
     });
 }

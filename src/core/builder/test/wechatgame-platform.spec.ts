@@ -67,6 +67,18 @@ describe('wechatgame platform config', () => {
         expect(config.buildTemplateConfig).toBeUndefined();
         expect(config.customBuildStages).toBeUndefined();
     });
+
+    it('keeps texture compression support aligned with Editor miniGame presets', async () => {
+        const config = (await import('../platforms/wechatgame/config')).default;
+        const support = config.textureCompressConfig?.support;
+
+        expect(config.textureCompressConfig?.platformType).toBe('miniGame');
+        expect(support?.rgba).toEqual(expect.arrayContaining([
+            'pvrtc_2bits_rgb_a',
+            'pvrtc_4bits_rgb_a',
+            'astc_10x10',
+        ]));
+    });
 });
 
 describe('wechatgame build hooks', () => {
