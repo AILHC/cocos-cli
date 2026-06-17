@@ -32,12 +32,12 @@
 具体规则：
 
 1. 从 `internal:constants` 增加导入 `NODEJS`。
-2. 从 `../../core` 增加导入 `cclegacy`。
-3. 入口条件从 `(EDITOR || PREVIEW) && !TEST` 扩展为 `(EDITOR || PREVIEW || NODEJS) && !TEST`。
-4. 在 `queryExtension(uuid)` 内优先判断 `NODEJS`。只要 `NODEJS` 为真，就不再回退到 `EDITOR` 分支。
-5. `NODEJS` 分支内部检查 `globalThis.AssetDB?.queryAsset`，并通过 `globalThis.AssetDB.queryAsset(uuid)?.meta.files` 查询当前 asset 的 library payload 文件列表。
-6. 当 `meta.files` 包含 `.cconb` 时返回 `.cconb`。
-7. 当 `meta.files` 只有历史 `.bin` 时返回 `.cconb`，保持 CCON payload 加载语义。
+2. 入口条件从 `(EDITOR || PREVIEW) && !TEST` 扩展为 `(EDITOR || PREVIEW || NODEJS) && !TEST`。
+3. 在 `queryExtension(uuid)` 内优先判断 `NODEJS`。只要 `NODEJS` 为真，就不再回退到 `EDITOR` 分支。
+4. `NODEJS` 分支内部检查 `globalThis.AssetDB?.queryAsset`，并通过 `globalThis.AssetDB.queryAsset(uuid)?.meta.files` 查询当前 asset 的 library payload 文件列表。
+5. 当 `meta.files` 严格等于单文件 `[ ".cconb" ]` 时返回 `.cconb`。
+6. 当 `meta.files` 严格等于单文件历史 `[ ".bin" ]` 时返回 `.cconb`，保持 CCON payload 加载语义。
+7. 其他 `meta.files` 形态返回空字符串，除非后续有新的 engine 或 Editor 事实证明需要扩展。
 8. 当 `NODEJS` 分支无法查询到有效 `meta.files` 时返回空字符串，让后续加载链路暴露真实失败。
 9. Editor 分支保留原 `Editor.Message.request('asset-db', 'query-asset-info', uuid)` 行为。
 10. Preview / Native preview 分支保留原 `/query-extname/<uuid>` 行为。
@@ -58,7 +58,7 @@
 
 ## 错误处理
 
-- `AssetDB` 不存在或没有 `queryAsset`：返回空字符串，不伪造成功。
+- `AssetDB` 不存在或没有 `queryAsset`：在 `NODEJS` 分支输出一次明确 warning / diagnostic，返回空字符串，不伪造成功，也不回退到 `Editor.Message`。
 - `queryAsset(uuid)` 返回空：返回空字符串。
 - `meta.files` 不存在或不是数组：返回空字符串。
 - 查询过程抛错：沿用现有 `queryExtension()` 的 catch 行为，记录错误、缓存空字符串并继续。
@@ -71,10 +71,14 @@
 
 不应改变：
 
-- Editor 中 `EDITOR=true` 且无 CLI `AssetDB` 的行为。
+- `NODEJS=false` 的 Creator Editor runtime 行为，仍走 `Editor.Message.request('asset-db', 'query-asset-info', uuid)`。
 - Browser preview / native preview 通过 `/query-extname/<uuid>` 查询扩展名的行为。
 - CLI builder 的 `CC_EDITOR=true` 初始化策略。
 - CLI project extension hook 的 `Editor` facade 行为。
+
+会有意改变：
+
+- `NODEJS=true + EDITOR=true` 且无 `AssetDB.queryAsset` 的 runtime 不再回退到 `Editor.Message`，而是 warning 后返回空字符串。当前目标 runtime 是 CLI / dev-cli build；不能未经验证假设 Creator Editor 本体也以 `NODEJS=true` 编译并执行该模块。
 
 需要注意：如果后续日志仍出现带 `?_t=` 的本地文件 `ENOENT`，应在 node adapter filesystem path 读取层继续定位，不能继续扩大 `editor-path-replace.ts` 的职责。
 
@@ -89,3 +93,9 @@
 5. 检查 `sprite frame can't be load` 不再由 `Editor is not defined` 引发。
 6. 复跑 `vitests/suites/build/wechatgame-editor-baseline-parity.test.ts`。
 7. 如果仍存在新的 asset load 失败，根据新错误栈登记或更新问题，不把本次修复扩展为通用 filesystem 或 texture compression 修复。
+
+可使用的最小自动化验证命令：
+
+```powershell
+rtk npm --prefix "E:\own_space\engines\cocos-cli\vitests" test -- suites/build/wechatgame-editor-baseline-parity.test.ts
+```
