@@ -970,6 +970,8 @@ export declare interface AssetSerializeOptions {
         glsl3: boolean;
         glsl4: boolean;
     };
+    exportCCON?: boolean;
+    useCCONB?: boolean;
 }
 export declare interface AssetUserDataMap {
     'animation-clip': AnimationClipAssetUserData;
@@ -1190,7 +1192,7 @@ export declare class BuildTask extends BuildTaskBase implements IBuilder {
     getPreviewSettings(): Promise<ISettings>;
     private initOptions;
     private runBuildTask;
-    handleHook(func: Function, internal: boolean, ...args: any[]): Promise<void>;
+    handleHook(func: Function, internal: boolean, _info?: IBuildHookInfo, ...args: any[]): Promise<void>;
     onError(error: Error, throwError?: boolean): void;
     runErrorHook(): Promise<void>;
 }
@@ -1209,7 +1211,7 @@ export declare abstract class BuildTaskBase extends EventEmitter {
     break(reason: string): void;
     onError(error: Error, throwError?: boolean): void;
     updateProcess(message: string, increment?: number, outputType?: IConsoleType): void;
-    abstract handleHook(func: Function, internal: boolean, ...args: any[]): Promise<void>;
+    abstract handleHook(func: Function, internal: boolean, info?: IBuildHookInfo, ...args: any[]): Promise<void>;
     abstract run(): Promise<boolean>;
     runPluginTask(funcName: string, weight?: number): Promise<void>;
 }
@@ -1331,6 +1333,9 @@ export declare class BundleManager extends BuildTaskBase implements IBundleManag
     private addBundle;
     private getDefaultBundleConfig;
     initBundle(): Promise<void>;
+    private addSceneBundleConfigs;
+    private getSupportedCompressionTypes;
+    private getBundlePlatformType;
     private initInternalBundleConfigs;
     private patchProjectBundleConfig;
     private initBundleRootAssets;
@@ -1340,7 +1345,7 @@ export declare class BundleManager extends BuildTaskBase implements IBundleManag
     private packImage;
     buildScript(): Promise<any>;
     private outputAssets;
-    handleHook(func: Function, internal: boolean, ...args: any[]): Promise<void>;
+    handleHook(func: Function, internal: boolean, _info?: IBuildHookInfo, ...args: any[]): Promise<void>;
     runAllTask(): Promise<void>;
     runBuildTask(handle: Function, increment: number): Promise<void>;
 }
@@ -1483,11 +1488,11 @@ export declare interface CustomBundleConfigMap {
     [bundleName: string]: CustomBundleConfig;
 }
 export declare class CustomConsole {
-    constructor(level?: LogLevel);
     debug: (...args: any[]) => void;
     log: (...args: any[]) => void;
     warn: (...args: any[]) => void;
     error: (...args: any[]) => void;
+    constructor(level?: LogLevel);
 }
 export declare interface CustomPluginOptions {
     	[plugin: string]: any;
@@ -1499,6 +1504,7 @@ export declare class DataManager {
     };
     _saveTimer: any;
     private console;
+    private editorCompatibility;
     constructor(customConsole: CustomConsole);
     setRecordJSON(json: string): Promise<void>;
     save(): void;
@@ -1509,6 +1515,7 @@ export declare class DataManager {
     setValue(asset: VirtualAsset, key: string, value: any): void;
     getValue(asset: VirtualAsset, key: string): any;
     get(asset: VirtualAsset, key?: keyof IData): null | any;
+    private shouldPreserve;
 }
 export declare type DecodedSourceMapOrMissing =
 	| {
@@ -1526,6 +1533,7 @@ export declare class DependencyManager {
     dependMap: DependMap;
     _saveTimer: any;
     private console;
+    private editorCompatibility;
     constructor(customConsole: CustomConsole, pathRoot: string);
     setRecordJSON(path: string): Promise<void>;
     private _restoreCache;
@@ -1535,6 +1543,7 @@ export declare class DependencyManager {
     add(type: string, key: string, depends: string | string[]): void;
     remove(type: string, key: string): void;
     destroy(): void;
+    private restoreAssociatedMap;
 }
 export declare interface DependMap {
     path: {
@@ -1802,6 +1811,10 @@ export declare interface GlTFUserData {
 }
 export declare type HasModuleSideEffects = (id: string, external: boolean) => boolean;
 export declare type IAsset = VirtualAsset | Asset;
+export declare interface IAssetDeleteOptions extends IAssetOperationOptionsBase {
+    recursive?: boolean;
+    useTrash?: boolean;
+}
 export declare interface IAssetGroupItem {
     baseUrls: string[];
     scriptDest: string;
@@ -1867,6 +1880,19 @@ export declare interface IAssetMeta<T extends ISupportCreateType | 'unknown' = '
     id?: string;
     name?: string;
 }
+export declare interface IAssetOperationContext {
+    opId: string;
+    kind: IAssetOperationKind;
+    origin: IAssetOperationOrigin;
+    source: string;
+    paths: string[];
+    timestamp: number;
+}
+export declare type IAssetOperationKind = 'write' | 'rename' | 'move' | 'copy' | 'delete';
+export declare interface IAssetOperationOptionsBase {
+    context?: IAssetOperationContext;
+}
+export declare type IAssetOperationOrigin = 'direct-op' | 'watcher';
 export declare interface IAssetPathBase {
     bundleName?: string;
     redirect?: string;
@@ -1903,6 +1929,10 @@ export declare type IAssetType =
 | 'dragonBones.DragonBonesAtlasAsset'
 | 'RenderStage'
 | 'RenderFlow';
+export declare interface IAssetWriteFileOptions extends IAssetOperationOptionsBase {
+    create?: boolean;
+    overwrite?: boolean;
+}
 export declare type IASTCQuality = 'veryfast' | 'fast' | 'medium' | 'thorough' | 'exhaustive';
 export declare interface IAtlasInfo {
     spriteFrameInfos: ISpriteFrameInfo[];
@@ -2050,13 +2080,19 @@ export declare type IBuilderConfigItem = IConfigItem & {
     verifyLevel?: IConsoleType;
 };
 export declare type IBuilderRegisterInfo = IPlatformRegisterInfo | IPluginRegisterInfo;
+export declare interface IBuildHookInfo {
+    path: string;
+    internal: boolean;
+    source?: IBuildHookSource;
+    projectRoot?: string;
+    fatal?: boolean;
+    editorFacade?: boolean;
+}
 export declare interface IBuildHooksInfo {
     pkgNameOrder: string[];
-    infos: Record<string, {
-        path: string;
-        internal: boolean;
-    }>;
+    infos: Record<string, IBuildHookInfo>;
 }
+export declare type IBuildHookSource = 'platform' | 'registered-builder' | 'project-extension';
 export declare type IBuildIconItem = IconConfigWithHook;
 export declare interface IBuildManager {
     taskManager: any;
@@ -2899,12 +2935,13 @@ export declare interface IndexConfig {
 }
 export declare class InfoManager {
     static version: string;
-    private file;
+    private file?;
     pathRoot: string;
     private recordInfo;
     private console;
-    constructor(customConsole: CustomConsole, pathRoot: string);
+    private editorCompatibility;
     _saveTimer: null | NodeJS.Timeout;
+    constructor(customConsole: CustomConsole, pathRoot: string);
     setRecordJSON(path: string): Promise<void>;
     private _restoreCache;
     private _readRecordInfo;
@@ -4066,6 +4103,8 @@ export declare class PluginManager extends EventEmitter {
     buildTemplateConfigMap: Record<string, BuildTemplateConfig>;
     configMap: Record<string, Record<string, IInternalBuildPluginConfig>>;
     private builderPathsMap;
+    private projectExtensionPkgNamesMap;
+    private projectExtensionProjectRootsMap;
     private customBuildStagesMap;
     protected customBuildStages: Record<string, {
         [pkgName: string]: IBuildStageItem[];
@@ -4081,6 +4120,14 @@ export declare class PluginManager extends EventEmitter {
     checkPlatform(platform: string): boolean;
     private registerPlatform;
     private internalRegister;
+    registerProjectExtensionBuilders(projectRoot: string, platform: Platform | string): Promise<{
+        registered: string[];
+        diagnostics: ProjectExtensionDiagnostic[];
+    }>;
+    private clearProjectExtensionBuilders;
+    private resolveProjectExtensionBuilderEntry;
+    private resolveProjectExtensionHooksPath;
+    private mergeProjectExtensionBuildConfig;
     _registerI18n(registerInfo: IBuilderRegisterInfo): void;
     private translateConfigItemDisplayFields;
     private translateConfigItemsDisplayFields;
@@ -4100,6 +4147,7 @@ export declare class PluginManager extends EventEmitter {
     checkBuildOption(platform: string, key: string, value: unknown, options: IBuildTaskOption): Promise<BuildCheckResult>;
     checkBuildOptions(platform: string, options: IBuildTaskOption): Promise<Record<string, BuildCheckResult>>;
     private checkPluginOptions;
+    private getPackageDefaultOptionsByPlatform;
     shouldGenerateOptions(platform: Platform | string): boolean;
     getOptionsByPlatform<P extends Platform | string>(platform: P): Promise<IBuildTaskOption>;
     getTexturePlatformConfigs(): Record<string, ITextureCompressConfig>;
@@ -4172,6 +4220,15 @@ export declare interface PreviewPackResult {
     storeInfo: PacStoreInfo;
     atlases: IAtlasInfo[];
 }
+export declare interface ProjectExtensionDiagnostic {
+    code: ProjectExtensionDiagnosticCode;
+    level: ProjectExtensionDiagnosticLevel;
+    extensionDirName: string;
+    extensionRoot: string;
+    message: string;
+}
+export declare type ProjectExtensionDiagnosticCode = 'invalid-package-json' | 'missing-package-name' | 'missing-builder-contribution';
+export declare type ProjectExtensionDiagnosticLevel = 'warning' | 'error';
 export declare type PureModulesOption = boolean | string[] | IsPureModule;
 export declare function queryAssetsInBundle(uuid: string, bundleFilterConfig?: BundleFilterConfig[]): Promise<string[]>;
 export declare function queryAutoAtlasFileCache(pacUuid: string): Promise<PreviewPackResult | null>;
