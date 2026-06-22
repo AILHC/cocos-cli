@@ -7,15 +7,21 @@ import { configurationRegistry } from '../script/registry';
 describe('ConfigurationManager with real Editor files', () => {
     let projectPath = '';
     let manager: ConfigurationManager;
+    let originalSchemaPathSource = '';
 
     beforeEach(async () => {
         projectPath = await fse.mkdtemp(path.join(os.tmpdir(), 'cocos-cli-manager-editor-files-'));
+        originalSchemaPathSource = ConfigurationManager.SchemaPathSource;
+        ConfigurationManager.SchemaPathSource = path.join(projectPath, 'schema-source', 'cocos.config.schema.json');
+        await fse.ensureDir(path.dirname(ConfigurationManager.SchemaPathSource));
+        await fse.writeJSON(ConfigurationManager.SchemaPathSource, {});
         manager = new ConfigurationManager();
     });
 
     afterEach(async () => {
         await configurationRegistry.unregister('engine').catch(() => undefined);
         manager.reset();
+        ConfigurationManager.SchemaPathSource = originalSchemaPathSource;
         await fse.remove(projectPath);
     });
 

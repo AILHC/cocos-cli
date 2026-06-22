@@ -350,7 +350,7 @@ describe('ConfigurationManager', () => {
             expect(mockFse.ensureDir).toHaveBeenCalledWith(path.dirname(configPath));
             expect(mockFse.writeJSON).toHaveBeenCalledWith(
                 configPath,
-                { version: '1.0.0', import: { globList: ['!**/*.tmp'] }, $schema: './temp/cli/cocos.config.schema.json' },
+                { version: '1.0.0', import: { globList: ['!**/*.tmp'] }, $schema: ConfigurationManager.relativeSchemaPath },
                 { spaces: 4 }
             );
 
