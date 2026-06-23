@@ -1216,6 +1216,9 @@ export declare namespace BuildHook {
     export type onAfterBuild = IBaseHooks;
     export type onAfterMake = IBuildStageHooks;
     export type onBeforeMake = IBuildStageHooks;
+    export type onBeforeUpload = IBuildStageHooks;
+    export type upload = IBuildStageHooks;
+    export type onAfterUpload = IBuildStageHooks;
     export type load = () => Promise<void> | void;
     export type unload = () => Promise<void> | void;
 }
@@ -1299,11 +1302,24 @@ export declare abstract class BuildTaskBase extends EventEmitter {
     abstract hookMap: Record<string, string>;
     hookWeight: number;
     id: string;
+    protected progressHeartbeatEnabled: boolean;
     buildExitRes: IBuildResultSuccess;
+    private progressHeartbeatTimer?;
+    private lastProgressMessage;
+    private displayProgress;
+    private heartbeatProgressMax;
     constructor(id: string, name: string);
     break(reason: string): void;
     onError(error: Error, throwError?: boolean): void;
     updateProcess(message: string, increment?: number, outputType?: IConsoleType): void;
+    protected startProgressStep(message: string, stepWeight: number, outputType?: IConsoleType): void;
+    protected stopProgressHeartbeat(): void;
+    private scheduleProgressHeartbeat;
+    private emitProgressHeartbeat;
+    protected prepareProgressHeartbeat(stepWeight: number): void;
+    private syncDisplayProgress;
+    private emitProgressUpdate;
+    private getNextHeartbeatProgress;
     abstract handleHook(func: Function, internal: boolean, ...args: any[]): Promise<void>;
     abstract run(): Promise<boolean>;
     runPluginTask(funcName: string, weight?: number): Promise<void>;
@@ -2296,6 +2312,7 @@ export declare interface IBuildStageConfig extends IBuildStageItem {
     root: string;
     hooksInfo: IBuildHooksInfo;
     buildTaskOptions: IBuildOptionBase;
+    progressHeartbeat?: boolean;
 }
 export declare type IBuildStageHooks = (root: string, options: IBuildOptionBase) => Promise<void> | void;
 export declare interface IBuildStageItem {
@@ -2314,6 +2331,7 @@ export declare interface IBuildStageOptions {
     platform: Platform | string;
     taskName?: string;
     logDest?: string;
+    packages?: Record<string, Record<string, unknown>>;
 }
 export declare interface IBuildStagesInfo {
     pkgNameOrder: string[];
@@ -2892,6 +2910,9 @@ export declare namespace IInternalHook {
     export type onBeforeMake = IInternalStageTaskHooks;
     export type make = IInternalStageTaskHooks;
     export type onAfterMake = IInternalStageTaskHooks;
+    export type onBeforeUpload = IInternalStageTaskHooks;
+    export type upload = IInternalStageTaskHooks;
+    export type onAfterUpload = IInternalStageTaskHooks;
 }
 export declare interface IInternalPackOptions {
     maxWidth: number;
@@ -5034,6 +5055,7 @@ export declare interface TypedEventEmitter<T extends { [event: string]: (...args
     	removeListener<K extends keyof T>(event: K, listener: T[K]): this;
     	setMaxListeners(n: number): this;
 }
+export declare function upload(platform: Platform, dest: string, accessToken?: string): Promise<IBuildResultData>;
 export declare type Url = string;
 export declare interface UserCompressConfig {
     customConfigs: Record<string, ICustomConfig>;
