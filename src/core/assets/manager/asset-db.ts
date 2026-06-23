@@ -14,6 +14,7 @@ import { setFileSystemProvider as setCLIFileSystemProvider } from './filesystem'
 import i18n from '../../base/i18n';
 import Utils from '../../base/utils';
 import assetConfig from '../asset-config';
+import { bootstrapAssetsSidecarRecords } from '../asset-db-sidecar-bootstrap';
 import scripting from '../../scripting';
 import { AssetChangeInfo, DBChangeType } from '../../scripting/packer-driver/asset-db-interop';
 import { AssetActionEnum } from '@cocos/asset-db/libs/asset';
@@ -276,6 +277,21 @@ class AssetDBManager extends EventEmitter {
         info.flags = {
             reimportCheck: this.reimportCheck,
         };
+        if (info.name === 'assets' && info.records && info.library === assetConfig.data.libraryRoot) {
+            const records = info.records;
+            if (records.info && records.data && records.dependency && records.cache) {
+                await bootstrapAssetsSidecarRecords({
+                    target: info.target,
+                    library: info.library,
+                    records: {
+                        info: records.info,
+                        data: records.data,
+                        dependency: records.dependency,
+                        cache: records.cache,
+                    },
+                });
+            }
+        }
         const db = assetdb.create(info);
         this.assetDBMap[info.name] = db;
         db.importerManager.find = async (asset: IAsset) => {
