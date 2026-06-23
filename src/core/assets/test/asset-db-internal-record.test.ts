@@ -302,6 +302,44 @@ describe('asset-db internal record editor parity', () => {
         }
     });
 
+    it('uses explicit record paths when AssetDBOptions.records is provided', async () => {
+        const fixture = await makeTempProject();
+        try {
+            const recordRoot = join(fixture.projectRoot, 'library', 'records');
+            const db = new AssetDB({
+                name: 'assets',
+                target: fixture.target,
+                library: join(fixture.projectRoot, 'library'),
+                temp: join(fixture.projectRoot, 'temp', 'asset-db', 'assets'),
+                level: 4,
+                ignoreFiles: [],
+                readonly: false,
+                records: {
+                    info: join(recordRoot, '.cli-assets-info.json'),
+                    data: join(recordRoot, '.cli-assets-data.json'),
+                    dependency: join(recordRoot, '.cli-assets-dependency.json'),
+                    cache: join(recordRoot, '.cli-assets'),
+                },
+            } as any);
+
+            const infoSpy = jest.spyOn(db.infoManager, 'setRecordJSON').mockResolvedValue(undefined);
+            const dataSpy = jest.spyOn(db.dataManager, 'setRecordJSON').mockResolvedValue(undefined);
+            const dependencySpy = jest.spyOn(db.dependencyManager, 'setRecordJSON').mockResolvedValue(undefined);
+
+            await (db as any).prepareStart();
+            await db.save();
+
+            expect(infoSpy).toHaveBeenCalledWith(join(recordRoot, '.cli-assets-info.json'));
+            expect(dataSpy).toHaveBeenCalledWith(join(recordRoot, '.cli-assets-data.json'));
+            expect(dependencySpy).toHaveBeenCalledWith(join(recordRoot, '.cli-assets-dependency.json'));
+            expect((db as any).cachePath).toBe(join(recordRoot, '.cli-assets'));
+            expect(existsSync(join(recordRoot, '.cli-assets'))).toBe(true);
+        } finally {
+            delete assetDBMap.assets;
+            await rm(fixture.root, { recursive: true, force: true });
+        }
+    });
+
     it('keeps CLI internal.library current behavior at project library root', async () => {
         const runtime = await loadFreshRuntime();
         await runtime.configurationManager.initialize(TestGlobalEnv.projectRoot);

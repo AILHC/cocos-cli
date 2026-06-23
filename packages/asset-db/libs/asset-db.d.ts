@@ -32,11 +32,18 @@ export interface AssetDBRefreshOptions {
 /**
  * 资源数据库启动参数
  */
+export interface AssetDBRecordOptions {
+    info?: string;
+    data?: string;
+    dependency?: string;
+    cache?: string;
+}
 export interface AssetDBOptions {
     name: string;
     target: string;
     library: string;
     temp: string;
+    records?: AssetDBRecordOptions;
     /**
      * 0: 忽略错误
      * 1: 仅仅打印错误
