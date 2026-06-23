@@ -88,25 +88,29 @@ class AssetConfig {
         this._assetConfig.libraryRoot = this._assetConfig.libraryRoot || join(this._assetConfig.root, 'library');
         this._assetConfig.tempRoot = join(this._assetConfig.root, 'temp/asset-db');
         await this.syncRuntimeConfigFromConfiguration();
-        const cliAssetsLibrary = join(this._assetConfig.root, 'library/cli');
+        const sharedLibraryOutput = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT === '1';
+        const projectLibrary = join(this._assetConfig.root, 'library');
+        const cliAssetsLibrary = join(projectLibrary, 'cli');
+        const assetsLibrary = sharedLibraryOutput ? projectLibrary : cliAssetsLibrary;
+        const assetsRecordRoot = sharedLibraryOutput ? projectLibrary : cliAssetsLibrary;
         this._assetConfig.assetDBList = [{
             name: 'assets',
             target: join(this._assetConfig.root, 'assets'),
             readonly: false,
             visible: true,
-            library: cliAssetsLibrary,
+            library: assetsLibrary,
             records: {
-                info: join(cliAssetsLibrary, '.assets-info.json'),
-                data: join(cliAssetsLibrary, '.assets-data.json'),
-                dependency: join(cliAssetsLibrary, '.assets-dependency.json'),
-                cache: join(cliAssetsLibrary, '.assets'),
+                info: join(assetsRecordRoot, sharedLibraryOutput ? '.cli-assets-info.json' : '.assets-info.json'),
+                data: join(assetsRecordRoot, sharedLibraryOutput ? '.cli-assets-data.json' : '.assets-data.json'),
+                dependency: join(assetsRecordRoot, sharedLibraryOutput ? '.cli-assets-dependency.json' : '.assets-dependency.json'),
+                cache: join(assetsRecordRoot, sharedLibraryOutput ? '.cli-assets' : '.assets'),
             },
         }, {
             name: 'internal',
             target: join(enginePath, 'editor/assets'),
             readonly: true,
             visible: true,
-            library: join(this._assetConfig.root, 'library'),
+            library: projectLibrary,
         }];
 
         for (const mount of resolveProjectExtensionAssetDbMounts(this._assetConfig.root)) {
