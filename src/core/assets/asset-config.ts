@@ -88,12 +88,19 @@ class AssetConfig {
         this._assetConfig.libraryRoot = this._assetConfig.libraryRoot || join(this._assetConfig.root, 'library');
         this._assetConfig.tempRoot = join(this._assetConfig.root, 'temp/asset-db');
         await this.syncRuntimeConfigFromConfiguration();
+        const cliAssetsLibrary = join(this._assetConfig.root, 'library/cli');
         this._assetConfig.assetDBList = [{
             name: 'assets',
             target: join(this._assetConfig.root, 'assets'),
             readonly: false,
             visible: true,
-            library: join(this._assetConfig.root, 'library'),
+            library: cliAssetsLibrary,
+            records: {
+                info: join(cliAssetsLibrary, '.assets-info.json'),
+                data: join(cliAssetsLibrary, '.assets-data.json'),
+                dependency: join(cliAssetsLibrary, '.assets-dependency.json'),
+                cache: join(cliAssetsLibrary, '.assets'),
+            },
         }, {
             name: 'internal',
             target: join(enginePath, 'editor/assets'),

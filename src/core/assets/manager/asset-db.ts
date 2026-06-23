@@ -692,6 +692,7 @@ function patchAssetDBInfo(config: AssetDBRegisterInfo): IAssetDBInfo {
 
         temp: config.temp || Utils.Path.normalize(join(AssetDBManager.tempRoot, config.name)),
         library: config.library || AssetDBManager.libraryRoot,
+        records: config.records,
 
         level: 4,
         globList: assetConfig.data.globList,
