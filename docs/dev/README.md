@@ -19,6 +19,7 @@
 - `modules/`：当前模块职责、入口、输出、依赖和边界。
 - `facts/`：源码位置、真实产物、命令输出和对比记录。
 - `decisions/`：带取舍的长期设计决策。
+- `reference/`：长期保留的外部参考材料；只能用于事实核对和历史行为理解，不能作为 production 默认策略。
 - `../superpowers/specs/`：按 Superpowers 工作流产生的正式 spec。
 - `../superpowers/plans/`：按 Superpowers 工作流产生的正式 implementation plan。
 - `plans/`：legacy process record；新正式计划不再写入 `docs/dev/**/plans/`。
@@ -33,6 +34,7 @@
 - `design.md`：历史总体设计入口，后续稳定内容逐步回填到 `architecture/` 和 `modules/`。
 - `quick-reference.md`：开发速查入口。
 - `codegraph-usage.md`：CodeGraph 使用说明。
+- `reference/`：长期参考材料入口，当前包含旧 Editor preview server 参考源码。
 - `build-extension-hooks-20260612.md`：build extension hooks 专题记录。
 - `i18n.md`、`i18n-types-usage.md`：i18n 专题记录，归属 `modules/i18n.md`。
 - `build/`、`core/`：已有主题目录，后续按模块归属逐步链接到 `modules/`。

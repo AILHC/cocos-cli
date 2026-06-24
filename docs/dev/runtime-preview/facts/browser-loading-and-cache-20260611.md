@@ -16,6 +16,10 @@
 
 参考目录：
 
+`docs/dev/reference/old_editor_preview_server`
+
+该目录已从以下外部备份路径迁入当前仓库，作为长期 historical reference：
+
 `E:\own_space\tmp-repos\runtime-preview-reference\cocos-cli-backup-runtime-preview-bad-20260606\docs\dev\reference\old_editor_preview_server`
 
 关键文件：
