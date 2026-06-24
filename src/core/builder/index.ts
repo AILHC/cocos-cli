@@ -15,6 +15,7 @@ import BuildMiddleware from './build.middleware';
 import { BuildGlobalInfo } from './share/global';
 import { fillIncludeModulesFromProjectConfig } from './share/common-options-validator';
 import type { BuildTask } from './worker/builder';
+import { createPreviewBuildOptions } from './preview-options';
 
 export async function init(platform?: string, projectRoot?: string) {
     await builderConfig.init();
@@ -250,11 +251,7 @@ function readBuildTaskOptions(root: string): IBuildTaskOption<any> {
 
 export async function getPreviewSettings<P extends Platform>(options?: IBuildTaskOption<P>): Promise<IPreviewSettingsResult> {
     const defaultBuildOptions = await pluginManager.getOptionsByPlatform('web-desktop');
-    const buildOptions = {
-        ...defaultBuildOptions,
-        ...(options ?? {}),
-        preview: true,
-    };
+    const buildOptions = createPreviewBuildOptions(defaultBuildOptions as IBuildTaskOption<P>, options);
     await fillIncludeModulesFromProjectConfig(buildOptions);
     // TODO 预览 settings 的排队之类的
     const { BuildTask } = await import('./worker/builder/index');

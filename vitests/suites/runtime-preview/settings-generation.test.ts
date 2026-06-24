@@ -156,6 +156,32 @@ describe('runtime preview settings provider', () => {
     expect(first.bundleConfigs.map((config) => config.name)).toEqual(['bundle-with-gap', 'unrelated']);
   });
 
+  it('rejects debug false bundle configs that are not compressed', async () => {
+    const provider = new PreviewSettingsProvider({
+      loadPreviewSettings: async () => ({
+        settings: { assets: {} },
+        script2library: {},
+        bundleConfigs: [
+          {
+            name: 'internal',
+            debug: false,
+            paths: {
+              'ba21476f-2866-4f81-9c4d-6e359316e448': [
+                'db:/internal/physics/default-physics-material',
+                'cc.PhysicsMaterial',
+                1,
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    await expect(provider.getPreviewSettings()).rejects.toThrow(
+      'Invalid preview bundle config "internal": debug=false requires a compressed types array',
+    );
+  });
+
   it('fails with a clear timeout diagnostic', async () => {
     const provider = new PreviewSettingsProvider({
       loadPreviewSettings: () => new Promise(() => undefined),
