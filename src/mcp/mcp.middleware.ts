@@ -14,6 +14,11 @@ import stripAnsi from 'strip-ansi';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { assetManager } from '../core/assets';
+
+export function isToolErrorCode(code: unknown): boolean {
+    return typeof code === 'number' && code >= 500 && code < 600;
+}
+
 export class McpMiddleware {
     private server: McpServer;
     private resourceManager: ResourceManager;
@@ -167,7 +172,7 @@ export class McpMiddleware {
                              return {
                                 content: [{ type: 'text' as const, text: formattedResult }],
                                 structuredContent: structuredContent,
-                                isError: result.code == 500
+                                isError: isToolErrorCode(result?.code)
                              };
 
                         } catch (error) {

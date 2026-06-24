@@ -1,9 +1,10 @@
-import { find, instantiate, Node, Prefab, Scene } from 'cc';
-import { type IBaseIdentifier, ICreateOptions, IEditorTarget, INode } from '../../../common';
+import { Canvas, find, instantiate, Node, Prefab, Scene, UITransform } from 'cc';
+import { type IBaseIdentifier, ICreateOptions, IEditorTarget, INode, INodeDumpOptions } from '../../../common';
 import { Rpc } from '../../rpc';
 import { editorPrefabUtils } from '../prefab/prefab-editor-utils';
 import { BaseEditor } from './base-editor';
 import { sceneUtils } from '../scene/utils';
+import { createShouldHideInHierarchyCanvasNode } from '../node/node-create';
 
 import type { IAssetInfo } from '../../../../assets/@types/public';
 
@@ -15,15 +16,15 @@ export class PrefabEditor extends BaseEditor {
 
     private virtualScene: Scene | null = null;
 
-    async encode(entity?: IEditorTarget | null): Promise<INode> {
+    async encode(entity?: IEditorTarget | null, options?: INodeDumpOptions): Promise<INode> {
         entity = entity ?? this.entity;
         if (!entity) {
             throw new Error('encode 失败，没有打开预制体');
         }
-        return await sceneUtils.generateNodeDump(entity.instance) as INode;
+        return sceneUtils.generateNodeDump(entity.instance, options) as INode;
     }
 
-    async open(asset: IAssetInfo): Promise<INode> {
+    protected async _doOpen(asset: IAssetInfo, options?: INodeDumpOptions): Promise<INode> {
         // 获取预制体标识符
         const identifier = this.getIdentifier(asset);
         // 加载预制体资源
@@ -32,7 +33,9 @@ export class PrefabEditor extends BaseEditor {
 
         // 实例化预制体
         const instance = instantiate(prefabAsset);
+        editorPrefabUtils.preparePrefabRootForEditing(instance);
         this.virtualScene.addChild(instance);
+        await this.ensurePreviewCanvasForUI(instance);
 
         // 设置当前打开的预制体
         this.setCurrentOpen({
@@ -40,14 +43,16 @@ export class PrefabEditor extends BaseEditor {
             instance
         });
 
-        return this.encode();
+        return this.encode(undefined, options);
     }
 
-    async close(): Promise<boolean> {
+    async close(options?: { save?: boolean }): Promise<boolean> {
         if (!this.entity) {
             throw new Error('没有打开预制体');
         }
-        await this.save();
+        if (options?.save !== false) {
+            await this.save();
+        }
         await sceneUtils.runScene(new Scene(''));
         this.setCurrentOpen(null);
         return true;
@@ -69,15 +74,40 @@ export class PrefabEditor extends BaseEditor {
         }
 
         const prefabName = this.entity.instance.name;
+        const prefabUuid = this.entity.instance.uuid;
         const prefabUUIDMap = editorPrefabUtils.storePrefabUUID(this.virtualScene);
         const sceneAsset = editorPrefabUtils.generateSceneAsset(this.virtualScene, this.getRootNode());
         const json = EditorExtends.serialize(sceneAsset);
         this.virtualScene = await sceneUtils.runSceneImmediateByJson(json);
         editorPrefabUtils.removePrefabInstanceRoots(this.virtualScene);
         editorPrefabUtils.restorePrefabUUID(this.virtualScene, prefabUUIDMap);
-        this.entity.instance = find(prefabName) as Node;
+        const instance = EditorExtends.Node.getNode(prefabUuid) as Node | null || find(prefabName) as Node | null;
+        if (!instance) {
+            throw new Error(`reload 失败，找不到预制体根节点: ${prefabName}`);
+        }
+        editorPrefabUtils.preparePrefabRootForEditing(instance);
+        this.entity.instance = instance;
         Prefab._utils.applyTargetOverrides(this.entity.instance);
-        return this.encode();
+        await this.ensurePreviewCanvasForUI(this.entity.instance);
+        return this.encode(undefined, this._lastOpenOptions);
+    }
+
+    private async ensurePreviewCanvasForUI(instance: Node): Promise<void> {
+        if (!this.virtualScene || !this.shouldUsePreviewCanvas(instance)) {
+            return;
+        }
+
+        const canvasNode = await createShouldHideInHierarchyCanvasNode(this.virtualScene);
+        instance.parent = canvasNode;
+    }
+
+    private shouldUsePreviewCanvas(instance: Node): boolean {
+        const hasCanvas = Boolean(instance.getComponentInChildren(Canvas));
+        if (hasCanvas) {
+            return false;
+        }
+
+        return instance.getComponentsInChildren(UITransform).length > 0;
     }
 
     async create(params: ICreateOptions): Promise<IBaseIdentifier> {

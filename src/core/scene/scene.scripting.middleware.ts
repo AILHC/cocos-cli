@@ -96,6 +96,22 @@ export default {
             },
         },
         {
+            url: '/scripting/engine/effect-settings',
+            async handler(req: Request, res: Response, next: NextFunction) {
+                try {
+                    const { default: scripting } = await import('../../core/scripting');
+                    const effectBinPath = join(scripting.projectPath, 'temp', 'cli', 'asset-db', 'effect', 'effect.bin');
+                    if (await pathExists(effectBinPath) && (await stat(effectBinPath)).isFile()) {
+                        res.sendFile(effectBinPath);
+                    } else {
+                        next();
+                    }
+                } catch (err) {
+                    next(err);
+                }
+            },
+        },
+        {
             url: '/scripting/import-map-global',
             async handler(req: Request, res: Response) {
                 const { waitForProgrammingFacet } = await import('../scripting/programming/FacetInstance');
@@ -227,7 +243,7 @@ export default {
                         if (relPath.startsWith(engineDistBase)) {
                             projectorRelPath = relPath.substring(engineDistBase.length);
                         }
-                        resourcePath = join(scripting.projectPath, 'temp', 'cli', 'programming', 'packer-driver', 'targets', 'preview', projectorRelPath).replace(/\\/g, '/');
+                        resourcePath = join(scripting.projectPath, 'temp', 'programming', 'packer-driver', 'targets', 'preview', projectorRelPath).replace(/\\/g, '/');
                     }
 
                     // If it's a directory, try index.json or index.js

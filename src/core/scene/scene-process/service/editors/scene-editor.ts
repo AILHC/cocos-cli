@@ -1,5 +1,5 @@
 import { Scene, SceneAsset, Component, Node } from 'cc';
-import { type IBaseIdentifier, ICreateOptions, IEditorTarget, IScene } from '../../../common';
+import { type IBaseIdentifier, ICreateOptions, IEditorTarget, IScene, INodeDumpOptions } from '../../../common';
 import { Rpc } from '../../rpc';
 import { sceneUtils } from '../scene/utils';
 import { BaseEditor } from './base-editor';
@@ -13,22 +13,22 @@ import { editorPrefabUtils } from '../prefab/prefab-editor-utils';
  */
 export class SceneEditor extends BaseEditor {
 
-    async encode(entity?: IEditorTarget | null): Promise<IScene> {
+    async encode(entity?: IEditorTarget | null, options?: INodeDumpOptions): Promise<IScene> {
         entity = entity ?? this.entity;
         if (!entity) {
             throw new Error('encode 失败，没有打开场景');
         }
-        const scene = await sceneUtils.generateNodeDump(entity.instance) as IScene;
+        const scene = sceneUtils.generateNodeDump(entity.instance, options) as IScene;
         const d = scene as any;
         d.__identifier__ = entity.identifier;
         return scene;
     }
 
-    async open(asset: IAssetInfo): Promise<IScene> {
+    protected async _doOpen(asset: IAssetInfo, options?: INodeDumpOptions): Promise<IScene> {
         const identifier = this.getIdentifier(asset);
 
         if (this.entity?.identifier.assetUuid === identifier.assetUuid) {
-            return await this.encode();
+            return await this.encode(undefined, options);
         }
 
         const sceneAsset = await sceneUtils.loadAny<SceneAsset>(identifier.assetUuid);
@@ -39,14 +39,16 @@ export class SceneEditor extends BaseEditor {
             identifier,
         });
 
-        return this.encode();
+        return this.encode(undefined, options);
     }
 
-    async close(): Promise<boolean> {
+    async close(options?: { save?: boolean }): Promise<boolean> {
         if (!this.entity) {
             throw new Error('[close] 没有打开场景');
         }
-        await this.save();
+        if (options?.save !== false) {
+            await this.save();
+        }
         await sceneUtils.runScene(new Scene(''));
         this.setCurrentOpen(null);
         return true;
@@ -70,7 +72,7 @@ export class SceneEditor extends BaseEditor {
         const sceneAfterLoad = await sceneUtils.runSceneImmediateByJson(serializeJSON);
         editorPrefabUtils.restorePrefabUUID(sceneAfterLoad, prefabUUIDMap);
         this.entity.instance = sceneAfterLoad;
-        return this.encode();
+        return this.encode(undefined, this._lastOpenOptions);
     }
 
     async create(params: ICreateOptions): Promise<IBaseIdentifier> {

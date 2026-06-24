@@ -17,7 +17,7 @@ import {
     SchemaNodeUpdateResult,
 } from './node-schema';
 import { description, param, result, title, tool } from '../decorator/decorator.js';
-import { COMMON_STATUS, CommonResultType } from '../base/schema-base';
+import { COMMON_STATUS, CommonResultType, getCommonErrorStatus } from '../base/schema-base';
 import { ICreateByNodeTypeParams, INodeInfo, Scene } from '../../core/scene';
 
 export class NodeApi {
@@ -40,7 +40,7 @@ export class NodeApi {
                 ret.data = resultNode;
             }
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('Failed to create node:', e); // 创建节点失败:
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -67,7 +67,7 @@ export class NodeApi {
                 ret.data = resultNode;
             }
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('Failed to create node:', e); // 创建节点失败:
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -96,7 +96,7 @@ export class NodeApi {
                 path: result.path,
             };
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('Failed to delete node:', e); // 删除节点失败:
             ret.reason = e instanceof Error ? e.message : String(e);
             delete ret.data;
@@ -122,7 +122,7 @@ export class NodeApi {
         } catch (e) {
             console.error('Failed to update node:', e); // 更新节点失败:
             return {
-                code: COMMON_STATUS.FAIL,
+                code: getCommonErrorStatus(e),
                 reason: e instanceof Error ? e.message : String(e),
             };
         }
@@ -146,7 +146,7 @@ export class NodeApi {
             if (!result) throw new Error(`node not found at path: ${options.path}`);
             ret.data = result;
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('Failed to query node:', e); // 查询节点失败:
             ret.reason = e instanceof Error ? e.message : String(e);
         }

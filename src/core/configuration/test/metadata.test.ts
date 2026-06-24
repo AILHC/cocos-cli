@@ -11,6 +11,7 @@ interface IMetadataRuntime {
     pluginManager: typeof import('../../builder/manager/plugin').pluginManager;
     assetConfig: typeof import('../../assets/asset-config').default;
     scriptConfig: typeof import('../../scripting/shared/query-shared-settings').scriptConfig;
+    sceneConfigInstance: typeof import('../../scene/scene-configs').sceneConfigInstance;
 }
 
 function findNode(nodes: ICocosConfigurationNode[], id: string): ICocosConfigurationNode {
@@ -48,6 +49,7 @@ async function loadFreshRuntime(): Promise<IMetadataRuntime> {
         const { pluginManager } = require('../../builder/manager/plugin') as typeof import('../../builder/manager/plugin');
         const assetConfig = (require('../../assets/asset-config') as typeof import('../../assets/asset-config')).default;
         const { scriptConfig } = require('../../scripting/shared/query-shared-settings') as typeof import('../../scripting/shared/query-shared-settings');
+        const { sceneConfigInstance } = require('../../scene/scene-configs') as typeof import('../../scene/scene-configs');
 
         return {
             getMetadata,
@@ -59,6 +61,7 @@ async function loadFreshRuntime(): Promise<IMetadataRuntime> {
             pluginManager,
             assetConfig,
             scriptConfig,
+            sceneConfigInstance,
         };
     } catch (error) {
         // Keep the thrown object visible in Jest output; otherwise some module-load failures render as blank.
@@ -188,6 +191,28 @@ describe('configuration metadata', () => {
         expect(findProperty(scriptNode, 'script.useDefineForClassFields').type).toBe('boolean');
     });
 
+    it('should expose scene metadata only after the scene module registers itself', async () => {
+        const runtime = await loadFreshRuntime();
+        await runtime.project.open(TestGlobalEnv.projectRoot);
+        await runtime.Engine.init(TestGlobalEnv.engineRoot);
+
+        const beforeRegister = await runtime.getMetadata();
+        expect(tryFindNode(beforeRegister, 'scene.tick')).toBeUndefined();
+
+        await runtime.sceneConfigInstance.init();
+
+        const afterRegister = await runtime.getMetadata();
+        const tickNode = findNode(afterRegister, 'scene.tick');
+
+        expect(tryFindNode(afterRegister, 'scene.camera')).toBeUndefined();
+        expect(tryFindNode(afterRegister, 'scene.gizmo')).toBeUndefined();
+        expect(tryFindNode(afterRegister, 'scene.sceneView')).toBeUndefined();
+        expect(tickNode.group).toBe('scene');
+        expect(findProperty(tickNode, 'scene.tick').type).toBe('boolean');
+        expect(findProperty(tickNode, 'scene.tick').default).toBe(false);
+        expect(findProperty(tickNode, 'scene.tick').description).toBe('Keep the scene main loop running');
+    });
+
     it('should keep import defaults aligned with metadata defaults', async () => {
         const runtime = await loadFreshRuntime();
         await runtime.project.open(TestGlobalEnv.projectRoot);
@@ -213,6 +238,7 @@ describe('configuration metadata', () => {
         await runtime.pluginManager.init();
         await runtime.assetConfig.init();
         await runtime.scriptConfig.init();
+        await runtime.sceneConfigInstance.init();
 
         const nodes = await runtime.getMetadata();
         const enginePhysicsNode = findNode(nodes, 'engine.physicsConfig');
@@ -220,6 +246,7 @@ describe('configuration metadata', () => {
         const builderCacheNode = findNode(nodes, 'builder.useCacheConfig');
         const importNode = findNode(nodes, 'import');
         const scriptNode = findNode(nodes, 'script');
+        const sceneTickNode = findNode(nodes, 'scene.tick');
 
         expect(enginePhysicsNode.title).toBe('物理配置');
         expect(findProperty(enginePhysicsNode, 'engine.physicsConfig.gravity').title).toBe('重力');
@@ -232,6 +259,9 @@ describe('configuration metadata', () => {
         expect(findProperty(importNode, 'import.globList').description).toBe('资源导入 glob 匹配规则');
         expect(scriptNode.title).toBe('脚本');
         expect(findProperty(scriptNode, 'script.useDefineForClassFields').title).toBe('使用 defineProperty 定义类字段');
+        expect(sceneTickNode.title).toBe('启用 Tick');
+        expect(findProperty(sceneTickNode, 'scene.tick').title).toBe('启用 Tick');
+        expect(findProperty(sceneTickNode, 'scene.tick').description).toBe('保持场景主循环运行');
     });
 
     it('should localize metadata titles after switching the global language', async () => {
@@ -243,9 +273,11 @@ describe('configuration metadata', () => {
         await runtime.pluginManager.init();
         await runtime.assetConfig.init();
         await runtime.scriptConfig.init();
+        await runtime.sceneConfigInstance.init();
 
         const zhNodes = await runtime.getMetadata();
-        runtime.i18n.setLanguage('en');
+        await runtime.i18n.setLanguage('en');
+        runtime.pluginManager.refreshDisplayI18nFields();
         const enNodes = await runtime.getMetadata();
 
         expect(findNode(zhNodes, 'script').title).toBe('脚本');
@@ -254,6 +286,10 @@ describe('configuration metadata', () => {
         expect(findProperty(findNode(enNodes, 'builder.common'), 'builder.common.platform').title).toBe('Platform');
         expect(findProperty(findNode(zhNodes, 'import'), 'import.globList').description).toBe('资源导入 glob 匹配规则');
         expect(findProperty(findNode(enNodes, 'import'), 'import.globList').description).toBe('Asset import glob matching rules');
+        expect(findProperty(findNode(zhNodes, 'scene.tick'), 'scene.tick').title).toBe('启用 Tick');
+        expect(findProperty(findNode(enNodes, 'scene.tick'), 'scene.tick').title).toBe('Enable Tick');
+        expect(findProperty(findNode(zhNodes, 'scene.tick'), 'scene.tick').description).toBe('保持场景主循环运行');
+        expect(findProperty(findNode(enNodes, 'scene.tick'), 'scene.tick').description).toBe('Keep the scene main loop running');
     });
 
     it('should localize dynamic engine feature metadata only after Engine.init registers engine i18n', async () => {

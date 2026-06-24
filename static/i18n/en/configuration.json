@@ -70,6 +70,12 @@
       }
     }
   },
+  "scene": {
+    "tick": {
+      "title": "Enable Tick",
+      "description": "Keep the scene main loop running"
+    }
+  },
   "script": {
     "title": "Script",
     "useDefineForClassFields": {

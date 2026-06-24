@@ -100,7 +100,7 @@ export async function runStaticCompileCheck(projectPath: string, showOutput: boo
     // 使用 CLI 自身依赖的 tsc，避免在项目目录中找不到 tsc
     // 增加 --project 参数指定使用的 tsconfig.json，避免使用默认的项目根目录配置从而包含不需要的 d.ts 文件
     // 输出在代码中统一过滤，保证跨平台一致性
-    const finalTsconfigPath = tsconfigPath || path.join(projectPath, 'temp', 'cli', 'tsconfig.cocos.json');
+    const finalTsconfigPath = tsconfigPath || path.join(projectPath, 'temp', 'tsconfig.cocos.json');
     const command = isWindows() 
     ? `npx tsc --noEmit --project "${finalTsconfigPath}" 2>&1 | findstr /i "assets"`
     : `tsc --noEmit --project "${finalTsconfigPath}" 2>&1`;

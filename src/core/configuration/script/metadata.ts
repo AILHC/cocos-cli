@@ -27,13 +27,6 @@ export interface ICocosConfigurationNode {
     properties: Record<string, ICocosConfigurationPropertySchema>;
 }
 
-export type ICocosConfigurationPropertySchemaInput =
-    Omit<ICocosConfigurationPropertySchema, 'properties' | 'items' | 'additionalProperties'> & {
-        properties?: Record<string, ICocosConfigurationPropertySchemaInput>;
-        items?: ICocosConfigurationPropertySchemaInput | ICocosConfigurationPropertySchemaInput[];
-        additionalProperties?: boolean | ICocosConfigurationPropertySchemaInput;
-    };
-
 export type ICocosConfigurationMetadataValue = ICocosConfigurationNode[] | Promise<ICocosConfigurationNode[]>;
 export type ICocosConfigurationMetadataProvider = () => ICocosConfigurationMetadataValue;
 export type ICocosConfigurationMetadataRegistration = ICocosConfigurationNode[] | ICocosConfigurationMetadataProvider;
@@ -68,11 +61,11 @@ export type IConfigurationItem =
     | (IConfigurationItemBase & {
         type: 'object';
         properties?: Record<string, IConfigurationItem>;
-        additionalProperties?: boolean | ICocosConfigurationPropertySchemaInput;
+        additionalProperties?: boolean | ICocosConfigurationPropertySchema;
         required?: string[];
     });
 
-export function createPropertySchema(schema: ICocosConfigurationPropertySchemaInput): ICocosConfigurationPropertySchema {
+export function createPropertySchema(schema: ICocosConfigurationPropertySchema): ICocosConfigurationPropertySchema {
     const {
         title,
         description,
@@ -115,7 +108,7 @@ export function createNode(
     id: string,
     title: string,
     group: string,
-    props: Record<string, ICocosConfigurationPropertySchemaInput>,
+    props: Record<string, ICocosConfigurationPropertySchema>,
     order?: number
 ): ICocosConfigurationNode {
     const properties: Record<string, ICocosConfigurationPropertySchema> = {};
@@ -228,7 +221,7 @@ function inferEnumType(
     return 'string';
 }
 
-function getDefaultFromSchema(schema: ICocosConfigurationPropertySchemaInput): unknown {
+function getDefaultFromSchema(schema: ICocosConfigurationPropertySchema): unknown {
     if (schema.default !== undefined) {
         return schema.default;
     }
@@ -253,10 +246,10 @@ function getDefaultFromSchema(schema: ICocosConfigurationPropertySchemaInput): u
 }
 
 export function objectSchema(
-    properties?: Record<string, ICocosConfigurationPropertySchemaInput>,
-    overrides: Partial<ICocosConfigurationPropertySchemaInput> = {}
-): ICocosConfigurationPropertySchemaInput {
-    const schema: ICocosConfigurationPropertySchemaInput = {
+    properties?: Record<string, ICocosConfigurationPropertySchema>,
+    overrides: Partial<ICocosConfigurationPropertySchema> = {}
+): ICocosConfigurationPropertySchema {
+    const schema: ICocosConfigurationPropertySchema = {
         type: 'object',
         ...overrides,
     };
@@ -277,10 +270,10 @@ export function objectSchema(
 }
 
 export function arraySchema(
-    items?: ICocosConfigurationPropertySchemaInput | ICocosConfigurationPropertySchemaInput[],
-    overrides: Partial<ICocosConfigurationPropertySchemaInput> = {}
-): ICocosConfigurationPropertySchemaInput {
-    const schema: ICocosConfigurationPropertySchemaInput = {
+    items?: ICocosConfigurationPropertySchema | ICocosConfigurationPropertySchema[],
+    overrides: Partial<ICocosConfigurationPropertySchema> = {}
+): ICocosConfigurationPropertySchema {
+    const schema: ICocosConfigurationPropertySchema = {
         type: 'array',
         default: [],
         ...overrides,
@@ -293,7 +286,7 @@ export function arraySchema(
     return schema;
 }
 
-export function inferSchemaFromValue(value: unknown, key: string): ICocosConfigurationPropertySchemaInput {
+export function inferSchemaFromValue(value: unknown, key: string): ICocosConfigurationPropertySchema {
     const title = createTitleFromKey(key);
 
     if (Array.isArray(value)) {
@@ -325,7 +318,7 @@ export function inferSchemaFromValue(value: unknown, key: string): ICocosConfigu
 export function convertConfigItem(
     item: IConfigurationItem,
     key: string
-): ICocosConfigurationPropertySchemaInput {
+): ICocosConfigurationPropertySchema {
     const title = normalizeDisplayText(item.label, createTitleFromKey(key));
     const description = translateMetadataText(item.description);
 
@@ -387,7 +380,7 @@ export function convertConfigItem(
     }
 
     case 'object': {
-        const declaredProperties: Record<string, ICocosConfigurationPropertySchemaInput> = {};
+        const declaredProperties: Record<string, ICocosConfigurationPropertySchema> = {};
 
         for (const [childKey, childItem] of Object.entries(item.properties ?? {})) {
             if (hasConfigItemShape(childItem)) {

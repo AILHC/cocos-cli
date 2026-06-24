@@ -83,8 +83,23 @@ async function queryImportReplacementExtension(context: RuntimePreviewContext, u
     return '';
 }
 
-function createDummyBundleIndexScript(bundleName: string): string {
-    return `/* Runtime preview dummy bundle index for ${bundleName}. */`;
+const prerequisiteImportsModURL = 'cce:/internal/x/prerequisite-imports';
+
+function createBundlePrerequisiteIndexScript(bundleName: string): string {
+    const virtualModuleId = `virtual:///prerequisite-imports/${bundleName}`;
+    return `
+// Runtime preview bundle prerequisite marker.
+System.register(
+    ${JSON.stringify(virtualModuleId)},
+    [${JSON.stringify(prerequisiteImportsModURL)}],
+    function () {
+        return {
+            setters: [function () {}],
+            execute: function () {},
+        };
+    },
+);
+`;
 }
 
 async function resolveExistingFile(absolutePath: string): Promise<string | null> {
@@ -240,7 +255,7 @@ export async function handleRuntimePreviewRequest(
         if (!bundleConfig) {
             return textResponse(404, `No runtime preview bundle index for ${bundleIndexName}`);
         }
-        return textResponse(200, createDummyBundleIndexScript(bundleIndexName), 'application/javascript; charset=utf-8');
+        return textResponse(200, createBundlePrerequisiteIndexScript(bundleIndexName), 'application/javascript; charset=utf-8');
     }
 
     const queryExtnameUuid = getQueryExtnameUuid(pathname);

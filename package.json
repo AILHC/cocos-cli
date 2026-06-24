@@ -1,6 +1,6 @@
 {
     "name": "cocos-cli",
-    "version": "0.0.1-alpha.28",
+    "version": "0.0.1-alpha.30",
     "displayName": "COCOS CLI",
     "icon": "static/logo/logo.png",
     "description": "COCOS CLI",
@@ -8,7 +8,7 @@
     "engines": {
         "vscode": ">=1.107.1",
         "electron": "39.2.3",
-        "pink": ">=0.0.1.21"
+        "pink": ">=0.0.1.24"
     },
     "bin": {
         "cocos": "./dist/cli.js"
@@ -35,7 +35,7 @@
         "build:cc-module": "node workflow/build-cc-module.js",
         "build:runtime-preview-app": "tsc -p src/runtime-preview/preview-app/tsconfig.json && node workflow/build-runtime-preview-app.js",
         "build:static-web": "node workflow/build-scene-bundle.js && node workflow/build-polyfills.js",
-        "build": "npm run build:clear && node workflow/prepare-dts.js && tsc -b && npm run build:static-web && node workflow/generate-schema.js",
+        "build": "npm run build:clear && node workflow/prepare-dts.js && tsc -b && npm run build:static-web && node workflow/generate-schema.js && npm run generate:dts",
         "compile": "npm run build:clear && node workflow/prepare-dts.js && tsc -b && npm run build:static-web && node workflow/generate-schema.js",
         "build:clear": "node workflow/build-clear.js",
         "build:watch": "tsc -b --watch",

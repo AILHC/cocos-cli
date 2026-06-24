@@ -27,7 +27,7 @@ jobs:
           MINIMAL_DOWNLOAD_TOOLS: 'true'
 
       - name: Generate DTS
-        shell: bash
+        shell: pwsh
         run: npm run generate:dts:ci
 
       - name: Run DTS tests
@@ -52,26 +52,51 @@ jobs:
             exit 0
           fi
 
-          # Check if snapshot file changed compared to base branch
-          if ! git diff --name-only "$BASE_REF"...HEAD | grep -q "$SNAP_FILE"; then
-            echo "No DTS API changes detected."
-            exit 0
+          # Detect truly removed API lines by comparing deleted vs added lines.
+          # Lines that appear in both deleted and added sets are modifications or
+          # snapshot reorganizations (due to index.d.ts duplication), not removals.
+          # Only lines present in deleted but NOT in added are real breaking changes.
+          extract_truly_deleted() {
+            local diff_output="$1"
+            local noise_filter='grep -v "^exports\[" | grep -v "^$" | grep -v "^[[:space:]]*$" | grep -v "^\`;" | grep -v "^[[:space:]]*}[;,]\?$" | grep -v "^export { }$" | grep -v "^[[:space:]]*static readonly version" | grep -v "^export { .*_[0-9]\+ as "'
+
+            # Extract deleted lines (strip leading -, normalize quotes and Object casing)
+            local deleted
+            deleted=$(echo "$diff_output" | grep '^-' | grep -v '^---' | sed 's/^-//' \
+              | eval "$noise_filter" | sed "s/\"/'/g; s/\bObject\b/object/g" | sort -u || true)
+
+            # Extract added lines (strip leading +, normalize quotes and Object casing)
+            local added
+            added=$(echo "$diff_output" | grep '^+' | grep -v '^+++' | sed 's/^+//' \
+              | eval "$noise_filter" | sed "s/\"/'/g; s/\bObject\b/object/g" | sort -u || true)
+
+            # Lines in deleted but NOT in added = truly removed
+            if [ -n "$deleted" ]; then
+              comm -23 <(echo "$deleted") <(echo "$added") || true
+            fi
+          }
+
+          # 1) Committed snapshot changes (BASE...HEAD)
+          COMMITTED_REMOVED=""
+          if git diff --name-only "$BASE_REF"...HEAD | grep -q "$SNAP_FILE"; then
+            DIFF_OUTPUT=$(git diff "$BASE_REF"...HEAD -- "$SNAP_FILE")
+            COMMITTED_REMOVED=$(extract_truly_deleted "$DIFF_OUTPUT")
           fi
 
-          # Snapshot changed — check whether it's additive-only or breaking
-          # Extract only removed lines (old API lines that were deleted or modified)
-          # Ignore snapshot metadata lines (exports, snapshot headers)
-          DELETED_LINES=$(git diff "$BASE_REF"...HEAD -- "$SNAP_FILE" \
-            | grep '^-' \
-            | grep -v '^---' \
-            | grep -v '^-exports\[' \
-            | grep -v '^-$' \
-            | grep -v '^\-[[:space:]]*$' \
-            | grep -v '^\-`;$' \
-            || true)
+          # 2) Uncommitted snapshot changes: the -u step regenerated the snapshot
+          #    from current code; diff HEAD vs working tree catches type changes
+          #    that were not committed as snapshot updates.
+          UNCOMMITTED_REMOVED=""
+          if ! git diff --quiet HEAD -- "$SNAP_FILE" 2>/dev/null; then
+            DIFF_OUTPUT=$(git diff HEAD -- "$SNAP_FILE")
+            UNCOMMITTED_REMOVED=$(extract_truly_deleted "$DIFF_OUTPUT")
+          fi
+
+          # Merge and deduplicate across both sources
+          DELETED_LINES=$(printf '%s\n%s' "$COMMITTED_REMOVED" "$UNCOMMITTED_REMOVED" | grep -v '^$' | sort -u || true)
 
           if [ -z "$DELETED_LINES" ]; then
-            echo "DTS API changes are additive only (new interfaces/methods). No [break] required."
+            echo "No DTS API breaking changes detected."
             exit 0
           fi
 

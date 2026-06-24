@@ -33,12 +33,16 @@ class ScriptManager {
      * @param enginePath 引擎路径
      * @param features 引擎功能特性列表
      */
-    async initialize(projectPath: string, enginePath: string, features: string[]): Promise<void> {
+    async initialize(projectPath: string, enginePath: string, features: string[], options: {
+        programmingRoot?: string;
+    } = {}): Promise<void> {
         if (this._initialized) {
             return;
         }
         this._projectPath = projectPath;
-        const packerDriver = await PackerDriver.create(projectPath, enginePath);
+        const packerDriver = await PackerDriver.create(projectPath, enginePath, {
+            programmingRoot: options.programmingRoot,
+        });
         await packerDriver.init(features);
         this._initialized = true;
     }

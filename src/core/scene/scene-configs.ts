@@ -1,4 +1,5 @@
 import { configurationRegistry, ConfigurationScope, IBaseConfiguration } from '../configuration';
+import { createSceneMetadataNodes } from './metadata';
 
 export interface IOriginAxesConfig {
     x: boolean;
@@ -122,6 +123,7 @@ class SceneConfig {
     async init() {
         this.configInstance = await configurationRegistry.register('scene', {
             defaults: this.defaultConfig,
+            nodes: () => createSceneMetadataNodes(this.defaultConfig),
         });
     }
 

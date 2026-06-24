@@ -33,6 +33,8 @@ export const HTTP_STATUS = {
 
 export const COMMON_STATUS = {
     SUCCESS: HTTP_STATUS.OK,
+    BAD_REQUEST: HTTP_STATUS.BAD_REQUEST,
+    NOT_FOUND: HTTP_STATUS.NOT_FOUND,
     FAIL: HTTP_STATUS.INTERNAL_SERVER_ERROR,
 } as const;
 
@@ -47,10 +49,10 @@ export const HttpStatusCodeSchema = z.union([
     // z.literal(HTTP_STATUS.ACCEPTED),
     // z.literal(HTTP_STATUS.NO_CONTENT),
     // z.literal(HTTP_STATUS.NOT_MODIFIED),
-    // z.literal(HTTP_STATUS.BAD_REQUEST),
+    z.literal(HTTP_STATUS.BAD_REQUEST),
     // z.literal(HTTP_STATUS.UNAUTHORIZED),
     // z.literal(HTTP_STATUS.FORBIDDEN),
-    // z.literal(HTTP_STATUS.NOT_FOUND),
+    z.literal(HTTP_STATUS.NOT_FOUND),
     // z.literal(HTTP_STATUS.METHOD_NOT_ALLOWED),
     // z.literal(HTTP_STATUS.CONFLICT),
     // z.literal(HTTP_STATUS.UNPROCESSABLE_ENTITY),
@@ -61,6 +63,27 @@ export const HttpStatusCodeSchema = z.union([
     // z.literal(HTTP_STATUS.SERVICE_UNAVAILABLE),
     // z.literal(HTTP_STATUS.GATEWAY_TIMEOUT),
 ]);
+
+export function getCommonErrorStatus(error: unknown): CommonStatus {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : '';
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (/resolve_error|_module_not_found|module not found/i.test(message)) {
+        return COMMON_STATUS.BAD_REQUEST;
+    }
+
+    if (code === 'ENOENT' || /ENOENT|no such file or directory|not found|not exist|cannot find|can not find|can not be found/i.test(message)) {
+        return COMMON_STATUS.NOT_FOUND;
+    }
+
+    if (/parameter error|filename cannot be empty|invalid url|invalid .*content|unsafe file path|extension mismatch|cannot resolve|already exists|multiple \(\d+\) occurrences found|no replacement was performed|did not appear verbatim|file is not changed/i.test(message)) {
+        return COMMON_STATUS.BAD_REQUEST;
+    }
+
+    return COMMON_STATUS.FAIL;
+}
 
 // ===== CommonResult Definition ===== // CommonResult 定义
 

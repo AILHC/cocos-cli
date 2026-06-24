@@ -63,6 +63,12 @@ describe('runtime preview HTTP route contract', () => {
               'e62d10c9-29b9-4d53-833b-5769b524b759': ['test_area_edge_graphic/Season_1', 'cc.JsonAsset'],
             },
           },
+          {
+            name: "special bundle '\n\"",
+            importBase: 'import',
+            nativeBase: 'native',
+            paths: {},
+          },
         ],
       }),
     });
@@ -88,7 +94,31 @@ describe('runtime preview HTTP route contract', () => {
     expect(indexResponse.kind).toBe('body');
     expect(indexResponse.statusCode).toBe(200);
     expect(indexResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
-    expect(await responseBodyText(indexResponse)).toContain('Runtime preview dummy bundle index for resources');
+    const indexBody = await responseBodyText(indexResponse);
+    expect(indexBody).toContain('System.register');
+    expect(indexBody).toContain(JSON.stringify('virtual:///prerequisite-imports/resources'));
+    expect(indexBody).toContain(JSON.stringify('cce:/internal/x/prerequisite-imports'));
+    expect(indexBody).not.toContain('Runtime preview dummy bundle index for resources');
+
+    const remoteIndexResponse = await handleRuntimePreviewRequest(routeContext, '/remote/resources/index.js');
+    expect(remoteIndexResponse.kind).toBe('body');
+    expect(remoteIndexResponse.statusCode).toBe(200);
+    expect(remoteIndexResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
+    const remoteIndexBody = await responseBodyText(remoteIndexResponse);
+    expect(remoteIndexBody).toContain('System.register');
+    expect(remoteIndexBody).toContain(JSON.stringify('virtual:///prerequisite-imports/resources'));
+    expect(remoteIndexBody).toContain(JSON.stringify('cce:/internal/x/prerequisite-imports'));
+
+    const specialBundleName = "special bundle '\n\"";
+    const specialIndexResponse = await handleRuntimePreviewRequest(
+      routeContext,
+      `/assets/${encodeURIComponent(specialBundleName)}/index.js`,
+    );
+    expect(specialIndexResponse.kind).toBe('body');
+    expect(specialIndexResponse.statusCode).toBe(200);
+    const specialIndexBody = await responseBodyText(specialIndexResponse);
+    expect(specialIndexBody).toContain(JSON.stringify(`virtual:///prerequisite-imports/${specialBundleName}`));
+    expect(specialIndexBody).not.toContain(`marker for ${specialBundleName}`);
 
     const importResponse = await handleRuntimePreviewRequest(routeContext, capturedImport!.url);
     expect(importResponse.kind).toBe('file');

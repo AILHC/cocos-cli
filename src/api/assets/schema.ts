@@ -147,8 +147,8 @@ export const SchemaCreateAssetOptions = z.object({
     overwrite: z.boolean().optional().describe('Whether to force overwrite existing files, default false'), // 是否强制覆盖已存在的文件，默认 false
     rename: z.boolean().optional().describe('Whether to automatically rename conflicting files, default false'), // 是否自动重命名冲突文件，默认 false
     content: z.string().optional().describe('Asset content, supports string and Buffer types, when both content and template are passed, content is used first to create file, creates folder when not passed'), // 资源内容，支持字符串和 Buffer 类型，当 content 与 template 都传递时，优先使用 content 创建文件，不传递时创建文件夹
-    target: z.string().min(1).describe('Output address for asset creation, supports absolute path and url'), // 资源创建的输出地址，支持绝对路径和 url
-    template: z.string().min(1).optional().describe('Asset file template address, e.g. db://xxx/ani, supports url and absolute path'), // 资源文件模板地址，例如 db://xxx/ani，支持 url 与绝对路径
+    target: z.string().min(1).describe('Output address for asset creation. Prefer an asset-db URL starting with db://, for example db://assets/scripts/GameManager.ts. You may also pass an absolute file path inside an asset database root such as the project assets directory.'), // 资源创建的输出地址。优先使用 db:// 开头的 asset-db URL，例如 db://assets/scripts/GameManager.ts。也可以传位于项目资源数据库根目录内的绝对路径。
+    template: z.string().min(1).optional().describe('Asset file template address. Use an asset-db URL starting with db://, for example db://internal/default_file_content/animation.anim, or an absolute file path to an existing template file. This is not a web URL.'), // 资源文件模板地址。使用 db:// 开头的 asset-db URL，例如 db://internal/default_file_content/animation.anim，或指向现有模板文件的绝对路径；不是 Web URL。
     uuid: z.string().min(1).optional().describe('Specify uuid, since uuid may also conflict, uuid will be automatically reassigned when conflict occurs'), // 指定 uuid ，由于 uuid 也有概率冲突，uuid 冲突时会自动重新分配 uuid
     userData: z.record(z.string().min(1), SchemaJsonValue).optional().describe('Some userData default configuration values specified when creating new asset'), // 新建资源时指定的一些 userData 默认配置值
     customOptions: z.record(z.string().min(1), SchemaJsonValue).optional().describe('Pass some custom configuration information, can be used in custom asset handler'), // 传递一些自定义配置信息，可以在自定义资源处理器内使用
@@ -158,7 +158,8 @@ export const SchemaCreateAssetOptions = z.object({
 export const SchemaSourcePath = z.string().min(1).describe('Source file path, location of asset file to import'); // 源文件路径，要导入的资源文件位置
 
 // Asset save related // 资源保存相关
-export const SchemaAssetData = z.string().min(1).describe('Asset data to save, can be string or Buffer'); // 要保存的资源数据，可以是字符串或 Buffer
+export const SchemaSaveAssetPath = SchemaUrlOrUUIDOrPath.describe('Required existing asset URL, UUID, or file path to save. This must refer to an asset that already exists in the asset database.'); // 保存已有资源时使用的 URL、UUID 或文件路径
+export const SchemaAssetData = z.string().min(1).describe('Required complete file content to save. Do not omit this field, pass an empty string, or pass partial/truncated script content.'); // 要保存的完整资源数据
 
 // Return value Schema // 返回值 Schema
 export const SchemaAssetInfoResult = SchemaAssetInfo.nullable().describe('Asset detailed information object, including name, type, path, UUID, etc.'); // 资源详细信息对象，包含名称、类型、路径、UUID 等字段
@@ -213,6 +214,7 @@ export type TDirOrDbPath = z.infer<typeof SchemaDirOrDbPath>;
 export type TBaseName = z.infer<typeof SchemaBaseName>;
 export type TDbDirResult = z.infer<typeof SchemaDbDirResult>;
 export type TUrlOrUUIDOrPath = z.infer<typeof SchemaUrlOrUUIDOrPath>;
+export type TSaveAssetPath = z.infer<typeof SchemaSaveAssetPath>;
 export type TUUIDOrPath = z.infer<typeof SchemaUUIDOrPath>;
 export type TUrlOrUUID = z.infer<typeof SchemaUrlOrUUID>;
 export type TUrlOrPath = z.infer<typeof SchemaUrlOrPath>;

@@ -70,6 +70,12 @@
       }
     }
   },
+  "scene": {
+    "tick": {
+      "title": "启用 Tick",
+      "description": "保持场景主循环运行"
+    }
+  },
   "script": {
     "title": "脚本",
     "useDefineForClassFields": {

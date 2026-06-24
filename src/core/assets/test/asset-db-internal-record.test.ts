@@ -302,13 +302,55 @@ describe('asset-db internal record editor parity', () => {
         }
     });
 
-    it('keeps CLI internal.library current behavior at project library root', async () => {
+    it('uses explicit record paths when AssetDBOptions.records is provided', async () => {
+        const fixture = await makeTempProject();
+        try {
+            const recordRoot = join(fixture.projectRoot, 'library', 'records');
+            const db = new AssetDB({
+                name: 'assets',
+                target: fixture.target,
+                library: join(fixture.projectRoot, 'library'),
+                temp: join(fixture.projectRoot, 'temp', 'asset-db', 'assets'),
+                level: 4,
+                ignoreFiles: [],
+                readonly: false,
+                records: {
+                    info: join(recordRoot, '.cli-assets-info.json'),
+                    data: join(recordRoot, '.cli-assets-data.json'),
+                    dependency: join(recordRoot, '.cli-assets-dependency.json'),
+                    cache: join(recordRoot, '.cli-assets'),
+                },
+            } as any);
+
+            const infoSpy = jest.spyOn(db.infoManager, 'setRecordJSON').mockResolvedValue(undefined);
+            const dataSpy = jest.spyOn(db.dataManager, 'setRecordJSON').mockResolvedValue(undefined);
+            const dependencySpy = jest.spyOn(db.dependencyManager, 'setRecordJSON').mockResolvedValue(undefined);
+
+            await (db as any).prepareStart();
+            await db.save();
+
+            expect(infoSpy).toHaveBeenCalledWith(join(recordRoot, '.cli-assets-info.json'));
+            expect(dataSpy).toHaveBeenCalledWith(join(recordRoot, '.cli-assets-data.json'));
+            expect(dependencySpy).toHaveBeenCalledWith(join(recordRoot, '.cli-assets-dependency.json'));
+            expect((db as any).cachePath).toBe(join(recordRoot, '.cli-assets'));
+            expect(existsSync(join(recordRoot, '.cli-assets'))).toBe(true);
+        } finally {
+            delete assetDBMap.assets;
+            await rm(fixture.root, { recursive: true, force: true });
+        }
+    });
+
+    it('keeps CLI asset-db paths isolated while keeping internal library at project library root', async () => {
         const runtime = await loadFreshRuntime();
         await runtime.configurationManager.initialize(TestGlobalEnv.projectRoot);
         await runtime.project.open(TestGlobalEnv.projectRoot);
         await runtime.Engine.init(TestGlobalEnv.engineRoot);
         await runtime.assetConfig.init();
 
+        expect(runtime.assetConfig.data.tempRoot)
+            .toBe(join(TestGlobalEnv.projectRoot, 'temp', 'cli', 'asset-db'));
+        expect(runtime.assetConfig.data.assetDBList.find((assetDB) => assetDB.name === 'assets')?.library)
+            .toBe(join(TestGlobalEnv.projectRoot, 'library', 'cli'));
         expect(runtime.assetConfig.data.assetDBList.find((assetDB) => assetDB.name === 'internal')?.library)
             .toBe(join(TestGlobalEnv.projectRoot, 'library'));
     });

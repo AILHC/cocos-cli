@@ -1,5 +1,6 @@
 import cc from 'cc';
 import { BaseService, register, Service } from './core';
+import { InternalServiceEvents } from './core/internal-events';
 import {
     IBaseIdentifier,
     ICloseOptions,
@@ -15,6 +16,7 @@ import {
 import { PrefabEditor, SceneEditor } from './editors';
 import { IAssetInfo } from '../../../assets/@types/public';
 import { Rpc } from '../rpc';
+import { enrichMissingDependencyError } from './error-utils';
 
 /**
  * EditorAsset - 统一的编辑器管理入口
@@ -71,6 +73,10 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             return 'prefab';
         }
         return 'unknown';
+    }
+
+    public getCurrentEditorUuid(): string | null {
+        return this.currentEditorUuid;
     }
 
     /**
@@ -132,16 +138,13 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             }
         }
 
-        const outputDependentInfo = async function (err: any) {
+        const outputDependentInfo = async (err: any) => {
             try {
-                const errInfo = err.message || '';
-                const regexObj = /^download failed: .*\/([\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})\.json/i;
-                const result = regexObj.exec(errInfo);
-                let uuid = '';
-                if (result) {
-                    uuid = result[1];
-                }
-                err.message = `The asset ${urlOrUUID} cannot be loaded because a dependent asset is missing: ${uuid}`;
+                const rpc = Rpc.getInstance();
+                err.message = await enrichMissingDependencyError(err.message || '', urlOrUUID,
+                    (uuid) => rpc.request('assetManager', 'queryAssetInfo', [uuid]),
+                    (mainUuid, subId) => rpc.request('assetManager', 'querySubAssetName', [mainUuid, subId]),
+                );
             } catch (error) {
                 //
             }
@@ -155,7 +158,10 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
                 editor = this.createEditor(assetInfo.type);
                 this.editorMap.set(uuid, editor);
             }
-            const encode = await editor.open(assetInfo);
+            const encode = await editor.open(assetInfo, params);
+
+            this._clearUndoHistory();
+
             // 设置当前打开的编辑器
             this.currentEditorUuid = assetInfo.uuid;
             this.emit('editor:open');
@@ -184,10 +190,11 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             const editor = this.editorMap.get(uuid);
             if (!editor) return true;
 
-            const result = await editor.close();
+            const result = await editor.close({ save: params.save ?? true });
 
             // 如果关闭的是当前打开的编辑器，清除当前状态
             if (uuid === this.currentEditorUuid) {
+                this._clearUndoHistory();
                 this.currentEditorUuid = null;
             }
 
@@ -195,6 +202,8 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             this.editorMap.delete(uuid);
 
             this.emit('editor:close');
+            // 真正关闭编辑器时的会话清理边界；重载只复用内容卸载/挂载边界。
+            this.emitInternal(InternalServiceEvents.EditorDisposed);
             this.isOpen = false;
             console.log(`关闭 ${assetInfo.url}`);
             return result;
@@ -223,6 +232,8 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             }
 
             const result = await editor.save();
+
+            this._markUndoSaved();
 
             this.emit('editor:save');
 
@@ -268,7 +279,17 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
                     let currentParams: IReloadOptions | null = params;
                     while (currentParams) {
                         await this.waitLocks();
-                        await editor.reload();
+                        // 重载不是对外的编辑器关闭/打开；这里只复用内部内容卸载/挂载边界。
+                        this.emitInternal(InternalServiceEvents.EditorReloadClose);
+                        try {
+                            await editor.reload();
+                        } finally {
+                            this.emitInternal(InternalServiceEvents.EditorReloadOpen);
+                        }
+
+                        if (!currentParams.preserveUndoHistory) {
+                            this._clearUndoHistory();
+                        }
 
                         if (this.needReloadAgain) {
                             currentParams = this.needReloadAgain;
@@ -320,5 +341,21 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
         });
         console.log('[Scene] Script suspend soft reload');
         Service.Script.suspend(Promise.resolve(this.reload({})));
+    }
+
+    private _clearUndoHistory(): void {
+        try {
+            Service.Undo?.clearHistory();
+        } catch (_e) {
+            // UndoService may not be registered during early editor setup.
+        }
+    }
+
+    private _markUndoSaved(): void {
+        try {
+            Service.Undo?.markSaved();
+        } catch (_e) {
+            // UndoService may not be registered during early editor setup.
+        }
     }
 }

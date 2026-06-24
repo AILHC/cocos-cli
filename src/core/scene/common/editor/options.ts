@@ -1,3 +1,5 @@
+import type { INodeDumpOptions } from '../node';
+
 import { ICreateType, TSceneTemplateType } from './type';
 
 /**
@@ -20,9 +22,8 @@ export interface ISaveOptions {
 /**
  * 打开场景/预制体选项
  */
-export interface IOpenOptions {
+export interface IOpenOptions extends INodeDumpOptions {
     urlOrUUID: string;
-    simpleNode?: boolean;
 }
 
 /**
@@ -30,6 +31,8 @@ export interface IOpenOptions {
  */
 export interface IReloadOptions {
     urlOrUUID?: string;
+    /** Internal scene-process reloads can preserve undo state when the caller pushes its own command. */
+    preserveUndoHistory?: boolean;
 }
 
 /**
@@ -37,4 +40,6 @@ export interface IReloadOptions {
  */
 export interface ICloseOptions {
     urlOrUUID?: string;
+    /** Whether to save before closing. Defaults to true for backward compatibility. */
+    save?: boolean;
 }

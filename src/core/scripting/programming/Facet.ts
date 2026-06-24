@@ -74,12 +74,16 @@ export class ProgrammingFacet {
     private _asyncIteration: AsyncIterationConcurrency;
     public static async create(
         engine: IEngineOptions,
-        projectPath: string
+        projectPath: string,
+        options: {
+            programmingRoot?: string;
+        } = {},
     ) {
         const previewFacet = new ProgrammingFacet(
             engine.root,
             engine.distRoot, // engineDistRoot
-            projectPath
+            projectPath,
+            options.programmingRoot,
         );
         await previewFacet._initialize({ engine });
         return previewFacet;
@@ -177,8 +181,9 @@ export class ProgrammingFacet {
         engineRoot: string,
         engineDistRoot: string,
         projectRoot: string,
+        programmingRoot?: string,
     ) {
-        this._systemJsHomeDir = ps.join(projectRoot, 'temp', 'cli', 'programming', 'preview', 'systemjs');
+        this._systemJsHomeDir = ps.join(programmingRoot || ps.join(projectRoot, 'temp', 'programming'), 'preview', 'systemjs');
         this._engineRoot = engineRoot;
         this._engineDistRoot = engineDistRoot;
         this._asyncIteration = new AsyncIterationConcurrency(async () => {

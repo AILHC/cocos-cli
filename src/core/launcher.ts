@@ -205,6 +205,7 @@ export default class Launcher {
         diagnostics?: RuntimePreviewStageDiagnostics;
         clearRuntimePreviewProgrammingCache?: boolean;
         engineRuntimeMode?: EngineRuntimeMode;
+        programmingRoot?: string;
     } = {}) {
         if (this._import) {
             return;
@@ -217,10 +218,14 @@ export default class Launcher {
         });
         // 在导入资源之前，初始化 scripting 模块，才能正常导入编译脚本
         const { Engine } = await import('./engine');
-        await scripting.initialize(this.projectPath, (await this.resolveEngineRoot()).engineRoot, Engine.getConfig().includeModules);
+        await scripting.initialize(this.projectPath, (await this.resolveEngineRoot()).engineRoot, Engine.getConfig().includeModules, {
+            programmingRoot: options.programmingRoot,
+        });
 
         const { createProgrammingFacet } = await import('./scripting/programming/FacetInstance');
-        await createProgrammingFacet(Engine.getInfo().typescript.path, scripting.projectPath, Engine.getConfig().includeModules);
+        await createProgrammingFacet(Engine.getInfo().typescript.path, scripting.projectPath, Engine.getConfig().includeModules, {
+            programmingRoot: options.programmingRoot,
+        });
 
         if (options.clearRuntimePreviewProgrammingCache) {
             options.diagnostics?.stageStart('programming:cache-clear');
@@ -298,7 +303,11 @@ export default class Launcher {
             PreviewSettingsProvider,
             startRuntimePreviewServer,
         } = await import('../runtime-preview');
-        const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF || join(this.projectPath, 'library', 'cli');
+        const useSharedProjectLibrary = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT !== '0';
+        const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF
+            || (useSharedProjectLibrary
+                ? join(this.projectPath, 'library')
+                : join(this.projectPath, 'library', 'cli'));
         const extensionLibraryRoots = resolveProjectExtensionAssetDbMounts(this.projectPath).map((mount) => ({
             name: mount.name,
             root: mount.library,
@@ -363,6 +372,7 @@ export default class Launcher {
                         serverURL: engineServerUrl,
                         diagnostics,
                         clearRuntimePreviewProgrammingCache: options.clearProgrammingCache === true,
+                        programmingRoot: projectProgrammingRoot,
                     });
                     const { init: initBuilder } = await import('./builder');
                     diagnostics.stageStart('builder:init');

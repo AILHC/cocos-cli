@@ -259,7 +259,7 @@ Vitest harness 可以参考 `F:\ps_copy\p6\trunk\Project\GameClient\Client-ai_ma
 当前阶段允许修改 `D:\workspace\engines\cocos\3.8.6` 来适配 runtime preview，不再对普通 3.8.6 兼容 patch 逐项等待确认。判断规则：
 
 - 优先适配 3.8.6 current engine source；修改必须服务于当前 CLI compiler、真实 `getPreviewSettings()`、runtime preview 加载链路或必要 host boundary。
-- 参考优先级：先查 `E:\own_space\tmp-repos\runtime-preview-reference\engine-backup-current-20260606`；仍缺事实时，再查本机正式 cocos4 仓库 `E:\own_space\engines\cocos4`；最终实现必须回到 3.8.6 验证。`E:\own_space\engines\cocos-cli\.codex-tmp\cocos4-alpha22` 是临时 checkout，不应继续作为事实来源、计划输入或文档引用目标。
+- 参考优先级：先查 `E:\own_space\tmp-repos\runtime-preview-reference\engine-backup-current-20260606`；仍缺事实时，再查 `E:\own_space\engines\cocos4`；最终实现必须回到 3.8.6 验证。
 - 可直接执行的范围包括 `NODEJS` constant、`cc.config.json` PAL override、`pal/**/nodejs` adapter、`build-adapter.js`、`preload.ts` / `ccon.ts` 等生成 `dev-cli/editor` 和 runtime preview 必需的兼容改动。
 - 禁止手工复制或伪造 `bin/.cache/dev-cli/editor/loader.js`；禁止为了测试通过伪造 engine runtime URL；禁止把 generated cache、editor `library` 或 `temp/programming` 当成 source patch 提交。
 - engine source patch 与 CLI runtime-preview patch 尽量分开提交；每个 engine patch checkpoint 至少跑 `npm run compiler:engine` 或能复现当前阻塞点的最小命令。

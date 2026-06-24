@@ -10,8 +10,10 @@ import {
     SchemaTargetPath,
     SchemaAssetOperationOption,
     SchemaSourcePath,
+    SchemaSaveAssetPath,
     SchemaAssetData,
     TUrlOrUUIDOrPath,
+    TSaveAssetPath,
     TDataKeys,
     TQueryAssetsOption,
     TSupportCreateType,
@@ -77,7 +79,7 @@ import {
 } from './schema';
 import { z } from 'zod';
 import { description, param, result, title, tool } from '../decorator/decorator.js';
-import { COMMON_STATUS, CommonResultType, HttpStatusCode } from '../base/schema-base';
+import { COMMON_STATUS, CommonResultType, getCommonErrorStatus, HttpStatusCode } from '../base/schema-base';
 import { assetDBManager, assetManager } from '../../core/assets';
 import { IAssetInfo } from '../../core/assets/@types/public';
 import { SchemaUrlOrPath, SchemaUrlOrUUID, SchemaUUIDOrPath } from '../base/schema-identifier';
@@ -126,7 +128,7 @@ export class AssetsApi {
         try {
             await assetManager.refreshAsset(dir);
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('refresh dir fail:', e);
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -154,11 +156,11 @@ export class AssetsApi {
         try {
             ret.data = await assetManager.queryAssetInfo(urlOrUUIDOrPath, dataKeys as (keyof IAssetInfo)[] | undefined);
             if (!ret.data) {
-                ret.code = COMMON_STATUS.FAIL;
+                ret.code = COMMON_STATUS.NOT_FOUND;
                 ret.reason = `❌Asset can not be found: ${urlOrUUIDOrPath}. Please refresh asset db and try again.`;
             }
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('query asset info fail:', e instanceof Error ? e.message : String(e));
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -183,11 +185,11 @@ export class AssetsApi {
         try {
             ret.data = await assetManager.queryAssetMeta(urlOrUUIDOrPath);
             if (!ret.data) {
-                ret.code = COMMON_STATUS.FAIL;
+                ret.code = COMMON_STATUS.NOT_FOUND;
                 ret.reason = `Asset not found: ${urlOrUUIDOrPath}`;
             }
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('query asset meta fail:', e instanceof Error ? e.message : String(e));
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -292,9 +294,9 @@ export class AssetsApi {
         try {
             ret.data = await assetManager.createAssetByType(ccType, dirOrUrl, baseName, options);
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error(e);
-            ret.reason = e instanceof Error ? e.message + e.stack : String(e);
+            ret.reason = e instanceof Error ? e.message : String(e);
         }
 
         return ret;
@@ -302,7 +304,7 @@ export class AssetsApi {
 
     @tool('assets-create-asset')
     @title('Create Asset') // 创建资源
-    @description('Create asset based on actual address and file content') // 根据实际地址和文件内容创建资源
+    @description('Create a Cocos asset from file content or a template. Set options.target to an asset-db URL such as db://assets/scripts/GameManager.ts, or to an absolute file path inside an asset database root. Do not pass a web URL or a plain relative path as target.') // 根据文件内容或模板创建 Cocos 资源。options.target 使用 db://assets/scripts/GameManager.ts 这类 asset-db URL，或位于资源数据库根目录内的绝对路径；不要传 Web URL 或普通相对路径。
     @result(SchemaCreatedAssetResult)
     async createAsset(
         @param(SchemaCreateAssetOptions) options: TCreateAssetOptions
@@ -316,9 +318,9 @@ export class AssetsApi {
         try {
             ret.data = await assetManager.createAsset(options);
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error(e);
-            ret.reason = e instanceof Error ? e.message + e.stack : String(e);
+            ret.reason = e instanceof Error ? e.message : String(e);
         }
         return ret;
     }
@@ -344,7 +346,7 @@ export class AssetsApi {
         try {
             ret.data = await assetManager.importAsset(source, target, options);
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('import asset fail:', e instanceof Error ? e.message : String(e));
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -383,10 +385,10 @@ export class AssetsApi {
      */
     @tool('assets-save-asset')
     @title('Save Asset Data') // 保存资源数据
-    @description('Save the content of asset files. Used to modify the content of text-based assets (such as scripts, configuration files, scenes, etc.) and write to disk. Supports both string and Buffer data formats.') // 保存资源文件的内容。用于修改文本类资源（如脚本、配置文件、场景等）的内容并写入磁盘。支持字符串和 Buffer 两种数据格式。
+    @description('Save complete content to an existing asset file. Required arguments: pathOrUrlOrUUID (existing asset URL, UUID, or file path) and data (complete file content). Do not call this tool with empty arguments. This tool does not create new assets or temporary files; create the asset first with assets-create-asset-by-type or assets-create-asset, then call save. For scripts, pass complete syntactically valid content. For scene and prefab assets, pass complete valid Cocos serialized JSON; prefer scene-* tools and scene-save for scene graph edits.')
     @result(SchemaSaveAssetResult)
     async saveAsset(
-        @param(SchemaUrlOrUUIDOrPath) pathOrUrlOrUUID: TUrlOrUUIDOrPath,
+        @param(SchemaSaveAssetPath) pathOrUrlOrUUID: TSaveAssetPath,
         @param(SchemaAssetData) data: TAssetData
     ): Promise<CommonResultType<TSaveAssetResult>> {
         const code: HttpStatusCode = COMMON_STATUS.SUCCESS;
@@ -398,7 +400,7 @@ export class AssetsApi {
         try {
             ret.data = await assetManager.saveAsset(pathOrUrlOrUUID, data);
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('save asset fail:', e instanceof Error ? e.message : String(e));
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -436,9 +438,9 @@ export class AssetsApi {
      */
     @tool('assets-query-path')
     @title('Query Asset File Path') // 查询资源文件路径
-    @description('Query the actual path of an asset in the file system based on its URL or UUID. Returns an absolute path string.') // 根据资源的 URL 或 UUID 查询资源在文件系统中的实际路径。返回绝对路径字符串。
+    @description('Query the actual path of an asset in the file system based on its URL, UUID, or asset-db relative path such as assets/resources/Image/a.png. Returns an absolute path string.') // 根据资源的 URL、UUID 或 asset-db 相对路径查询资源在文件系统中的实际路径。返回绝对路径字符串。
     @result(SchemaPathResult)
-    async queryPath(@param(SchemaUrlOrUUID) urlOrUuid: TUrlOrUUID): Promise<CommonResultType<TPathResult>> {
+    async queryPath(@param(SchemaUrlOrUUIDOrPath) urlOrUuid: TUrlOrUUIDOrPath): Promise<CommonResultType<TPathResult>> {
         const code: HttpStatusCode = COMMON_STATUS.SUCCESS;
         const ret: CommonResultType<TPathResult> = {
             code: code,
@@ -447,8 +449,13 @@ export class AssetsApi {
 
         try {
             ret.data = assetManager.queryPath(urlOrUuid);
+            if (!ret.data) {
+                ret.code = COMMON_STATUS.NOT_FOUND;
+                ret.data = null;
+                ret.reason = `Asset path can not be found: ${urlOrUuid}. Please refresh asset db and try again.`;
+            }
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('query path fail:', e instanceof Error ? e.message : String(e));
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -672,11 +679,11 @@ export class AssetsApi {
             if (asset) {
                 ret.data = await assetManager.queryAssetUserDataConfig(asset);
             } else {
-                ret.code = COMMON_STATUS.FAIL;
+                ret.code = COMMON_STATUS.NOT_FOUND;
                 ret.reason = `❌Asset can not be found: ${urlOrUuidOrPath}`;
             }
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('query asset user data config fail:', e instanceof Error ? e.message : String(e));
             ret.reason = e instanceof Error ? e.message : String(e);
         }
@@ -705,11 +712,11 @@ export class AssetsApi {
         try {
             ret.data = await assetManager.updateUserData(urlOrUuidOrPath, path, value);
             if (!ret.data) {
-                ret.code = COMMON_STATUS.FAIL;
+                ret.code = COMMON_STATUS.NOT_FOUND;
                 ret.reason = `❌Asset can not be found: ${urlOrUuidOrPath}. Please refresh asset db and try again.`;
             }
         } catch (e) {
-            ret.code = COMMON_STATUS.FAIL;
+            ret.code = getCommonErrorStatus(e);
             console.error('update asset user data fail:', e instanceof Error ? e.message : String(e));
             ret.reason = e instanceof Error ? e.message : String(e);
         }

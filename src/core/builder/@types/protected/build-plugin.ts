@@ -18,6 +18,7 @@ import { IInternalBuildOptions, IInternalBundleBuildOptions } from './options';
 import { IPlatformType } from './options';
 import { StatsQuery } from '@cocos/ccbuild';
 import { IConfigItem } from '../../../base/type';
+import { ICocosConfigurationPropertySchema } from '../../../configuration/script/metadata';
 import { BuilderCache } from '../protected';
 
 export interface IQuickSpawnOption {
@@ -42,10 +43,35 @@ export interface IPackageRegisterInfo {
 
 export type IBuilderRegisterInfo = IPlatformRegisterInfo | IPluginRegisterInfo;
 
+/**
+ * 构建面板渲染用的平台配置 schema。
+ * common / platformOptions 各为一个对象节点({ type:'object', properties, required }),
+ * 字段与配置系统 schema(ICocosConfigurationPropertySchema)对齐,由 convertConfigItem 从
+ * IBuilderConfigItem 转换而来(label->title、type:'enum'->string|number+enum 等),hidden 项已在源头过滤。
+ * 必填项(源端 verifyRules:['required'])收进对象节点的 required 数组(JSON Schema 对象级)。
+ */
+export interface PlatformBuildSchema {
+    common: ICocosConfigurationPropertySchema;
+    platformOptions: ICocosConfigurationPropertySchema;
+}
+
+export interface PlatformConfigItem {
+    platform: string;
+    displayName: string;
+    platformType: StatsQuery.ConstantManager.PlatformType;
+    isNative: boolean;
+    doc?: string;
+    pluginPath: string;
+    createTemplateLabel?: string;
+    supportTextureCompress: boolean;
+    customBuildStages?: IBuildStageItem[];
+}
+
 export interface IPlatformRegisterInfo {
     config: IPlatformBuildPluginConfig;
     platform: string;
     path: string;
+    conifgPath: string;
     hooks?: string;
     pkgName?: string;
     type: 'register';
@@ -249,7 +275,9 @@ export type OverwriteCommonOption =
 export interface IBuildStageItem {
     name: string; // 阶段唯一名称，同平台不允许重名
     displayName?: string; // 阶段名称，显示在构建面板对应按钮以及一些报错提示上
+    displayNameI18nKey?: string;
     description?: string; // 构建阶段描述，将会作为构建面板对应按钮上的 tooltip
+    descriptionI18nKey?: string;
     hidden?: boolean; // 是否显示指定的控制按钮在构建列表，默认显示
     parallelism?: 'none' | 'all' | 'other';
     hook: string;
@@ -299,6 +327,7 @@ export type IBuilderConfigItem = IConfigItem & {
 export interface IInternalBuildPluginConfig extends IBuildPluginConfig {
     doc?: string; // 注册文档地址
     displayName?: string; // 在构建面板上的显示名称，默认为插件名
+    displayNameI18nKey?: string;
     hooks?: string; // 钩子函数的存储路径
     priority?: number;
     options?: IDisplayOptions; // 需要注入的平台参数配置
@@ -330,7 +359,9 @@ export interface BuildTemplateConfig {
         destUrl: string;
     }[];
     displayName?: string;
+    displayNameI18nKey?: string;
     version: string;
+    pkgName?: string; // Internal template directory name, defaults to the registered platform name.
     dirname?: string; // 指定构建模板目录名称，默认与平台名称保持一致
 }
 
@@ -341,9 +372,10 @@ export type ICustomBuildStageDisplayItem = IBuildStageItem & {
 }
 
 export interface BuildCheckResult {
-    error: string;
-    newValue: any;
-    level: IConsoleType;
+    valid: boolean; // 是否通过(替代"error 为空即通过"的隐式表达)
+    level?: 'error' | 'warn'; // 未通过级别,默认 error(收窄,不再复用 IConsoleType)
+    message?: string; // 未通过提示(已翻译;替代旧 error 字段名)
+    fixedValue?: unknown; // 可选:规则建议的修正值(原 newValue,语义化命名)
 }
 
 export type IBuildVerificationFunc = (value: any, options: IBuildOptionBase) => boolean | Promise<boolean>;

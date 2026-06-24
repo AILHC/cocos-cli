@@ -10,6 +10,23 @@ import { TestProject } from '../helpers/project-manager';
 import { resolve, join } from 'path';
 import { platform } from 'os';
 
+function logCliFailure(context: string, result: { exitCode: number | null; stdout?: string; stderr?: string; error?: Error }) {
+    if (result.exitCode === 0 && !result.error) {
+        return;
+    }
+
+    console.error(`[${context}] exitCode=${result.exitCode}`);
+    if (result.error) {
+        console.error(`[${context}] error=${result.error.stack || result.error.message}`);
+    }
+    if (result.stdout) {
+        console.error(`[${context}] stdout:\n${result.stdout}`);
+    }
+    if (result.stderr) {
+        console.error(`[${context}] stderr:\n${result.stderr}`);
+    }
+}
+
 describe('cocos build command', () => {
     let testProject: TestProject;
 
@@ -28,6 +45,7 @@ describe('cocos build command', () => {
                 project: testProject.path,
                 platform: 'web-desktop',
             });
+            logCliFailure('build web-desktop', result);
 
             // 验证构建成功
             expect(result.exitCode).toBe(0);
@@ -100,6 +118,7 @@ describe('cocos build command', () => {
                     project: testProject.path,
                     platform: 'windows',
                 });
+                logCliFailure('build windows', result);
     
                 expect(result.error).toBe(undefined);
                 expect(result.exitCode).toBe(0);

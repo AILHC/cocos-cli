@@ -12,8 +12,10 @@ jest.mock('../../base/console', () => ({
     newConsole: {
         buildStart: jest.fn(),
         buildComplete: jest.fn(),
+        createLogSinkRestorer: jest.fn(() => jest.fn()),
         error: jest.fn(),
         progress: jest.fn(),
+        record: jest.fn(),
     },
 }));
 
@@ -21,6 +23,14 @@ jest.mock('../manager/plugin', () => ({
     pluginManager: {
         checkPlatform: jest.fn(() => true),
         checkOptions: jest.fn(async (options: any) => options),
+    },
+}));
+
+jest.mock('../share/builder-config', () => ({
+    __esModule: true,
+    default: {
+        projectRoot: 'C:\\test\\project',
+        projectTempDir: 'C:\\test\\project\\temp\\builder',
     },
 }));
 

@@ -55,11 +55,16 @@ export function encodePrefab(node: Node): IPrefab | null {
     return result;
 }
 
+interface IEncodeNodeOptions {
+    includeComponents?: boolean;
+}
+
 /**
  * 编码一个 node 数据
  * @param node
  */
-export function encodeNode(node: Node): INode {
+export function encodeNode(node: Node, options: IEncodeNodeOptions = {}): INode {
+    const includeComponents = options.includeComponents !== false;
     const ctor = node.constructor;
 
     const LayersEnumList = Object.keys(cc.Layers.Enum).map((key, index) => {
@@ -73,7 +78,7 @@ export function encodeNode(node: Node): INode {
         return { name: key, value: MobilityMode[key as keyof typeof MobilityMode] };
     });
 
-    // FIXME: avoid using private field
+    // FIXME：后续需要避免直接访问私有字段。
     // TODO：这里的需要知道当前场景是 2D 还是 3D
     //const is2DProject = cce.SceneFacadeManager['_projectType'] === '2d';
     const is2DProject = false;
@@ -166,9 +171,11 @@ export function encodeNode(node: Node): INode {
             .filter((v): v is IProperty => !!v),
 
         __type__: dumpUtil.getTypeName(ctor),
-        __comps__: node['_components'].map((comp: any) => {
-            return encodeComponent(comp);
-        }),
+        __comps__: includeComponents
+            ? node['_components'].map((comp: any) => {
+                return encodeComponent(comp);
+            })
+            : [],
 
         mountedRoot: prefabUtils.getMountedRoot(node)?.uuid,
     };
@@ -184,7 +191,7 @@ export function encodeNode(node: Node): INode {
         }
     }
 
-    // 根据 flag 调整 readyonly
+    // 根据 flag 调整 readonly。
     _checkObjFlags(node, data);
 
     // 填充 path，供 inspector setProperty 使用
@@ -193,16 +200,18 @@ export function encodeNode(node: Node): INode {
             (val as IProperty).path = key;
         }
     }
-    data.__comps__.forEach((comp, index) => {
-        comp.path = `__comps__.${index}`;
-        if (comp.value && typeof comp.value === 'object' && !Array.isArray(comp.value)) {
-            for (const [key, prop] of Object.entries(comp.value as Record<string, unknown>)) {
-                if (prop && typeof prop === 'object' && !Array.isArray(prop) && 'type' in prop && 'value' in prop) {
-                    (prop as IProperty).path = `__comps__.${index}.${key}`;
+    if (includeComponents) {
+        data.__comps__.forEach((comp, index) => {
+            comp.path = `__comps__.${index}`;
+            if (comp.value && typeof comp.value === 'object' && !Array.isArray(comp.value)) {
+                for (const [key, prop] of Object.entries(comp.value as Record<string, unknown>)) {
+                    if (prop && typeof prop === 'object' && !Array.isArray(prop) && 'type' in prop && 'value' in prop) {
+                        (prop as IProperty).path = `__comps__.${index}.${key}`;
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 
     return data;
 }
@@ -298,6 +307,7 @@ export function encodeComponent(component: any): IComponent {
         cid: component.__cid__,
 
         mountedRoot: mountedRoot,
+        component_path: compMgr.getPathFromUuid(component.uuid) ?? '',
     };
 
     // 遍历组件内所有属性
@@ -363,6 +373,11 @@ export function encodeComponent(component: any): IComponent {
     if (ctor) {
         data.extends = dumpUtil.getTypeInheritanceChain(ctor);
     }
+
+    // hack: __prefab 不属于标准 IComponent 结构，proxy 层需要用它还原预制体引用关系
+    // node的_prefab和component的__prefab不一样，命名方式也不一样，引擎是这样定义的。
+    // component的__prefab只有一个属性，所以这里可以直接复制
+    (data as any).__compPrefab__ = (component as any).__prefab || null;
 
     return data;
 }

@@ -21,6 +21,13 @@ export interface PackageRegisterInfo extends Omit<AssetDBContribution, 'asset-ha
     internal: boolean;
 }
 
+export interface AssetDBRecordPaths {
+    info?: string;
+    data?: string;
+    dependency?: string;
+    cache?: string;
+}
+
 export interface AssetDBRegisterInfo {
     name: string;
     target: string;
@@ -31,4 +38,5 @@ export interface AssetDBRegisterInfo {
 
     library?: string;
     temp?: string;
+    records?: AssetDBRecordPaths;
 }

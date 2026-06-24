@@ -24,6 +24,56 @@ export function url2path(url: string) {
     return Utils.Path.resolveToRaw(url);
 }
 
+export function pathToDbUrlIfAssetDBPath(pathOrUrlOrUUID: string, assetDBInfo: Record<string, { name: string; target: string }>) {
+    if (!pathOrUrlOrUUID || pathOrUrlOrUUID.startsWith('db://')) {
+        return pathOrUrlOrUUID;
+    }
+
+    if (!isAbsolute(pathOrUrlOrUUID)) {
+        const normalizedRelativePath = pathOrUrlOrUUID
+            .replace(/\\/g, '/')
+            .replace(/^\.\/+/, '')
+            .replace(/\/+$/, '');
+        const [dbName, ...relativeParts] = normalizedRelativePath.split('/').filter(Boolean);
+        const dbInfo = dbName && assetDBInfo[dbName];
+
+        if (dbInfo) {
+            return relativeParts.length ? `db://${dbInfo.name}/${relativeParts.join('/')}` : `db://${dbInfo.name}`;
+        }
+
+        return pathOrUrlOrUUID;
+    }
+
+    const matchedDBInfo = Object.values(assetDBInfo)
+        .filter((info) => info?.target && Utils.Path.contains(info.target, pathOrUrlOrUUID))
+        .sort((a, b) => Utils.Path.normalize(b.target).length - Utils.Path.normalize(a.target).length)[0];
+
+    if (!matchedDBInfo) {
+        return pathOrUrlOrUUID;
+    }
+
+    const relativePath = relative(
+        Utils.Path.normalize(matchedDBInfo.target),
+        Utils.Path.normalize(pathOrUrlOrUUID),
+    ).replace(/\\/g, '/');
+
+    return relativePath ? `db://${matchedDBInfo.name}/${relativePath}` : `db://${matchedDBInfo.name}`;
+}
+
+export function dirnameForDbUrlOrPath(pathOrUrlOrUUID: string) {
+    if (!pathOrUrlOrUUID.startsWith('db://')) {
+        return Utils.Path.dirname(pathOrUrlOrUUID);
+    }
+
+    const root = /^db:\/\/[^/]+/.exec(pathOrUrlOrUUID)?.[0];
+    if (!root || pathOrUrlOrUUID === root) {
+        return pathOrUrlOrUUID;
+    }
+
+    const index = pathOrUrlOrUUID.lastIndexOf('/');
+    return index <= root.length ? root : pathOrUrlOrUUID.slice(0, index);
+}
+
 /**
 * 将时间戳转为可阅读的时间信息
 */

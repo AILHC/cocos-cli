@@ -1,10 +1,10 @@
 import { readJSONSync } from 'fs-extra';
 import i18n from '../base/i18n';
-import { BuildExitCode, IBuildCommandOption, IBuildResultData, IBuildStageOptions, IBuildTaskOption, IBundleBuildOptions, IPreviewSettingsResult, Platform } from './@types/private';
+import { BuildExitCode, BuildStageProgressCallback, IBuildCommandOption, IBuildResultData, IBuildStageOptions, IBuildTaskOption, IBundleBuildOptions, IPreviewSettingsResult, Platform } from './@types/private';
 import { pluginManager } from './manager/plugin';
 import { formatMSTime } from './share/utils';
 import { newConsole } from '../base/console';
-import { join } from 'path';
+import { basename, dirname, extname, isAbsolute, join } from 'path';
 import assetManager from '../assets/manager/asset';
 import { removeDbHeader } from './worker/builder/utils';
 import builderConfig from './share/builder-config';
@@ -15,6 +15,7 @@ import BuildMiddleware from './build.middleware';
 import { BuildGlobalInfo } from './share/global';
 import { fillIncludeModulesFromProjectConfig } from './share/common-options-validator';
 import type { BuildTask } from './worker/builder';
+import { createPreviewBuildOptions } from './preview-options';
 
 export async function init(platform?: string, projectRoot?: string) {
     await builderConfig.init();
@@ -30,6 +31,28 @@ export async function init(platform?: string, projectRoot?: string) {
     }
 }
 
+function getBuilderLogRoot() {
+    const projectTempDir = builderConfig.projectTempDir;
+    return basename(projectTempDir) === 'builder' ? projectTempDir : join(projectTempDir, 'builder');
+}
+
+function normalizeBuildLogDest(logDest: string | undefined, taskName: string) {
+    const fallback = join(getBuilderLogRoot(), 'log', `${taskName.replace(/[\\/:*?"<>|]/g, '_')}-${Date.now()}`);
+    let resolvedLogDest = logDest ? utils.Path.resolveToRaw(logDest) : fallback;
+    if (!isAbsolute(resolvedLogDest)) {
+        resolvedLogDest = join(builderConfig.projectRoot, resolvedLogDest);
+    }
+    return extname(resolvedLogDest).toLowerCase() === '.log' ? dirname(resolvedLogDest) : resolvedLogDest;
+}
+
+function ensureBuildLogSink(options: { logDest?: string; taskName?: string; platform?: string }, fallbackTaskName: string, logDest?: string) {
+    const taskName = options.taskName || fallbackTaskName;
+    options.taskName = taskName;
+    options.logDest = normalizeBuildLogDest(logDest || options.logDest, taskName);
+    newConsole.record(options.logDest);
+    return options.logDest;
+}
+
 export async function createBuildTask<P extends Platform>(platform: P, options?: IBuildCommandOption) {
     if (!options) {
         options = await pluginManager.getOptionsByPlatform(platform);
@@ -42,6 +65,7 @@ export async function createBuildTask<P extends Platform>(platform: P, options?:
     }
     options.taskId = options.taskId || String(new Date().getTime());
     options.taskName = options.taskName || platform;
+    ensureBuildLogSink(options, platform);
 
     // @ts-ignore
     let realOptions: IBuildTaskOption<any> = options;
@@ -56,6 +80,7 @@ export async function createBuildTask<P extends Platform>(platform: P, options?:
     }
 
     // 从项目配置中补充 includeModules
+    realOptions.logDest = options.logDest;
     await fillIncludeModulesFromProjectConfig(realOptions);
 
     const { BuildTask } = await import('./worker/builder');
@@ -65,12 +90,13 @@ export async function createBuildTask<P extends Platform>(platform: P, options?:
 export async function build<P extends Platform>(platform: P, options?: IBuildCommandOption): Promise<IBuildResultData> {
     const startTime = Date.now();
     let buildSuccess = true;
+    const restoreLogSink = newConsole.createLogSinkRestorer();
     let builder: BuildTask | undefined;
 
     // 显示构建开始信息
-    newConsole.buildStart(platform);
     try {
         builder = await createBuildTask(platform, options);
+        newConsole.buildStart(platform);
 
         // 监听构建进度
         builder.on('update', (message: string, progress: number) => {
@@ -101,6 +127,8 @@ export async function build<P extends Platform>(platform: P, options?: IBuildCom
             errorCode = BuildExitCode.BUILD_FAILED;
         }
         return { code: errorCode as Exclude<BuildExitCode, BuildExitCode.BUILD_SUCCESS>, reason: error?.message || String(error) };
+    } finally {
+        restoreLogSink();
     }
 }
 
@@ -115,8 +143,10 @@ export async function buildBundleOnly(bundleOptions: IBundleBuildOptions): Promi
     const options = bundleOptions.buildTaskOptions;
     const tasksLabel = bundleOptions.taskName || 'bundle Build';
     const taskStartTime = Date.now();
+    const restoreLogSink = newConsole.createLogSinkRestorer();
 
     try {
+        bundleOptions.logDest = ensureBuildLogSink(options, tasksLabel, bundleOptions.logDest);
         newConsole.stage('BUNDLE', `${tasksLabel} (${options.platform}) starting...`);
         console.debug('Start build task, options:', options);
         newConsole.trackMemoryStart(`builder:build-bundle-total`);
@@ -145,6 +175,8 @@ export async function buildBundleOnly(bundleOptions: IBundleBuildOptions): Promi
         const totalDuration = formatMSTime(Date.now() - startTime);
         newConsole.taskComplete('Bundle Build', false, totalDuration);
         return { code: BuildExitCode.BUILD_FAILED, reason: errMsg };
+    } finally {
+        restoreLogSink();
     }
 }
 
@@ -172,13 +204,19 @@ export async function createBuildStageTask(taskId: string, stageName: string, op
     });
 }
 
-export async function executeBuildStageTask(taskId: string, stageName: string, options: IBuildStageOptions): Promise<IBuildResultData> {
+export async function executeBuildStageTask(taskId: string, stageName: string, options: IBuildStageOptions, onProgress?: BuildStageProgressCallback): Promise<IBuildResultData> {
     if (!options.taskName) {
         options.taskName = stageName + ' build';
     }
+    const restoreLogSink = newConsole.createLogSinkRestorer();
+    let buildStageTask: Awaited<ReturnType<typeof createBuildStageTask>> | undefined;
 
     try {
-        const buildStageTask = await createBuildStageTask(taskId, stageName, options);
+        ensureBuildLogSink(options, options.taskName);
+        buildStageTask = await createBuildStageTask(taskId, stageName, options);
+        if (onProgress) {
+            buildStageTask.on('update', onProgress);
+        }
         const stageConfig = pluginManager.getBuildStageWithHookTasks(options.platform, stageName);
         const stageLabel = stageConfig!.name;
 
@@ -198,6 +236,11 @@ export async function executeBuildStageTask(taskId: string, stageName: string, o
     } catch (error: any) {
         console.error(error);
         return { code: BuildExitCode.BUILD_FAILED, reason: error?.message || String(error) };
+    } finally {
+        if (buildStageTask && onProgress) {
+            buildStageTask.off('update', onProgress);
+        }
+        restoreLogSink();
     }
 }
 
@@ -208,11 +251,7 @@ function readBuildTaskOptions(root: string): IBuildTaskOption<any> {
 
 export async function getPreviewSettings<P extends Platform>(options?: IBuildTaskOption<P>): Promise<IPreviewSettingsResult> {
     const defaultBuildOptions = await pluginManager.getOptionsByPlatform('web-desktop');
-    const buildOptions = {
-        ...defaultBuildOptions,
-        ...(options ?? {}),
-        preview: true,
-    };
+    const buildOptions = createPreviewBuildOptions(defaultBuildOptions as IBuildTaskOption<P>, options);
     await fillIncludeModulesFromProjectConfig(buildOptions);
     // TODO 预览 settings 的排队之类的
     const { BuildTask } = await import('./worker/builder/index');
@@ -251,6 +290,30 @@ export function queryBundleConfig() {
 
 export function queryTextureCompressConfig() {
     return pluginManager.queryTextureCompressConfig();
+}
+
+export function queryPlatformConfig() {
+    return pluginManager.queryPlatformConfig();
+}
+
+export function getPlatformBuildSchema(platform: Platform | string) {
+    return pluginManager.getPlatformBuildSchema(platform);
+}
+
+export function refreshDisplayI18nFields() {
+    return pluginManager.refreshDisplayI18nFields();
+}
+
+export async function createBuildTemplate(nameOrPlatform: string): Promise<void> {
+    return pluginManager.createBuildTemplate(nameOrPlatform);
+}
+
+export function checkBuildOption(platform: string, key: string, value: unknown, options: IBuildTaskOption) {
+    return pluginManager.checkBuildOption(platform, key, value, options);
+}
+
+export function checkBuildOptions(platform: string, options: IBuildTaskOption) {
+    return pluginManager.checkBuildOptions(platform, options);
 }
 
 export async function queryAssetsInBundle(uuid: string, bundleFilterConfig?: import('./@types').BundleFilterConfig[]) {

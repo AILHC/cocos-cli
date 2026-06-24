@@ -57,6 +57,30 @@ function extractAssetBaseConfig(settings: Record<string, any>): PreviewAssetBase
     };
 }
 
+function validatePreviewBundleConfigs(bundleConfigs: Array<Record<string, any>>): void {
+    for (const config of bundleConfigs) {
+        if (config?.debug !== false) {
+            continue;
+        }
+
+        const bundleName = typeof config.name === 'string' ? config.name : '<unnamed>';
+        if (!Array.isArray(config.types)) {
+            throw new Error(`Invalid preview bundle config "${bundleName}": debug=false requires a compressed types array`);
+        }
+
+        const paths = config.paths && typeof config.paths === 'object' ? config.paths : {};
+        for (const [id, entry] of Object.entries(paths)) {
+            if (!Array.isArray(entry)) {
+                continue;
+            }
+
+            if (typeof entry[1] !== 'number') {
+                throw new Error(`Invalid preview bundle config "${bundleName}": path "${id}" keeps string asset type while debug=false`);
+            }
+        }
+    }
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<T>((_, reject) => {
@@ -112,6 +136,7 @@ export class PreviewSettingsProvider {
             ? await withTimeout(settingsPromise, this.timeoutMs)
             : await settingsPromise;
         const elapsedMs = this.now() - start;
+        validatePreviewBundleConfigs(cliResult.bundleConfigs);
 
         const result: PreviewSettingsProviderResult = {
             settings: cliResult.settings,

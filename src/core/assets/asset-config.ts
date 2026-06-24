@@ -88,18 +88,29 @@ class AssetConfig {
         this._assetConfig.libraryRoot = this._assetConfig.libraryRoot || join(this._assetConfig.root, 'library');
         this._assetConfig.tempRoot = join(this._assetConfig.root, 'temp/cli/asset-db');
         await this.syncRuntimeConfigFromConfiguration();
+        const sharedLibraryOutput = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT !== '0';
+        const projectLibrary = join(this._assetConfig.root, 'library');
+        const cliAssetsLibrary = join(projectLibrary, 'cli');
+        const assetsLibrary = sharedLibraryOutput ? projectLibrary : cliAssetsLibrary;
+        const assetsRecordRoot = sharedLibraryOutput ? projectLibrary : cliAssetsLibrary;
         this._assetConfig.assetDBList = [{
             name: 'assets',
             target: join(this._assetConfig.root, 'assets'),
             readonly: false,
             visible: true,
-            library: join(this._assetConfig.root, 'library/cli'),
+            library: assetsLibrary,
+            records: {
+                info: join(assetsRecordRoot, sharedLibraryOutput ? '.cli-assets-info.json' : '.assets-info.json'),
+                data: join(assetsRecordRoot, sharedLibraryOutput ? '.cli-assets-data.json' : '.assets-data.json'),
+                dependency: join(assetsRecordRoot, sharedLibraryOutput ? '.cli-assets-dependency.json' : '.assets-dependency.json'),
+                cache: join(assetsRecordRoot, sharedLibraryOutput ? '.cli-assets' : '.assets'),
+            },
         }, {
             name: 'internal',
             target: join(enginePath, 'editor/assets'),
             readonly: true,
             visible: true,
-            library: join(this._assetConfig.root, 'library'),
+            library: projectLibrary,
         }];
 
         for (const mount of resolveProjectExtensionAssetDbMounts(this._assetConfig.root)) {

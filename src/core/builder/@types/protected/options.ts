@@ -370,7 +370,10 @@ export interface IBuildStageOptions {
     dest: string;
     platform: Platform | string;
     taskName?: string;
+    logDest?: string;
 }
+
+export type BuildStageProgressCallback = (message: string, progress: number) => void;
 
 export const enum BuildExitCode {
     PARAM_ERROR = 32,

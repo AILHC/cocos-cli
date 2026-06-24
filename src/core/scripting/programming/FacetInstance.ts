@@ -4,7 +4,9 @@ import { ProgrammingFacet } from './Facet';
 let programmingFacet: ProgrammingFacet | null = null;
 let createProgrammingFacetPromise: Promise<ProgrammingFacet> | null = null;
 
-export async function createProgrammingFacet(enginePath: string, projectPath: string, features: string[]) {
+export async function createProgrammingFacet(enginePath: string, projectPath: string, features: string[], options: {
+    programmingRoot?: string;
+} = {}) {
     if (!programmingFacet) {
         programmingFacet = await ProgrammingFacet.create(
             {
@@ -13,7 +15,10 @@ export async function createProgrammingFacet(enginePath: string, projectPath: st
                 baseUrl: '/scripting/engine',
                 features,
             },
-            projectPath
+            projectPath,
+            {
+                programmingRoot: options.programmingRoot,
+            },
         );
     }
     return programmingFacet;

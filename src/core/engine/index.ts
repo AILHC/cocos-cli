@@ -227,6 +227,7 @@ class EngineManager implements IEngine {
             },
             downloadMaxConcurrency: 15,
             renderPipeline: 'fd8ec536-a354-4a17-9c74-4f3883c378c8',
+            customPipeline: false,
         };
     }
 
@@ -338,6 +339,9 @@ class EngineManager implements IEngine {
                     mergedConfig.noDeprecatedFeatures = moduleConfig.noDeprecatedFeatures;
                 }
             }
+            if (!Object.prototype.hasOwnProperty.call(projectConfig, 'customPipeline')) {
+                mergedConfig.customPipeline = mergedConfig.includeModules?.includes('custom-pipeline') ?? false;
+            }
             this._config = mergedConfig;
         };
         syncConfig();
@@ -398,7 +402,7 @@ class EngineManager implements IEngine {
         await this.initEditorExtensions();
 
         const modules = this.getConfig().includeModules || [];
-        const { physicsConfig, macroConfig, customLayers, sortingLayers, highQuality } = this.getConfig();
+        const { physicsConfig, macroConfig, customLayers, sortingLayers, highQuality, renderPipeline } = this.getConfig();
         const bundles = assetManager.queryAssets({ isBundle: true }).map((item: any) => item.meta?.userData?.bundleName ?? item.name);
         const defaultConfig = {
             debugMode: cc.debug.DebugMode.WARN,
@@ -425,6 +429,7 @@ class EngineManager implements IEngine {
                 },
                 rendering: {
                     renderMode: 3,
+                    renderPipeline,
                     highQualityMode: highQuality,
                 },
                 physics: {
@@ -474,7 +479,7 @@ class EngineManager implements IEngine {
     }
 
     async getGameConfig(serverURL: string, importBase: string, nativeBase: string, isPreview?: boolean) {
-        const { physicsConfig, macroConfig, customLayers, sortingLayers, highQuality } = this.getConfig();
+        const { physicsConfig, macroConfig, customLayers, sortingLayers, highQuality, renderPipeline, customPipeline } = this.getConfig();
         const bundles = assetManager.queryAssets({ isBundle: true }).map((item: any) => item.meta?.userData?.bundleName ?? item.name);
         const builtinAssets = serverURL && await this.queryInternalAssetList(this.getInfo().typescript.path);
         return {
@@ -502,7 +507,10 @@ class EngineManager implements IEngine {
                 },
                 rendering: {
                     renderMode: 2,
+                    renderPipeline,
+                    customPipeline,
                     highQualityMode: highQuality,
+                    ...(customPipeline ? { effectSettingsPath: `${serverURL}/scripting/engine/effect-settings` } : {}),
                 },
                 physics: {
                     ...physicsConfig,

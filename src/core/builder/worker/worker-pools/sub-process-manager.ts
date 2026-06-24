@@ -1,6 +1,6 @@
 
 import { ChildProcess, fork, ForkOptions, spawn } from 'child_process';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import { IQuickSpawnOption } from '../../@types/protected';
 import project from '../../../project';
 import { GlobalPaths } from '../../../../global';
@@ -12,6 +12,7 @@ interface ChildProcessMessageInfo {
     type: string;
     data: any;
     code?: number;
+    logDest?: string;
 }
 
 interface ITask {
@@ -88,6 +89,7 @@ class WorkerTask {
     options?: ForkOptions;
     _name: string;
     _method?: string;
+    _logDest?: string;
 
     get name() {
         return this._method || this._name;
@@ -115,6 +117,7 @@ class WorkerTask {
         console.debug(`execute-script-end with ${this.name} ${Date.now() - this.startTime}ms`);
         this._hasResolve = true;
         delete this._method;
+        delete this._logDest;
         this._resolve(value);
     };
     readonly reject = (error?: Error) => {
@@ -125,6 +128,7 @@ class WorkerTask {
         console.error(error);
         this._hasReject = true;
         delete this._method;
+        delete this._logDest;
         this._reject(error);
     };
 
@@ -138,13 +142,14 @@ class WorkerTask {
         this.options = params.options;
     }
 
-    public async execute(method: string, args?: any[]) {
+    public async execute(method: string, args?: any[], logDest?: string) {
         const child = await this.getWorkerProcess();
         if (!child) {
             throw new Error('No worker ' + this.name);
         }
         return new Promise<any>((resolve, reject) => {
             this._method = method;
+            this._logDest = logDest;
             this.setResolve(resolve);
             this.setReject(reject);
             this.startTime = Date.now();
@@ -153,6 +158,7 @@ class WorkerTask {
                 path: this.path,
                 method,
                 args,
+                logDest,
             });
             processPool.running(child);
         });
@@ -258,13 +264,13 @@ export class WorkerManager {
         this.taskMap[task.name] = new WorkerTask(task);
     }
 
-    public async runTask(name: string, method: string, args?: any[]) {
+    public async runTask(name: string, method: string, args?: any[], logDest?: string) {
         this.resetClearTimer();
         const task = this.taskMap[name];
         if (!task) {
             throw new Error('No worker ' + name);
         }
-        return await task.execute(method, args);
+        return await task.execute(method, args, logDest);
     }
 
     /**

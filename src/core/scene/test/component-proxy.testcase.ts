@@ -163,6 +163,10 @@ describe('Component Proxy 测试', () => {
                 if (componentInfo!.type) {
                     expect(componentInfo!.type).toBe('cc.Label');
                 }
+                // component_path 经 encodeComponent 写入后由 DumpConverter 转换为 path
+                expect(componentInfo!.path).toBe(componentPath);
+                // 非预制体组件 prefab 应为 null，而非 undefined
+                expect(componentInfo!.prefab).toBeNull();
             } catch (e) {
                 console.log(`queryComponent test error:  ${e}`);
                 throw e;
@@ -758,10 +762,9 @@ describe('Component Proxy 测试', () => {
         beforeAll(async () => {
             const params: IQueryNodeParams = {
                 path: nodePath,
-                queryChildren: false,
-                queryComponent: true
+                includeChildren: false,
+                includeComponents: true
             };
-            buildinComponentTypes = await ComponentProxy.queryAll();
             const result = await NodeProxy.query(params) as INodeInfo | null;
             expect(result).toBeDefined();
             expect(result?.components?.length == 0);
@@ -806,8 +809,8 @@ describe('Component Proxy 测试', () => {
                 try {
                     const params: IQueryNodeParams = {
                         path: nodePath,
-                        queryChildren: false,
-                        queryComponent: true
+                        includeChildren: false,
+                        includeComponents: true
                     };
                     const node = await NodeProxy.query(params) as INodeInfo | null;
                     for (let i = 0; i < node!.components!.length; ++i) {
@@ -1004,8 +1007,8 @@ describe('Component Proxy 测试', () => {
         beforeAll(async () => {
             const queryNodeParam: IQueryNodeParams = {
                 path: nodePath,
-                queryChildren: false,
-                queryComponent: false,
+                includeChildren: false,
+                includeComponents: false,
             };
             const nodeInfo = await NodeProxy.query(queryNodeParam) as INodeInfo | null;
 
