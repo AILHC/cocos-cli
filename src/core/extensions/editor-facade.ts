@@ -167,18 +167,11 @@ export async function withEditorFacade<T>(
     const previousActiveSetTimeout = activeNativeSetTimeout;
 
     const facade = createEditorFacade(context);
-    const timerFailures: Error[] = [];
     const scheduledTimers: Promise<void>[] = [];
 
     const wrappedSetTimeout = (...args: any[]) => {
         const [callback, delay = 0, ...rest] = args;
         const resolvedDelay = typeof delay === 'number' ? delay : 0;
-
-        if (resolvedDelay > 0) {
-            timerFailures.push(new Error('Editor.Message send scheduled after hook scope'));
-            return previousSetTimeout(() => undefined, resolvedDelay);
-        }
-
         const callbackFn = typeof callback === 'function'
             ? callback
             : () => undefined;
@@ -220,9 +213,6 @@ export async function withEditorFacade<T>(
             previousSetTimeout(resolve, 0);
         });
         await drainScheduledTimers();
-        if (timerFailures.length > 0) {
-            throw timerFailures[0];
-        }
         await drainEditorFacade(facade);
     } catch (runErr) {
         error = runErr;

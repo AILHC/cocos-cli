@@ -247,22 +247,33 @@ describe('project extension Editor facade', () => {
         );
     });
 
-    it('setTimeout scheduled with positive delay after hook scope throws', async () => {
-        await expect(withEditorFacade({ projectRoot }, async () => {
+    it('drains setTimeout scheduled with positive delay before teardown', async () => {
+        await withEditorFacade({ projectRoot }, async () => {
             setTimeout(() => {
                 (globalThis as any).Editor.Message.send('asset-db', 'move-asset', 'db://assets/project.json', 'db://assets/project.manifest', {
                     override: true,
                     rename: true,
                 });
             }, 10);
-        })).rejects.toThrow('Editor.Message send scheduled after hook scope');
+        });
+
+        expect(assetManager.moveAsset).toHaveBeenCalledWith(
+            'db://assets/project.json',
+            'db://assets/project.manifest',
+            {
+                overwrite: true,
+                rename: true,
+            },
+        );
     });
 
-    it('setTimeout scheduled with positive delay for reimport send also throws', async () => {
-        await expect(withEditorFacade({ projectRoot }, async () => {
+    it('drains setTimeout scheduled with positive delay for reimport send', async () => {
+        await withEditorFacade({ projectRoot }, async () => {
             setTimeout(() => {
                 (globalThis as any).Editor.Message.send('asset-db', 'reimport-asset', 'db://assets/atlas');
             }, 10);
-        })).rejects.toThrow('Editor.Message send scheduled after hook scope');
+        });
+
+        expect(assetManager.reimportAsset).toHaveBeenCalledWith('db://assets/atlas');
     });
 });
