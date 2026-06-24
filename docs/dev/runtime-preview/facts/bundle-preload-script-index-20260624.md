@@ -9,7 +9,7 @@
 - project：`E:\own_space\engines\cocos-test-projects`
 - CLI worktree：`E:\own_space\engines\cocos-cli\.worktrees\rebase-adapter-to-386-origin-main-20260622`
 - preview URL：`http://127.0.0.1:9527/?scene=ea53723b-fbb6-46f9-bf18-eaf73a330fae`
-- shared output gate：`COCOS_CLI_SHARED_LIBRARY_OUTPUT=1`
+- shared output mode：验证当时使用 `COCOS_CLI_SHARED_LIBRARY_OUTPUT=1`；2026-06-24 起 shared project `library` output 已成为默认，`COCOS_CLI_SHARED_LIBRARY_OUTPUT=0` 为回退隔离模式。
 - preview server library root：`COCOS_CLI_TEST_EDITOR_LIBRARY_REF=E:\own_space\engines\cocos-test-projects\library`
 
 本次 preview server 日志确认：
@@ -175,7 +175,7 @@ file:///E:/own_space/engines/cocos-test-projects/assets/cases/asset/test-bundle-
 ## 验收建议
 
 - 用主测试项目 scene `ea53723b-fbb6-46f9-bf18-eaf73a330fae` 作为最小回归入口。
-- 运行 shared 和默认 isolated 两种 runtime preview，确认 `assetManager.loadBundle('TestBundleZip')` 不再报：
+- 运行 shared 和当时默认 isolated 两种 runtime preview，确认 `assetManager.loadBundle('TestBundleZip')` 不再报：
 
 ```text
 Get virtual:///prerequisite-imports/TestBundleZip failed!

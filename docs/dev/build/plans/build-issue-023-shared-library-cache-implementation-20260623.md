@@ -1037,13 +1037,13 @@ rtk git commit -m "docs(asset-db): record shared library cache validation"
 Only if sidecar bootstrap is implemented, importer parity blockers are fixed or explicitly accepted, and Task 6 proves no record pollution or repeated output rewrite, modify `src/core/assets/asset-config.ts`:
 
 ```ts
-const sharedLibraryOutput = process.env.COCOS_CLI_ISOLATED_LIBRARY_OUTPUT !== '1';
+const sharedLibraryOutput = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT !== '0';
 ```
 
 Keep emergency opt-out:
 
 ```text
-COCOS_CLI_ISOLATED_LIBRARY_OUTPUT=1
+COCOS_CLI_SHARED_LIBRARY_OUTPUT=0
 ```
 
 - [ ] **Step 2: If validation fails, keep isolated output**

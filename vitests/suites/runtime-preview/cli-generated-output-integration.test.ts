@@ -62,7 +62,7 @@ describe('runtime preview real CLI generated output acceptance', () => {
     const normalizedProjectRoot = paths.projectRoot.replace(/\\/g, '/');
     expect(normalizedProjectRoot.endsWith('/cocos-test-projects')).toBe(true);
     expect(normalizedProjectRoot).not.toContain('/cocos_work_lab_38x');
-    const expectedProjectLibraryRoot = join(paths.projectRoot, 'library', 'cli');
+    const expectedProjectLibraryRoot = join(paths.projectRoot, 'library');
     const expectedProjectProgrammingRoot = join(paths.projectRoot, 'temp', 'cli', 'programming');
     const expectedInternalLibraryRoot = join(paths.projectRoot, 'library');
     const expectedExtensionLibraryRootPrefix = join(paths.projectRoot, 'library', 'cli-extensions');

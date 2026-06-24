@@ -719,24 +719,28 @@ docs/dev/build/facts/build-issue-023-editor-cli-editor-validation-20260623.md
 - `COCOS_CLI_SHARED_LIBRARY_OUTPUT=1` 下，CLI preview 首次仍改写 336 个 `library/<uuid-prefix>/...` output 文件；第二次 Editor open 未继续改写这些 output，但 336 个 rewrite 尚未逐项按 importer parity 差异分类。
 - normal build validation 未完成；真实项目被 `build-ex:onBeforeBuild` 的 `Editor.Message send scheduled after hook scope` 阻塞。失败前后快照未观察到 record/output/source `.meta` 增量污染。
 
-当前默认策略：
+2026-06-23 当时默认策略：
 
 ```text
 assets.library = <project>/library/cli
 shared output opt-in = COCOS_CLI_SHARED_LIBRARY_OUTPUT=1
 ```
 
-不能改为默认共享的 blocker：
+2026-06-24 后续决策：
 
-1. importer parity blocker 仍未修复或逐项接受。
-2. shared gate 下 336 个 output rewrite 未分类，不能证明可接受。
-3. normal build validation 未通过，不能作为 production default 验收证据。
+```text
+assets.library = <project>/library
+records = <project>/library/.cli-assets-*
+emergency opt-out = COCOS_CLI_SHARED_LIBRARY_OUTPUT=0
+```
 
-后续如果要把 shared output 设为默认，必须先解决以上 blocker，并把默认从显式 opt-in 改为带 emergency opt-out 的策略，例如：
+本次决策基于后续 shared output 手测基本通过和用户确认。`library/cli` 不再是默认 project assets output，只作为 emergency opt-out 路径保留。336 个 shared output rewrite 的字段级质量评估不再阻塞默认切换，已拆到 `BUILD-ISSUE-025` 继续跟踪；如果后续证明差异不可接受，再回退默认或补 importer parity。
+
+此前设计建议若要把 shared output 设为默认，应把默认从显式 opt-in 改为带 emergency opt-out 的策略；2026-06-24 实际采用如下语义：
 
 ```text
 shared output default = true
-emergency opt-out = COCOS_CLI_ISOLATED_LIBRARY_OUTPUT=1
+emergency opt-out = COCOS_CLI_SHARED_LIBRARY_OUTPUT=0
 ```
 
 ## 待确认问题

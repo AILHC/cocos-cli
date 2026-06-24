@@ -303,7 +303,11 @@ export default class Launcher {
             PreviewSettingsProvider,
             startRuntimePreviewServer,
         } = await import('../runtime-preview');
-        const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF || join(this.projectPath, 'library', 'cli');
+        const useSharedProjectLibrary = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT !== '0';
+        const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF
+            || (useSharedProjectLibrary
+                ? join(this.projectPath, 'library')
+                : join(this.projectPath, 'library', 'cli'));
         const extensionLibraryRoots = resolveProjectExtensionAssetDbMounts(this.projectPath).map((mount) => ({
             name: mount.name,
             root: mount.library,

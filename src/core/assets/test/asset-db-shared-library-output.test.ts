@@ -22,7 +22,7 @@ describe('asset-db shared library output gate', () => {
         delete process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT;
     });
 
-    it('does not share project library output by default', async () => {
+    it('shares project library output by default', async () => {
         const runtime = await loadFreshRuntime();
         await runtime.configurationManager.initialize(TestGlobalEnv.projectRoot);
         await runtime.project.open(TestGlobalEnv.projectRoot);
@@ -30,10 +30,16 @@ describe('asset-db shared library output gate', () => {
         await runtime.assetConfig.init();
 
         const assetsDb = runtime.assetConfig.data.assetDBList.find((db) => db.name === 'assets');
-        expect(assetsDb?.library).toBe(join(TestGlobalEnv.projectRoot, 'library', 'cli'));
+        expect(assetsDb?.library).toBe(join(TestGlobalEnv.projectRoot, 'library'));
+        expect(assetsDb?.records).toEqual({
+            info: join(TestGlobalEnv.projectRoot, 'library', '.cli-assets-info.json'),
+            data: join(TestGlobalEnv.projectRoot, 'library', '.cli-assets-data.json'),
+            dependency: join(TestGlobalEnv.projectRoot, 'library', '.cli-assets-dependency.json'),
+            cache: join(TestGlobalEnv.projectRoot, 'library', '.cli-assets'),
+        });
     });
 
-    it('shares project library output only when the explicit gate is enabled', async () => {
+    it('keeps sharing project library output when the legacy explicit gate is enabled', async () => {
         process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT = '1';
         const runtime = await loadFreshRuntime();
         await runtime.configurationManager.initialize(TestGlobalEnv.projectRoot);
@@ -48,6 +54,24 @@ describe('asset-db shared library output gate', () => {
             data: join(TestGlobalEnv.projectRoot, 'library', '.cli-assets-data.json'),
             dependency: join(TestGlobalEnv.projectRoot, 'library', '.cli-assets-dependency.json'),
             cache: join(TestGlobalEnv.projectRoot, 'library', '.cli-assets'),
+        });
+    });
+
+    it('isolates project library output when shared output is explicitly disabled', async () => {
+        process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT = '0';
+        const runtime = await loadFreshRuntime();
+        await runtime.configurationManager.initialize(TestGlobalEnv.projectRoot);
+        await runtime.project.open(TestGlobalEnv.projectRoot);
+        await runtime.Engine.init(TestGlobalEnv.engineRoot);
+        await runtime.assetConfig.init();
+
+        const assetsDb = runtime.assetConfig.data.assetDBList.find((db) => db.name === 'assets');
+        expect(assetsDb?.library).toBe(join(TestGlobalEnv.projectRoot, 'library', 'cli'));
+        expect(assetsDb?.records).toEqual({
+            info: join(TestGlobalEnv.projectRoot, 'library', 'cli', '.assets-info.json'),
+            data: join(TestGlobalEnv.projectRoot, 'library', 'cli', '.assets-data.json'),
+            dependency: join(TestGlobalEnv.projectRoot, 'library', 'cli', '.assets-dependency.json'),
+            cache: join(TestGlobalEnv.projectRoot, 'library', 'cli', '.assets'),
         });
     });
 });

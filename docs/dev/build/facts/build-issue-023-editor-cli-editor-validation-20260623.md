@@ -9,7 +9,8 @@
 - repo: `E:\own_space\engines\cocos-cli\.worktrees\rebase-adapter-to-386-origin-main-20260622`
 - branch: `codex/rebase-adapter-to-386-origin-main-20260622`
 - commit: `256bfa13ee6787894c1f8f403a1e8a9a16096b1c`
-- shared output gate: `COCOS_CLI_SHARED_LIBRARY_OUTPUT=1`
+- shared output historical gate: `COCOS_CLI_SHARED_LIBRARY_OUTPUT=1`
+- 2026-06-24 default switch: shared project `library` output is production default; `COCOS_CLI_SHARED_LIBRARY_OUTPUT=0` is the emergency opt-out back to `library/cli`.
 
 ## Command deviations
 
@@ -148,7 +149,7 @@ library/.cli-assets => A-editor:missing | B-cli-preview:138751:366F4AC51D83 | C-
 - CLI shared preview 创建了 `.cli-assets-*` sidecar records。
 - CLI shared preview 改写了 336 个 `library/<uuid-prefix>/...` output 文件。
 - 第二次 Editor open 没有再改写这些 output，当前没有观察到 immediate back-and-forth rewrite。
-- 336 个 shared output 改写仍未按 importer/value 差异逐项分类，不能作为 production default 的通过证据。
+- 336 个 shared output 改写在本轮尚未按 importer/value 差异逐项分类；2026-06-24 已按后续手测结论接受默认共享，字段级质量评估单独保留为 `BUILD-ISSUE-025`。
 
 ## Build validation
 
@@ -198,17 +199,17 @@ library/.cli-assets => post-build:138751:366F4AC51D83 | pre-build:138751:366F4AC
 
 ## Decision
 
-- shared output ready for default: `no`
-- 当前 production default: 保持 isolated `assets.library = <project>/library/cli`
-- experimental opt-in: `COCOS_CLI_SHARED_LIBRARY_OUTPUT=1`
+- shared output ready for default: `yes` as of 2026-06-24 follow-up validation and user confirmation.
+- 当前 production default: shared `assets.library = <project>/library` with CLI sidecar records under `<project>/library/.cli-assets-*`.
+- emergency opt-out: `COCOS_CLI_SHARED_LIBRARY_OUTPUT=0` restores isolated `assets.library = <project>/library/cli` with records under `<project>/library/cli/.assets-*`.
 
-Blockers:
+Residual follow-up:
 
-1. `COCOS_CLI_SHARED_LIBRARY_OUTPUT=1` 下 CLI preview 首次改写 336 个 shared `library/<uuid-prefix>/...` output，尚未按 importer parity 差异分类并证明可接受。
-2. 已登记的 importer parity blocker 尚未修复或逐项接受：`gltf`、`fbx`、`scene`、`prefab`、`animation-clip` 的 `versionCode` 差异，以及 `scene.depends`、`audio-clip`、`spine-data`、`video-clip` value 差异。
-3. normal build validation 未完成，当前真实项目被 `build-ex:onBeforeBuild` 的 `Editor.Message send scheduled after hook scope` 阻塞。
+1. 共享 output 首次改写 336 个 `library/<uuid-prefix>/...` output 已拆到 `BUILD-ISSUE-025` 做字段级质量评估，不阻塞默认共享。
+2. `temp/asset-db` 继续隔离，不随 project `library` 默认共享。
+3. extension asset-db output 仍保持 `library/cli-extensions/<name>`，未随 project assets 默认共享。
 
 Next action:
 
-- 保持显式 gate。
-- 后续先修 importer parity / output rewrite 分类，再用可完成的 normal build fixture 或修复 `build-ex` hook scope 后复跑 build validation。
+- 持续保留 `COCOS_CLI_SHARED_LIBRARY_OUTPUT=0` 作为 emergency opt-out。
+- 后续按 `BUILD-ISSUE-025` 分类 336 个 output rewrite；如证明差异不可接受，再回退默认或补 importer parity。

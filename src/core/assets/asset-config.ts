@@ -88,7 +88,7 @@ class AssetConfig {
         this._assetConfig.libraryRoot = this._assetConfig.libraryRoot || join(this._assetConfig.root, 'library');
         this._assetConfig.tempRoot = join(this._assetConfig.root, 'temp/cli/asset-db');
         await this.syncRuntimeConfigFromConfiguration();
-        const sharedLibraryOutput = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT === '1';
+        const sharedLibraryOutput = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT !== '0';
         const projectLibrary = join(this._assetConfig.root, 'library');
         const cliAssetsLibrary = join(projectLibrary, 'cli');
         const assetsLibrary = sharedLibraryOutput ? projectLibrary : cliAssetsLibrary;
