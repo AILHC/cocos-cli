@@ -361,6 +361,7 @@ describe('ConfigurationManager', () => {
             // Static properties
             expect(ConfigurationManager.VERSION).toBe('1.0.0');
             expect(ConfigurationManager.name).toBe('cocos.config.json');
+            expect(ConfigurationManager.relativeSchemaPath).toBe('./temp/cli/cocos.config.schema.json');
         });
 
         it('should serialize concurrent saves for the same config file', async () => {

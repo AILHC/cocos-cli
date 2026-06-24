@@ -99,11 +99,14 @@ export class PackerDriver {
     /**
      * 创建 Packer 驱动器。
      */
-    public static async create(projectPath: string, engineTsPath: string) {
+    public static async create(projectPath: string, engineTsPath: string, options: {
+        programmingRoot?: string;
+    } = {}) {
         await scriptConfig.init();
         const tsBuilder = new TypeScriptConfigBuilder(projectPath, engineTsPath);
         PackerDriver._cceModuleMap = PackerDriver.queryCCEModuleMap();
-        const baseWorkspace = ps.join(tsBuilder.getTempPath(), 'programming', 'packer-driver');
+        const programmingRoot = options.programmingRoot || ps.join(tsBuilder.getTempPath(), 'programming');
+        const baseWorkspace = ps.join(programmingRoot, 'packer-driver');
         const versionFile = ps.join(baseWorkspace, 'VERSION');
         const targetWorkspaceBase = ps.join(baseWorkspace, 'targets');
         const debugLogFile = ps.join(baseWorkspace, 'logs', 'debug.log');

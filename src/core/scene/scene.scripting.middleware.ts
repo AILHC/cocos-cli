@@ -100,7 +100,7 @@ export default {
             async handler(req: Request, res: Response, next: NextFunction) {
                 try {
                     const { default: scripting } = await import('../../core/scripting');
-                    const effectBinPath = join(scripting.projectPath, 'temp', 'asset-db', 'effect', 'effect.bin');
+                    const effectBinPath = join(scripting.projectPath, 'temp', 'cli', 'asset-db', 'effect', 'effect.bin');
                     if (await pathExists(effectBinPath) && (await stat(effectBinPath)).isFile()) {
                         res.sendFile(effectBinPath);
                     } else {

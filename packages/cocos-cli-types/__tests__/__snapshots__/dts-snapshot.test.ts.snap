@@ -47,6 +47,7 @@ export declare interface AssetDBOptions_2 {
     target: string;
     library: string;
     temp: string;
+    records?: AssetDBRecordOptions;
     level: LogLevel;
     ignoreFiles: string[];
     globList?: string[];
@@ -55,6 +56,12 @@ export declare interface AssetDBOptions_2 {
         reimportCheck?: boolean;
     };
     importConcurrency?: number;
+}
+export declare interface AssetDBRecordOptions {
+    info?: string;
+    data?: string;
+    dependency?: string;
+    cache?: string;
 }
 export declare type AssetHandlerType = typeof ASSET_HANDLER_TYPES[number] | 'database';
 export declare interface AssetInfo extends IAssetInfo {
@@ -929,6 +936,7 @@ export declare interface AssetDBOptions {
     target: string;
     library: string;
     temp: string;
+    records?: AssetDBRecordOptions;
     level: LogLevel;
     ignoreFiles: string[];
     globList?: string[];
@@ -937,6 +945,12 @@ export declare interface AssetDBOptions {
         reimportCheck?: boolean;
     };
     importConcurrency?: number;
+}
+export declare interface AssetDBRecordOptions {
+    info?: string;
+    data?: string;
+    dependency?: string;
+    cache?: string;
 }
 export declare interface AssetDBRefreshOptions {
     ignoreSelf?: boolean;
@@ -6813,6 +6827,7 @@ export declare interface AssetDBOptions {
     target: string;
     library: string;
     temp: string;
+    records?: AssetDBRecordOptions;
     level: LogLevel;
     ignoreFiles: string[];
     globList?: string[];
@@ -6834,6 +6849,12 @@ export declare interface AssetDBOptions_2 {
     readonly: boolean;
     visible: boolean;
     ignoreGlob?: string;
+}
+export declare interface AssetDBRecordOptions {
+    info?: string;
+    data?: string;
+    dependency?: string;
+    cache?: string;
 }
 export declare type AssetHandlerType = typeof ASSET_HANDLER_TYPES[number] | 'database';
 export declare interface AssetInfo extends IAssetInfo {
@@ -7904,7 +7925,9 @@ export declare interface PrefabAssetUserData {
 export declare class ProgrammingFacet {
     private _packerDriverUpdateCount;
     private _asyncIteration;
-    static create(engine: IEngineOptions, projectPath: string): Promise<ProgrammingFacet>;
+    static create(engine: IEngineOptions, projectPath: string, options?: {
+        programmingRoot?: string;
+    }): Promise<ProgrammingFacet>;
     get engineRoot(): string;
     get engineDistRoot(): string;
     get systemJsHomeDir(): string;
@@ -8320,7 +8343,9 @@ export declare interface PluginScriptInfo {
 export declare class ProgrammingFacet {
     private _packerDriverUpdateCount;
     private _asyncIteration;
-    static create(engine: IEngineOptions, projectPath: string): Promise<ProgrammingFacet>;
+    static create(engine: IEngineOptions, projectPath: string, options?: {
+        programmingRoot?: string;
+    }): Promise<ProgrammingFacet>;
     get engineRoot(): string;
     get engineDistRoot(): string;
     get systemJsHomeDir(): string;

@@ -205,6 +205,7 @@ export default class Launcher {
         diagnostics?: RuntimePreviewStageDiagnostics;
         clearRuntimePreviewProgrammingCache?: boolean;
         engineRuntimeMode?: EngineRuntimeMode;
+        programmingRoot?: string;
     } = {}) {
         if (this._import) {
             return;
@@ -217,10 +218,14 @@ export default class Launcher {
         });
         // 在导入资源之前，初始化 scripting 模块，才能正常导入编译脚本
         const { Engine } = await import('./engine');
-        await scripting.initialize(this.projectPath, (await this.resolveEngineRoot()).engineRoot, Engine.getConfig().includeModules);
+        await scripting.initialize(this.projectPath, (await this.resolveEngineRoot()).engineRoot, Engine.getConfig().includeModules, {
+            programmingRoot: options.programmingRoot,
+        });
 
         const { createProgrammingFacet } = await import('./scripting/programming/FacetInstance');
-        await createProgrammingFacet(Engine.getInfo().typescript.path, scripting.projectPath, Engine.getConfig().includeModules);
+        await createProgrammingFacet(Engine.getInfo().typescript.path, scripting.projectPath, Engine.getConfig().includeModules, {
+            programmingRoot: options.programmingRoot,
+        });
 
         if (options.clearRuntimePreviewProgrammingCache) {
             options.diagnostics?.stageStart('programming:cache-clear');
@@ -363,6 +368,7 @@ export default class Launcher {
                         serverURL: engineServerUrl,
                         diagnostics,
                         clearRuntimePreviewProgrammingCache: options.clearProgrammingCache === true,
+                        programmingRoot: projectProgrammingRoot,
                     });
                     const { init: initBuilder } = await import('./builder');
                     diagnostics.stageStart('builder:init');

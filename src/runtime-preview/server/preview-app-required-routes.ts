@@ -155,7 +155,7 @@ async function resolveEffectSettingsFile(context: RuntimePreviewContext, pathnam
         return null;
     }
 
-    return resolveExistingFileInside(context.projectRoot, 'temp/asset-db/effect/effect.bin');
+    return resolveExistingFileInside(context.projectRoot, 'temp/cli/asset-db/effect/effect.bin');
 }
 
 function getSceneUuid(pathname: string): string | null {

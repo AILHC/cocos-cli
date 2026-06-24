@@ -340,13 +340,17 @@ describe('asset-db internal record editor parity', () => {
         }
     });
 
-    it('keeps CLI internal.library current behavior at project library root', async () => {
+    it('keeps CLI asset-db paths isolated while keeping internal library at project library root', async () => {
         const runtime = await loadFreshRuntime();
         await runtime.configurationManager.initialize(TestGlobalEnv.projectRoot);
         await runtime.project.open(TestGlobalEnv.projectRoot);
         await runtime.Engine.init(TestGlobalEnv.engineRoot);
         await runtime.assetConfig.init();
 
+        expect(runtime.assetConfig.data.tempRoot)
+            .toBe(join(TestGlobalEnv.projectRoot, 'temp', 'cli', 'asset-db'));
+        expect(runtime.assetConfig.data.assetDBList.find((assetDB) => assetDB.name === 'assets')?.library)
+            .toBe(join(TestGlobalEnv.projectRoot, 'library', 'cli'));
         expect(runtime.assetConfig.data.assetDBList.find((assetDB) => assetDB.name === 'internal')?.library)
             .toBe(join(TestGlobalEnv.projectRoot, 'library'));
     });

@@ -86,7 +86,7 @@ class AssetConfig {
         this._assetConfig.root = project.path;
         const enginePath = Engine.getInfo().typescript.path;
         this._assetConfig.libraryRoot = this._assetConfig.libraryRoot || join(this._assetConfig.root, 'library');
-        this._assetConfig.tempRoot = join(this._assetConfig.root, 'temp/asset-db');
+        this._assetConfig.tempRoot = join(this._assetConfig.root, 'temp/cli/asset-db');
         await this.syncRuntimeConfigFromConfiguration();
         const sharedLibraryOutput = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT === '1';
         const projectLibrary = join(this._assetConfig.root, 'library');
