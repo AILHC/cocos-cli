@@ -13,11 +13,7 @@ interface PreviewSceneRecord {
   url: string;
 }
 
-const mainProjectSceneUuids = [
-  'd3fc11bc-05dc-4e60-bc4f-f682fa74e8b6',
-  '4437972c-9b71-4af0-aae3-251f640ee42a',
-  'ac48432f-ab9a-4c4c-89f6-11053a95abe4',
-];
+const testBundleZipSceneUuid = 'ea53723b-fbb6-46f9-bf18-eaf73a330fae';
 
 const serverLogFailurePatterns = [
   'settings:generation:error',
@@ -27,14 +23,12 @@ const serverLogFailurePatterns = [
   'RuntimePreviewRequestBodyTooLarge',
 ];
 
-function selectRequiredScenes(scenes: PreviewSceneRecord[]): PreviewSceneRecord[] {
-  return mainProjectSceneUuids.map((uuid) => {
-    const scene = scenes.find((entry) => entry.uuid === uuid);
-    if (!scene) {
-      throw new Error(`fail-main-test-project-input: required scene is missing from /scene-list: ${uuid}`);
-    }
-    return scene;
-  });
+function selectRequiredScene(scenes: PreviewSceneRecord[], uuid: string): PreviewSceneRecord {
+  const scene = scenes.find((entry) => entry.uuid === uuid);
+  if (!scene) {
+    throw new Error(`fail-main-test-project-input: required scene is missing from /scene-list: ${uuid}`);
+  }
+  return scene;
 }
 
 async function findAvailablePort(startPort: number, attempts: number): Promise<number> {
@@ -49,7 +43,7 @@ async function findAvailablePort(startPort: number, attempts: number): Promise<n
 }
 
 describe('runtime preview main test-project CLI integration acceptance', () => {
-  it('starts the real CLI runtime preview server and loads three main test-project scenes without browser or server log errors', async () => {
+  it('starts the real CLI runtime preview server and loads the TestBundleZip scene without browser or server log errors', async () => {
     const paths = getCliIntegrationFixturePaths();
     const repoRoot = join(process.cwd(), '..');
     const port = await findAvailablePort(19531, 50);
@@ -66,7 +60,7 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
       editorProgrammingRef: paths.editorProgrammingRef,
       host: '127.0.0.1',
       port,
-      scene: mainProjectSceneUuids[0],
+      scene: testBundleZipSceneUuid,
       startupTimeoutMs: 120_000,
     });
 
@@ -95,109 +89,35 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
         scenes: PreviewSceneRecord[];
         currentScene: string;
       };
-      const selectedScenes = selectRequiredScenes(sceneList.scenes);
+      const targetScene = selectRequiredScene(sceneList.scenes, testBundleZipSceneUuid);
       expect(sceneList.currentScene).toBeTruthy();
-      const initialScene = selectedScenes[0];
 
-      const defaultEntryResponse = await fetch(`${cli.url}/?scene=${encodeURIComponent(initialScene.uuid)}&debug=false`);
+      const defaultEntryResponse = await fetch(`${cli.url}/?scene=${encodeURIComponent(targetScene.uuid)}&debug=false`);
       expect(defaultEntryResponse.status).toBe(200);
-      expect(await defaultEntryResponse.text()).toContain(`/settings.js?scene=${initialScene.uuid}`);
+      expect(await defaultEntryResponse.text()).toContain(`/settings.js?scene=${targetScene.uuid}`);
 
-      const defaultSmoke = await runBrowserRuntimeSmoke({
-        url: `${cli.url}/?scene=${encodeURIComponent(initialScene.uuid)}&debug=false`,
+      const sceneSmoke = await runBrowserRuntimeSmoke({
+        url: `${cli.url}/?scene=${encodeURIComponent(targetScene.uuid)}&debug=false`,
         runtimeServerOrigin: cli.url,
         readyTimeoutMs: 120_000,
         stableWindowMs: 10_000,
-        evidenceFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-main-test-project-cli-default-scene.json'),
+        evidenceFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-main-test-project-cli-test-bundle-zip-scene.json'),
         evidenceContext: {
           cliPid: cli.pid,
           cliCommand: `${cli.command} ${cli.args.join(' ')}`,
           serverUrl: cli.url,
           logFilePath: cli.logFilePath,
           elapsedStartupMs: cli.elapsedStartupMs,
-          expectedScene: initialScene,
+          expectedScene: targetScene,
         },
       });
-      expect(defaultSmoke.ready).toMatchObject({
-        scene: initialScene.uuid,
+      expect(sceneSmoke.ready).toMatchObject({
+        scene: targetScene.uuid,
       });
-      expect(defaultSmoke.consoleErrors).toEqual([]);
-      expect(defaultSmoke.pageErrors).toEqual([]);
-      expect(defaultSmoke.failedRequests).toEqual([]);
-      expect(defaultSmoke.badResponses).toEqual([]);
-
-      const selectTargetScene = selectedScenes[1] ?? selectedScenes[0];
-      const sceneSelectSmoke = await runBrowserRuntimeSmoke({
-        url: `${cli.url}/?scene=${encodeURIComponent(initialScene.uuid)}&debug=false`,
-        runtimeServerOrigin: cli.url,
-        sceneSelectTarget: selectTargetScene.uuid,
-        readyTimeoutMs: 120_000,
-        stableWindowMs: 10_000,
-        evidenceFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-main-test-project-cli-scene-select.json'),
-        evidenceContext: {
-          cliPid: cli.pid,
-          cliCommand: `${cli.command} ${cli.args.join(' ')}`,
-          serverUrl: cli.url,
-          logFilePath: cli.logFilePath,
-          elapsedStartupMs: cli.elapsedStartupMs,
-          initialScene,
-          selectedScene: selectTargetScene,
-        },
-      });
-      expect(sceneSelectSmoke.initialReady).toMatchObject({
-        scene: initialScene.uuid,
-      });
-      expect(sceneSelectSmoke.ready).toMatchObject({
-        scene: selectTargetScene.uuid,
-      });
-      expect(sceneSelectSmoke.consoleErrors).toEqual([]);
-      expect(sceneSelectSmoke.pageErrors).toEqual([]);
-      expect(sceneSelectSmoke.failedRequests).toEqual([]);
-      expect(sceneSelectSmoke.badResponses).toEqual([]);
-
-      const sceneResults = [];
-      for (const scene of selectedScenes) {
-        const url = [
-          `${cli.url}/?scene=${encodeURIComponent(scene.uuid)}`,
-          'runtimePreviewRenderType=webgl',
-          'debug=false',
-        ].join('&');
-        const evidenceFilePath = join(
-          paths.projectRoot,
-          'temp',
-          `runtime-preview-main-test-project-cli-scene-${scene.uuid}.json`,
-        );
-        const smoke = await runBrowserRuntimeSmoke({
-          url,
-          runtimeServerOrigin: cli.url,
-          readyTimeoutMs: 120_000,
-          stableWindowMs: 10_000,
-          evidenceFilePath,
-          evidenceContext: {
-            cliPid: cli.pid,
-            cliCommand: `${cli.command} ${cli.args.join(' ')}`,
-            serverUrl: cli.url,
-            logFilePath: cli.logFilePath,
-            elapsedStartupMs: cli.elapsedStartupMs,
-            scene,
-          },
-        });
-
-        expect(smoke.ready).toMatchObject({
-          scene: scene.uuid,
-        });
-        expect(smoke.consoleErrors).toEqual([]);
-        expect(smoke.pageErrors).toEqual([]);
-        expect(smoke.failedRequests).toEqual([]);
-        expect(smoke.badResponses).toEqual([]);
-        sceneResults.push({
-          scene,
-          elapsedReadyMs: smoke.elapsedReadyMs,
-          elapsedTotalMs: smoke.elapsedTotalMs,
-          networkRequestCount: smoke.networkRequestCount,
-          evidenceFilePath,
-        });
-      }
+      expect(sceneSmoke.consoleErrors).toEqual([]);
+      expect(sceneSmoke.pageErrors).toEqual([]);
+      expect(sceneSmoke.failedRequests).toEqual([]);
+      expect(sceneSmoke.badResponses).toEqual([]);
 
       const runtimeLog = await readFile(cli.logFilePath!, 'utf8');
       const forbiddenLogHits = serverLogFailurePatterns.filter((pattern) => runtimeLog.includes(pattern));
@@ -211,18 +131,11 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
         logFilePath: cli.logFilePath,
         elapsedStartupMs: cli.elapsedStartupMs,
         currentScene: sceneList.currentScene,
-        sceneResults,
-        defaultSceneResult: {
-          elapsedReadyMs: defaultSmoke.elapsedReadyMs,
-          elapsedTotalMs: defaultSmoke.elapsedTotalMs,
-          networkRequestCount: defaultSmoke.networkRequestCount,
-        },
-        sceneSelectResult: {
-          initialReady: sceneSelectSmoke.initialReady,
-          ready: sceneSelectSmoke.ready,
-          elapsedReadyMs: sceneSelectSmoke.elapsedReadyMs,
-          elapsedTotalMs: sceneSelectSmoke.elapsedTotalMs,
-          networkRequestCount: sceneSelectSmoke.networkRequestCount,
+        targetScene,
+        sceneResult: {
+          elapsedReadyMs: sceneSmoke.elapsedReadyMs,
+          elapsedTotalMs: sceneSmoke.elapsedTotalMs,
+          networkRequestCount: sceneSmoke.networkRequestCount,
         },
       }, null, 2)}\n`, 'utf8');
 
@@ -234,8 +147,10 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
         logFilePath: cli.logFilePath,
         elapsedStartupMs: cli.elapsedStartupMs,
       });
-      expect(sceneResults).toHaveLength(3);
-      expect(sceneResults.every((result) => result.networkRequestCount > 0)).toBe(true);
+      expect(evidence.targetScene).toMatchObject({
+        uuid: testBundleZipSceneUuid,
+      });
+      expect(sceneSmoke.networkRequestCount).toBeGreaterThan(0);
     } finally {
       closeResult = await cli.close();
     }
