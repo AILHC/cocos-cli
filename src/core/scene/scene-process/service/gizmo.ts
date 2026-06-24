@@ -294,6 +294,17 @@ export class GizmoService extends BaseService<IGizmoEvents> implements IGizmoSer
         // 与 cocos-editor GizmoManager.init 一致：创建场景 Gizmo 相机 + WorldAxis
         this.createSceneGizmo();
 
+        // 与 cocos-editor scene-facade-manager 一致：监听 resize 事件更新场景 Gizmo 相机视口
+        // cocos-editor 通过 operationMgr.on('resize', ...) → dispatchEvents('onResize') 实现
+        try {
+            Service.Operation.addListener('resize' as any, () => this.onResize());
+        } catch (e) {
+            // Operation service not ready yet
+        }
+        if (typeof window !== 'undefined') {
+            window.addEventListener('resize', () => this.onResize());
+        }
+
         // Init GizmoOperation
         this._gizmoOperation = new GizmoOperation();
         this._gizmoOperation.init();
