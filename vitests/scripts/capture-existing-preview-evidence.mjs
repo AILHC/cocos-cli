@@ -18,6 +18,7 @@ const previewUrl = parsedUrl.href;
 const outputDir = process.env.COCOS_CLI_CAPTURE_OUTPUT_DIR
   ? path.resolve(process.cwd(), process.env.COCOS_CLI_CAPTURE_OUTPUT_DIR)
   : path.resolve(process.cwd(), '.codex-tmp', `editor-preview-capture-${TIMESTAMP}`);
+const importMapUrl = new URL('/scripting/x/import-map.json', previewUrl).href;
 
 const urlSafe = toUrlSafe(previewUrl);
 const artifactFiles = {
@@ -169,7 +170,7 @@ try {
     await fs.writeFile(artifacts.settings, responseSettings.text, 'utf8');
   }
 
-  const responseImportMap = await fetchTextResource(page, new URL('/scripting/x/import-map.json', previewUrl).href);
+  const responseImportMap = await fetchTextResource(page, importMapUrl);
   importMapStatus = responseImportMap.status;
   if (responseImportMap.status >= 200 && responseImportMap.status <= 299) {
     await fs.writeFile(artifacts.importMap, responseImportMap.text, 'utf8');
@@ -179,12 +180,15 @@ try {
     } catch {
       failureReasons.push('import-map is not valid JSON.');
     }
-    prerequisiteChunkUrl = extractPrerequisiteChunkUrl(importMapJson);
+    prerequisiteChunkUrl = extractPrerequisiteChunkUrl(importMapJson, importMapUrl);
     if (prerequisiteChunkUrl) {
       const prerequisiteResponse = await fetchTextResource(page, prerequisiteChunkUrl);
       prerequisiteStatus = prerequisiteResponse.status;
       if (prerequisiteResponse.status >= 200 && prerequisiteResponse.status <= 299 && prerequisiteResponse.text !== null) {
         await fs.writeFile(artifacts.prerequisiteChunk, prerequisiteResponse.text, 'utf8');
+      }
+      if (!(prerequisiteResponse.status >= 200 && prerequisiteResponse.status <= 299)) {
+        failureReasons.push(`prerequisite chunk non-2xx: ${prerequisiteStatus}`);
       }
     }
   }
@@ -263,6 +267,8 @@ try {
     },
     canvas: elements.canvas,
     screenshotFilePath: artifacts.screenshot,
+    prerequisiteChunkUrl,
+    prerequisiteStatus,
     consoleErrors,
     pageErrors,
     failedRequests,
@@ -297,9 +303,6 @@ try {
     failureReasons.push(`badResponses non-empty (${badResponses.length})`);
   }
 
-  if (prerequisiteChunkUrl) {
-    browserDebug.prerequisiteChunkUrl = prerequisiteChunkUrl;
-  }
   await fs.writeFile(artifacts.browserDebug, JSON.stringify(browserDebug, null, 2), 'utf8');
   }
 } finally {
@@ -381,7 +384,7 @@ async function captureScreenshot(page, filePath, type) {
   }
 }
 
-function extractPrerequisiteChunkUrl(importMap) {
+function extractPrerequisiteChunkUrl(importMap, importMapUrl) {
   if (!importMap || typeof importMap !== 'object') {
     return '';
   }
@@ -393,10 +396,10 @@ function extractPrerequisiteChunkUrl(importMap) {
     return '';
   }
   if (candidate.startsWith('cce:')) {
-    return new URL(candidate.replace(/^cce:/, ''), previewUrl).href;
+    return new URL(candidate.replace(/^cce:/, ''), importMapUrl).href;
   }
   try {
-    return new URL(candidate, previewUrl).href;
+    return new URL(candidate, importMapUrl).href;
   } catch {
     return '';
   }
