@@ -30,7 +30,21 @@ function cloneJsonValue(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
-function createRuntimePackageJson(sourcePackage) {
+function addRuntimePeerResolutionDependencies(runtimePackage, sourceLockfile) {
+    const dependencies = runtimePackage.dependencies;
+    if (!dependencies || !dependencies['@cocos/lib-programming'] || dependencies['@babel/preset-env']) {
+        return;
+    }
+
+    const presetEnvPackage = sourceLockfile
+        && sourceLockfile.packages
+        && sourceLockfile.packages['node_modules/@babel/preset-env'];
+    if (presetEnvPackage && presetEnvPackage.version) {
+        dependencies['@babel/preset-env'] = presetEnvPackage.version;
+    }
+}
+
+function createRuntimePackageJson(sourcePackage, sourceLockfile) {
     const runtimePackage = {};
     for (const key of ['name', 'version', 'main', 'bin', 'dependencies', 'overrides']) {
         if (Object.prototype.hasOwnProperty.call(sourcePackage, key)) {
@@ -48,6 +62,7 @@ function createRuntimePackageJson(sourcePackage) {
         runtimePackage.scripts = scripts;
     }
 
+    addRuntimePeerResolutionDependencies(runtimePackage, sourceLockfile);
     return runtimePackage;
 }
 
@@ -79,6 +94,13 @@ function assertRuntimePackage(runtimePackage) {
 
 function readJson(file) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function readJsonIfExists(file) {
+    if (!fs.existsSync(file)) {
+        return undefined;
+    }
+    return readJson(file);
 }
 
 function writeJson(file, data) {
@@ -351,7 +373,8 @@ function releaseToolsWithOptions(targetRoot, options = {}) {
     }
 
     const sourcePackage = readJson(path.join(resolvedRepoRoot, 'package.json'));
-    const runtimePackage = createRuntimePackageJson(sourcePackage);
+    const sourceLockfile = readJsonIfExists(path.join(resolvedRepoRoot, 'package-lock.json'));
+    const runtimePackage = createRuntimePackageJson(sourcePackage, sourceLockfile);
     assertRuntimePackage(runtimePackage);
     writeJson(path.join(resolvedTargetRoot, 'package.json'), runtimePackage);
     fs.writeFileSync(path.join(resolvedTargetRoot, '.gitignore'), 'node_modules/\n', 'utf8');
@@ -399,6 +422,7 @@ module.exports = {
     releaseTools,
     _internals: {
         assertSafeReleaseTarget,
+        addRuntimePeerResolutionDependencies,
         copyReleaseEntry,
         createNpmInvocation,
         getNpmVersionWithOptions,

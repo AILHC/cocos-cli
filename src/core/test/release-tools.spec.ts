@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 
@@ -14,6 +14,10 @@ const {
 function writeJson(file: string, data: Record<string, unknown>): void {
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function readJson(file: string): Record<string, unknown> {
+    return JSON.parse(readFileSync(file, 'utf8'));
 }
 
 function writeText(file: string, content: string): void {
@@ -41,9 +45,17 @@ function createReleaseSourceFixture(repoRoot: string): void {
         dependencies: {
             cc: 'file:./packages/cc-module',
             '@cocos/asset-db': 'file:./packages/asset-db',
+            '@cocos/lib-programming': '3.8.15',
         },
         devDependencies: {
             jest: '^29.7.0',
+        },
+    });
+    writeJson(join(repoRoot, 'package-lock.json'), {
+        packages: {
+            'node_modules/@babel/preset-env': {
+                version: '7.28.3',
+            },
         },
     });
     writeText(join(repoRoot, 'dist', 'cli.js'), 'console.log("cli");\n');
@@ -139,6 +151,49 @@ describe('release tools workflow helpers', () => {
                 fsevents: '2.3.3',
             },
         });
+    });
+
+    it('adds @babel/preset-env from the source lockfile for @cocos/lib-programming peer resolution', () => {
+        const runtimePackage = createRuntimePackageJson({
+            name: 'cocos-cli',
+            version: '1.2.3',
+            dependencies: {
+                '@babel/core': '7.22.20',
+                '@cocos/lib-programming': '3.8.15',
+            },
+        }, {
+            packages: {
+                'node_modules/@babel/preset-env': {
+                    version: '7.28.3',
+                },
+            },
+        });
+
+        expect(runtimePackage.dependencies).toEqual({
+            '@babel/core': '7.22.20',
+            '@cocos/lib-programming': '3.8.15',
+            '@babel/preset-env': '7.28.3',
+        });
+    });
+
+    it('does not overwrite an explicit @babel/preset-env source dependency', () => {
+        const runtimePackage = createRuntimePackageJson({
+            name: 'cocos-cli',
+            version: '1.2.3',
+            dependencies: {
+                '@babel/core': '7.22.20',
+                '@cocos/lib-programming': '3.8.15',
+                '@babel/preset-env': '^7.27.0',
+            },
+        }, {
+            packages: {
+                'node_modules/@babel/preset-env': {
+                    version: '7.28.3',
+                },
+            },
+        });
+
+        expect(runtimePackage.dependencies['@babel/preset-env']).toBe('^7.27.0');
     });
 
     it('rejects only root install script metadata in a runtime lockfile', () => {
@@ -305,6 +360,19 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(targetRoot, 'node_modules'))).toBe(false);
         expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
         expect(existsSync(join(targetRoot, 'dist', 'cli.js'))).toBe(true);
+    });
+
+    it('uses the source lockfile when writing the runtime package', () => {
+        const repoRoot = createDir(join(fixtureRoot, 'repo'));
+        const targetRoot = createDir(join(fixtureRoot, 'target'));
+        createReleaseSourceFixture(repoRoot);
+
+        releaseToolsFixture(targetRoot, repoRoot);
+
+        const runtimePackage = readJson(join(targetRoot, 'package.json')) as {
+            dependencies: Record<string, string>;
+        };
+        expect(runtimePackage.dependencies['@babel/preset-env']).toBe('7.28.3');
     });
 
     it('rejects an unsafe target equal to the repo root before deletion', () => {
