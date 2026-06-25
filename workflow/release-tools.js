@@ -1,0 +1,305 @@
+const { execFileSync, spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+const RUNTIME_SCRIPT_ALLOWLIST = ['cli'];
+const COPY_ENTRIES = [
+    ['dist'],
+    ['static'],
+    ['packages', 'cc-module'],
+    ['packages', 'asset-db'],
+];
+const REQUIRED_TOOL_DIRS = [
+    'static/tools/creator-3.8.6/PVRTexTool_win32',
+    'static/tools/PVRTexTool_win32',
+    'static/tools/libwebp_win32',
+    'static/tools/mali_win32',
+    'static/tools/astc-encoder',
+    'static/tools/cmft',
+    'static/tools/LightFX',
+    'static/tools/lightmap-tools',
+    'static/tools/cmake',
+    'static/tools/keystore',
+];
+
+function cloneJsonValue(value) {
+    if (value === undefined) {
+        return undefined;
+    }
+    return JSON.parse(JSON.stringify(value));
+}
+
+function createRuntimePackageJson(sourcePackage) {
+    const runtimePackage = {};
+    for (const key of ['name', 'version', 'main', 'bin', 'dependencies', 'overrides']) {
+        if (Object.prototype.hasOwnProperty.call(sourcePackage, key)) {
+            runtimePackage[key] = cloneJsonValue(sourcePackage[key]);
+        }
+    }
+
+    const scripts = {};
+    for (const key of RUNTIME_SCRIPT_ALLOWLIST) {
+        if (sourcePackage.scripts && Object.prototype.hasOwnProperty.call(sourcePackage.scripts, key)) {
+            scripts[key] = sourcePackage.scripts[key];
+        }
+    }
+    if (Object.keys(scripts).length > 0) {
+        runtimePackage.scripts = scripts;
+    }
+
+    return runtimePackage;
+}
+
+function assertNoLocalAbsolutePaths(content) {
+    const text = String(content);
+    if (/(^|[^\w])([A-Za-z]:[\\/])/.test(text)) {
+        throw new Error('Local absolute path is not allowed');
+    }
+    if (/(^|[\s"'(])\\\\[^\\/\s]+[\\/][^\\/\s]+/.test(text)) {
+        throw new Error('UNC path is not allowed');
+    }
+}
+
+function assertRuntimeLockfile(lockfile) {
+    const rootPackage = lockfile && lockfile.packages && lockfile.packages[''];
+    if (rootPackage && rootPackage.hasInstallScript === true) {
+        throw new Error('Runtime lockfile root package must not have install script metadata');
+    }
+}
+
+function assertRuntimePackage(runtimePackage) {
+    if (runtimePackage.scripts && runtimePackage.scripts.postinstall !== undefined) {
+        throw new Error('Runtime package must not include scripts.postinstall');
+    }
+    if (runtimePackage.devDependencies !== undefined) {
+        throw new Error('Runtime package must not include devDependencies');
+    }
+}
+
+function readJson(file) {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function writeJson(file, data) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(data, null, 4)}\n`, 'utf8');
+}
+
+function assertPathExists(targetRoot, relativePath, type) {
+    const fullPath = path.join(targetRoot, relativePath);
+    if (!fs.existsSync(fullPath)) {
+        throw new Error(`Release directory is missing ${relativePath}`);
+    }
+    const stat = fs.statSync(fullPath);
+    if (type === 'directory' && !stat.isDirectory()) {
+        throw new Error(`Release path must be a directory: ${relativePath}`);
+    }
+    if (type === 'file' && !stat.isFile()) {
+        throw new Error(`Release path must be a file: ${relativePath}`);
+    }
+}
+
+function findDirectoryNamed(root, directoryName) {
+    if (!fs.existsSync(root)) {
+        return undefined;
+    }
+    const entries = fs.readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        const entryPath = path.join(root, entry.name);
+        if (entry.name === directoryName) {
+            return entryPath;
+        }
+        const nestedMatch = findDirectoryNamed(entryPath, directoryName);
+        if (nestedMatch) {
+            return nestedMatch;
+        }
+    }
+    return undefined;
+}
+
+function assertReleaseDirectory(targetRoot) {
+    const resolvedTargetRoot = path.resolve(targetRoot);
+    if (findDirectoryNamed(resolvedTargetRoot, 'node_modules')) {
+        throw new Error('Release directory must not include node_modules');
+    }
+    if (fs.existsSync(path.join(resolvedTargetRoot, 'packages', 'engine'))) {
+        throw new Error('Release directory must not include packages/engine');
+    }
+
+    assertPathExists(resolvedTargetRoot, '.gitignore', 'file');
+    assertPathExists(resolvedTargetRoot, 'package.json', 'file');
+    assertPathExists(resolvedTargetRoot, 'package-lock.json', 'file');
+    assertPathExists(resolvedTargetRoot, 'packages/asset-db', 'directory');
+    assertPathExists(resolvedTargetRoot, 'packages/cc-module', 'directory');
+
+    for (const toolDir of REQUIRED_TOOL_DIRS) {
+        assertPathExists(resolvedTargetRoot, toolDir, 'directory');
+    }
+
+    const gitignore = fs.readFileSync(path.join(resolvedTargetRoot, '.gitignore'), 'utf8');
+    if (!/(^|\r?\n)node_modules\/(\r?\n|$)/.test(gitignore)) {
+        throw new Error('Release .gitignore must contain node_modules/');
+    }
+
+    const runtimePackage = readJson(path.join(resolvedTargetRoot, 'package.json'));
+    assertRuntimePackage(runtimePackage);
+    const lockfile = readJson(path.join(resolvedTargetRoot, 'package-lock.json'));
+    assertRuntimeLockfile(lockfile);
+}
+
+function renderReadme(metadata) {
+    const readme = `# Cocos CLI tools runtime
+
+本文档说明 \`<p6Root>/tools/cocos-cli\` 中的 Cocos CLI runtime 使用方式。当前支持的 Creator 版本为 \`3.8.6\`。
+
+## 环境版本
+
+- Node.js: ${metadata.nodeVersion}
+- npm: ${metadata.npmVersion}
+
+## 首次安装
+
+在 \`<p6Root>/tools/cocos-cli\` 目录执行：
+
+\`\`\`powershell
+npm install
+\`\`\`
+
+查看 CLI 帮助：
+
+\`\`\`powershell
+node .\\dist\\cli.js --help
+\`\`\`
+
+runtime preview 示例：
+
+\`\`\`powershell
+node .\\dist\\cli.js preview --runtime --project <projectRoot> --port <port>
+\`\`\`
+
+## Engine 解析优先级
+
+CLI 运行时按以下顺序解析 engine source：
+
+1. project \`package.json\` 中的 \`cocos-cli.enginePath\`。
+2. CLI 初始化链路传入的 \`cliInitializedEngineRoot\`。
+3. Creator profile 中的 \`Creator profile custom engine\`。
+
+示例路径请使用 \`<projectRoot>\`、\`<engineRoot>\`、\`<p6Root>\` 这类占位符替换为本机真实路径。
+
+## 常见错误
+
+- profile 缺失：确认 Creator profile 已生成并包含 \`3.8.6\` 对应配置。
+- builtin engine：当前 workflow 需要 custom engine，不使用 Creator builtin engine。
+- engine path 不存在：确认 \`cocos-cli.enginePath\`、\`cliInitializedEngineRoot\` 或 Creator profile custom engine 指向有效的 \`<engineRoot>\`。
+- 依赖未安装：在 \`<p6Root>/tools/cocos-cli\` 执行 \`npm install\`。
+- 端口占用：将 preview 端口改为未占用的 \`<port>\`。
+`;
+    assertNoLocalAbsolutePaths(readme);
+    return readme;
+}
+
+function copyReleaseEntry(targetRoot, relativeParts) {
+    const source = path.join(REPO_ROOT, ...relativeParts);
+    const destination = path.join(targetRoot, ...relativeParts);
+    if (!fs.existsSync(source)) {
+        throw new Error(`Release source is missing: ${relativeParts.join('/')}`);
+    }
+    fs.rmSync(destination, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.cpSync(source, destination, {
+        recursive: true,
+        dereference: true,
+        filter(sourcePath) {
+            const relative = path.relative(REPO_ROOT, sourcePath).replace(/\\/g, '/');
+            if (/(^|\/)node_modules($|\/)/.test(relative)) {
+                return false;
+            }
+            return relative !== 'packages/engine' && !relative.startsWith('packages/engine/');
+        },
+    });
+}
+
+function getNpmVersion() {
+    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    return execFileSync(npmCommand, ['--version'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+}
+
+function runNpmLockfileInstall(targetRoot) {
+    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const result = spawnSync(npmCommand, ['install', '--package-lock-only', '--ignore-scripts'], {
+        cwd: targetRoot,
+        stdio: 'inherit',
+        shell: false,
+    });
+    if (result.error) {
+        throw result.error;
+    }
+    if (result.status !== 0) {
+        throw new Error(`npm install --package-lock-only --ignore-scripts failed with exit code ${result.status}`);
+    }
+}
+
+function releaseTools(targetRoot) {
+    if (!targetRoot) {
+        throw new Error('Missing required --target <path>');
+    }
+
+    const resolvedTargetRoot = path.resolve(targetRoot);
+    fs.mkdirSync(resolvedTargetRoot, { recursive: true });
+
+    for (const entry of COPY_ENTRIES) {
+        copyReleaseEntry(resolvedTargetRoot, entry);
+    }
+
+    const sourcePackage = readJson(path.join(REPO_ROOT, 'package.json'));
+    const runtimePackage = createRuntimePackageJson(sourcePackage);
+    assertRuntimePackage(runtimePackage);
+    writeJson(path.join(resolvedTargetRoot, 'package.json'), runtimePackage);
+    fs.writeFileSync(path.join(resolvedTargetRoot, '.gitignore'), 'node_modules/\n', 'utf8');
+    fs.writeFileSync(path.join(resolvedTargetRoot, 'README.md'), renderReadme({
+        nodeVersion: process.version,
+        npmVersion: getNpmVersion(),
+    }), 'utf8');
+
+    runNpmLockfileInstall(resolvedTargetRoot);
+    assertReleaseDirectory(resolvedTargetRoot);
+}
+
+function parseTargetArg(argv) {
+    const index = argv.indexOf('--target');
+    if (index === -1 || !argv[index + 1]) {
+        return undefined;
+    }
+    return argv[index + 1];
+}
+
+if (require.main === module) {
+    try {
+        const targetRoot = parseTargetArg(process.argv.slice(2));
+        if (!targetRoot) {
+            console.error('Missing required --target <path>');
+            process.exit(1);
+        }
+        releaseTools(targetRoot);
+    } catch (error) {
+        console.error(error && error.message ? error.message : error);
+        process.exit(1);
+    }
+}
+
+module.exports = {
+    createRuntimePackageJson,
+    assertNoLocalAbsolutePaths,
+    assertRuntimeLockfile,
+    assertReleaseDirectory,
+    renderReadme,
+    releaseTools,
+};
