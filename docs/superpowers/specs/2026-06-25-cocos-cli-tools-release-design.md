@@ -31,7 +31,7 @@
 
 1. 测试环境：当 `COCOS_CLI_TEST_ENGINE_ROOT` 与 `COCOS_CLI_TEST_PROJECT_ROOT` 同时匹配当前项目时，返回 test engine root，source 为 `test-env`。
 2. 项目配置：读取 `<projectRoot>/package.json` 的 `cocos-cli.enginePath`。支持绝对路径和相对项目根目录的相对路径。该路径必须存在，否则报错。
-3. 本机 Creator profile：读取用户目录下 `.CocosCreator/profiles/v2/packages/engine.json`。CLI supported engine versions 当前为 `["3.8.6"]`，对应 profile key 为 `386`。只接受 `engine[386].javascript.custom` 指向的自定义 engine source。该路径必须存在。
+3. 本机 Creator profile：读取用户目录下 `.CocosCreator/profiles/v2/packages/engine.json`。CLI supported engine versions 当前为 `["3.8.6"]`，对应 profile key 为 `386`。profile key 由 supported version 去掉 `.` 得到，后续多位版本如有歧义应改为显式 map。只接受 `engine[386].javascript.builtin === false` 且 `engine[386].javascript.custom` 为非空 string 的自定义 engine source。该路径必须存在。若 `builtin === true`，即使残留 `custom` 字段也必须按内置引擎报错。
 4. 无可用 engine 时直接报错，不启动。
 
 错误信息需要说明实际失败原因，例如：
@@ -53,7 +53,7 @@ runtime preview 的 active output 中应继续输出 `engineRoot` 与 `engineRoo
 - `packages/cc-module/`
 - `packages/asset-db/`
 - runtime `package.json`
-- 与 runtime `package.json` 匹配的 lockfile
+- 与 runtime `package.json` 匹配的 runtime lockfile
 - 使用文档，例如 `README.md`
 
 不提交以下内容：
@@ -78,6 +78,14 @@ runtime manifest 要求：
    - `cc: file:./packages/cc-module`
    - `@cocos/asset-db: file:./packages/asset-db`
 6. 保留运行 CLI 所需的普通 dependencies。
+7. 保留 runtime install 需要的 `overrides`。当前 root `package.json` 中的 `overrides.fsevents` 应进入 runtime manifest，除非实现阶段用真实 install smoke 证明删除后依赖树仍符合预期。
+
+runtime lockfile 要求：
+
+1. 不能直接复用源码仓库 root `package-lock.json`。
+2. 必须在生成 runtime manifest 后，于发布目录内重新生成 lockfile。
+3. lockfile root entry 不应包含 `packages[""].hasInstallScript: true`；依赖包自己的 `hasInstallScript` 可以保留。
+4. `npm install` 后发布目录 lockfile 不应产生额外 diff。
 
 团队安装命令固定为：
 
@@ -102,6 +110,7 @@ node .\dist\cli.js --help
 - `static/tools/astc-encoder/`
 - `static/tools/cmft/`
 - `static/tools/LightFX/`
+- `static/tools/lightmap-tools/`
 - `static/tools/cmake/`
 - `static/tools/keystore/`
 
@@ -111,7 +120,7 @@ node .\dist\cli.js --help
 
 发布目录应包含中文 README，至少覆盖：
 
-1. 环境要求：Node.js 版本、Windows PowerShell。
+1. 环境要求：Node.js `22.17.0+`、npm 版本、Windows PowerShell。README 应记录发布验证时使用的 `node -v` 与 `npm -v`，便于团队定位 install 差异。
 2. 首次安装：`npm install`。
 3. 基本调用：`node .\dist\cli.js --help`、`preview --runtime`。
 4. engine 配置优先级：项目 `cocos-cli.enginePath` 优先，本机 Creator profile 兜底。
@@ -137,7 +146,12 @@ node .\dist\cli.js --help
 2. runtime package manifest 生成逻辑测试：
    - 不包含 `scripts.postinstall`。
    - 不包含 `devDependencies`。
+   - 保留 runtime install 需要的 `overrides`。
    - 保留 `bin`、`main`、runtime dependencies、本地 package dependencies。
+3. runtime lockfile 生成逻辑测试：
+   - lockfile 在 runtime manifest 生成后重新生成。
+   - root `packages[""].hasInstallScript` 不存在或为 `false`。
+   - 依赖包自身 `hasInstallScript` 不作为失败条件。
 
 发布目录测试：
 
@@ -147,18 +161,23 @@ node .\dist\cli.js --help
    - `static/tools/` 存在。
    - 关键工具目录存在。
    - root `package.json` 不包含 `postinstall`。
+   - root `package-lock.json` 不包含 root `hasInstallScript: true`。
+   - `node -v`、`npm -v` 被记录到验证输出中。
 2. 安装校验：
    - 在 `<p6Root>/tools/cocos-cli` 执行 `npm install`。
+   - `npm install` 后 `package.json` 与 lockfile 没有未预期变化。
 3. 运行校验：
    - `node .\dist\cli.js --help`
-   - `node .\dist\cli.js preview --runtime --project <projectRoot> --host 127.0.0.1 --port <port>`
+   - project-config case：项目存在 `cocos-cli.enginePath` 时运行 `node .\dist\cli.js preview --runtime --project <projectRoot> --host 127.0.0.1 --port <port>`，断言 active output 中 `engineRootSource: project-config`。
+   - creator-profile case：项目不配置 `cocos-cli.enginePath` 且清空 test env 覆盖时运行 `preview --runtime`，断言 active output 中 `engineRootSource: creator-profile`。
+   - negative case：没有项目配置且没有可用 custom engine 时，断言命令以清晰错误退出，并且不会 fallback 到 `<cliRoot>/packages/engine`。
 
 本轮不执行 `build` 验证；后续应在明确平台和外部工具链后单独补充。
 
 ## 风险与缓解
 
 1. runtime lockfile 与 runtime manifest 不匹配。
-   - 发布脚本生成 manifest 后，应在发布目录实际执行 `npm install` 验证。
+   - 发布脚本生成 manifest 后，应在发布目录重新生成 runtime lockfile，并实际执行 `npm install` 验证。
 2. root `postinstall` 遗留导致团队安装触发开发期流程。
    - 发布目录静态校验必须检查 `scripts.postinstall` 不存在。
 3. 删除 `packages/engine` 后仍有代码隐式访问 `<cliRoot>/packages/engine`。
@@ -167,12 +186,15 @@ node .\dist\cli.js --help
    - 本轮明确不裁剪；后续可基于真实平台和 importer 使用情况做专门裁剪计划。
 5. Creator profile fallback 当前只支持 `3.8.6`。
    - supported engine versions 显式集中定义，后续扩展版本时同时补测试。
+6. 团队 Node.js / npm 版本差异导致 install 结果不同。
+   - README 记录最低 Node.js 版本和发布验证版本；发布验证输出记录 `node -v`、`npm -v`。
 
 ## 验收标准
 
 1. `tools/cocos-cli` 可纳入 Git，且不包含 `node_modules`、`packages/engine`、本机绝对路径文档。
 2. 团队在发布目录执行 `npm install` 不触发 CLI root `postinstall`。
-3. `node .\dist\cli.js --help` 在发布目录通过。
-4. 未配置项目 `cocos-cli.enginePath` 时，CLI 能从本机 Creator profile 解析 supported version 的 custom engine。
-5. 没有项目配置且没有可用 custom engine 时，CLI 以清晰错误退出，不再 fallback 到 `<cliRoot>/packages/engine`。
-6. `preview --runtime` 能从发布目录针对目标项目启动到预期阶段。
+3. runtime `package-lock.json` 不保留源码 root `hasInstallScript: true`，且 `npm install` 后没有未预期 manifest / lockfile 变化。
+4. `node .\dist\cli.js --help` 在发布目录通过。
+5. 配置 `cocos-cli.enginePath` 时，`preview --runtime` active output 显示 `engineRootSource: project-config`。
+6. 未配置项目 `cocos-cli.enginePath` 时，CLI 能从本机 Creator profile 解析 supported version 的 custom engine，并显示 `engineRootSource: creator-profile`。
+7. 没有项目配置且没有可用 custom engine 时，CLI 以清晰错误退出，不再 fallback 到 `<cliRoot>/packages/engine`。
