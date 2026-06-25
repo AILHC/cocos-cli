@@ -150,6 +150,9 @@ function assertSafeReleaseTarget(targetRoot, repoRoot, copyEntries = COPY_ENTRIE
             throw new Error('Release target must not be inside a copied source entry');
         }
     }
+    if (isPathInside(resolvedRepoRoot, resolvedTargetRoot)) {
+        throw new Error('Release target must not be inside the repository root');
+    }
 }
 
 function assertReleaseDirectory(targetRoot) {

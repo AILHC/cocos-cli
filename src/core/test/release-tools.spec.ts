@@ -283,6 +283,19 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(parentRoot, 'marker.txt'))).toBe(true);
     });
 
+    it('rejects arbitrary repo child targets before deletion', () => {
+        const repoRoot = createDir(join(fixtureRoot, 'repo'));
+        createReleaseSourceFixture(repoRoot);
+
+        for (const childDir of ['src', 'workflow']) {
+            const targetRoot = createDir(join(repoRoot, childDir));
+            writeText(join(targetRoot, 'marker.txt'), 'keep\n');
+
+            expect(() => releaseToolsFixture(targetRoot, repoRoot)).toThrow('Release target must not be inside the repository root');
+            expect(existsSync(join(targetRoot, 'marker.txt'))).toBe(true);
+        }
+    });
+
     it('rejects an unsafe target inside a copied source tree', () => {
         const repoRoot = createDir(join(fixtureRoot, 'repo'));
         createReleaseSourceFixture(repoRoot);
