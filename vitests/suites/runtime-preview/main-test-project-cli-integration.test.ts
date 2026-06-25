@@ -1,8 +1,10 @@
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { getCliIntegrationFixturePaths } from '@shared/fixture-paths';
 import { runBrowserRuntimeSmoke } from '@shared/browser-runtime-smoke';
+import { readRuntimePreviewPrerequisiteEvidence } from '@shared/runtime-preview-prerequisite-evidence';
 import {
   canListen,
   startRuntimePreviewCliProcess,
@@ -94,7 +96,57 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
 
       const defaultEntryResponse = await fetch(`${cli.url}/?scene=${encodeURIComponent(targetScene.uuid)}&debug=false`);
       expect(defaultEntryResponse.status).toBe(200);
-      expect(await defaultEntryResponse.text()).toContain(`/settings.js?scene=${targetScene.uuid}`);
+      const defaultEntryText = await defaultEntryResponse.text();
+      expect(defaultEntryText).toContain(`/settings.js?scene=${targetScene.uuid}`);
+      expect(defaultEntryText).toContain('<title>Cocos Creator - cocos-test-projects</title>');
+      expect(defaultEntryText).toContain('/test.js');
+      expect(defaultEntryText).toContain('System.import("/preview-app/index.js")');
+      expect(defaultEntryText).not.toContain('__PROJECT_SCRIPT_TEMPLATE_SHOULD_NOT_LOAD__');
+
+      const settingsResponse = await fetch(`${cli.url}/settings.js?scene=${encodeURIComponent(targetScene.uuid)}`);
+      expect(settingsResponse.status).toBe(200);
+      const settingsText = await settingsResponse.text();
+      const settingsMatch = settingsText.match(/window\._CCSettings\s*=\s*(\{[\s\S]*\});/);
+      expect(settingsMatch).not.toBeNull();
+      const settings = JSON.parse(settingsMatch![1]!) as {
+        engine: {
+          debug: boolean;
+          platform: string;
+        };
+      };
+      expect(settings.engine.debug).toBe(true);
+      expect(settings.engine.platform).toBe('web-desktop');
+
+      const importMapPath = join(
+        paths.projectRoot,
+        'temp',
+        'cli',
+        'programming',
+        'packer-driver',
+        'targets',
+        'preview',
+        'import-map.json',
+      );
+      expect(existsSync(importMapPath)).toBe(true);
+      const prerequisiteEvidence = await readRuntimePreviewPrerequisiteEvidence(importMapPath);
+      expect(prerequisiteEvidence.hasStaticSystemRegister).toBe(true);
+      expect(prerequisiteEvidence.hasSequentialDynamicImportLoop).toBe(false);
+      expect(prerequisiteEvidence.dependencyCount).toBeGreaterThan(0);
+      expect(prerequisiteEvidence.unresolvedMappingCount).toBe(prerequisiteEvidence.dependencyCount);
+      const prerequisiteEvidenceSummary = {
+        importMapPath: prerequisiteEvidence.importMapPath,
+        chunkPath: prerequisiteEvidence.chunkPath,
+        dependencyCount: prerequisiteEvidence.dependencyCount,
+        unresolvedMappingCount: prerequisiteEvidence.unresolvedMappingCount,
+      };
+
+      const evidenceTimestamp = new Date().toISOString().replace(/[^0-9]/g, '');
+      const sceneEvidenceName = `main-test-project-${targetScene.uuid}`;
+      const screenshotFilePath = join(
+        paths.projectRoot,
+        'temp',
+        `cli-${sceneEvidenceName}-1280x720-${evidenceTimestamp}.png`,
+      );
 
       const sceneSmoke = await runBrowserRuntimeSmoke({
         url: `${cli.url}/?scene=${encodeURIComponent(targetScene.uuid)}&debug=false`,
@@ -102,6 +154,7 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
         readyTimeoutMs: 120_000,
         stableWindowMs: 10_000,
         evidenceFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-main-test-project-cli-test-bundle-zip-scene.json'),
+        screenshotFilePath,
         evidenceContext: {
           cliPid: cli.pid,
           cliCommand: `${cli.command} ${cli.args.join(' ')}`,
@@ -109,6 +162,7 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
           logFilePath: cli.logFilePath,
           elapsedStartupMs: cli.elapsedStartupMs,
           expectedScene: targetScene,
+          prerequisiteEvidence: prerequisiteEvidenceSummary,
         },
       });
       expect(sceneSmoke.ready).toMatchObject({
@@ -118,6 +172,18 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
       expect(sceneSmoke.pageErrors).toEqual([]);
       expect(sceneSmoke.failedRequests).toEqual([]);
       expect(sceneSmoke.badResponses).toEqual([]);
+      expect(sceneSmoke.canvasDebugEvidence).toBeTruthy();
+      expect(sceneSmoke.canvasDebugEvidence!.viewport.innerWidth).toBeGreaterThan(0);
+      expect(sceneSmoke.canvasDebugEvidence!.viewport.innerHeight).toBeGreaterThan(0);
+      expect(sceneSmoke.canvasDebugEvidence!.elements.gameCanvas).toBeTruthy();
+      expect(sceneSmoke.canvasDebugEvidence!.elements.gameCanvas!.width).toBeGreaterThan(0);
+      expect(sceneSmoke.canvasDebugEvidence!.elements.gameCanvas!.height).toBeGreaterThan(0);
+      expect(sceneSmoke.canvasDebugEvidence!.canvas.width).toBeGreaterThan(0);
+      expect(sceneSmoke.canvasDebugEvidence!.canvas.height).toBeGreaterThan(0);
+      expect(sceneSmoke.canvasDebugEvidence!.canvas.computedWidth).toBeGreaterThan(0);
+      expect(sceneSmoke.canvasDebugEvidence!.canvas.computedHeight).toBeGreaterThan(0);
+      expect(sceneSmoke.canvasDebugEvidence!.screenshotFilePath).toBeTruthy();
+      expect(existsSync(sceneSmoke.canvasDebugEvidence!.screenshotFilePath!)).toBe(true);
 
       const runtimeLog = await readFile(cli.logFilePath!, 'utf8');
       const forbiddenLogHits = serverLogFailurePatterns.filter((pattern) => runtimeLog.includes(pattern));
@@ -132,6 +198,8 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
         elapsedStartupMs: cli.elapsedStartupMs,
         currentScene: sceneList.currentScene,
         targetScene,
+        prerequisiteEvidence: prerequisiteEvidenceSummary,
+        canvasDebugEvidence: sceneSmoke.canvasDebugEvidence,
         sceneResult: {
           elapsedReadyMs: sceneSmoke.elapsedReadyMs,
           elapsedTotalMs: sceneSmoke.elapsedTotalMs,
@@ -150,6 +218,8 @@ describe('runtime preview main test-project CLI integration acceptance', () => {
       expect(evidence.targetScene).toMatchObject({
         uuid: testBundleZipSceneUuid,
       });
+      expect(evidence.prerequisiteEvidence).toMatchObject(prerequisiteEvidenceSummary);
+      expect(evidence.canvasDebugEvidence).toMatchObject(sceneSmoke.canvasDebugEvidence);
       expect(sceneSmoke.networkRequestCount).toBeGreaterThan(0);
     } finally {
       closeResult = await cli.close();

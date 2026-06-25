@@ -12,7 +12,35 @@ export interface BrowserRuntimeSmokeOptions {
   readyTimeoutMs?: number;
   stableWindowMs?: number;
   evidenceFilePath?: string;
+  screenshotFilePath?: string;
   evidenceContext?: Record<string, unknown>;
+}
+
+export interface BrowserElementRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserCanvasDebugEvidence {
+  viewport: {
+    innerWidth: number;
+    innerHeight: number;
+    devicePixelRatio: number;
+  };
+  elements: {
+    gameCanvas: BrowserElementRect | null;
+    gameDiv: BrowserElementRect | null;
+    cocos3dGameContainer: BrowserElementRect | null;
+  };
+  canvas: {
+    width: number;
+    height: number;
+    computedWidth: number;
+    computedHeight: number;
+  };
+  screenshotFilePath?: string;
 }
 
 export interface BrowserRuntimeSmokeResult {
@@ -21,6 +49,7 @@ export interface BrowserRuntimeSmokeResult {
   elapsedReadyMs: number;
   elapsedTotalMs: number;
   networkRequestCount: number;
+  canvasDebugEvidence?: BrowserCanvasDebugEvidence;
   consoleErrors: BrowserConsoleMessage[];
   unhandledRejections: string[];
   pageErrors: string[];
@@ -362,6 +391,119 @@ async function writeSmokeEvidence(
   await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
+async function collectCanvasDebugEvidence(
+  session: CdpSession,
+  screenshotFilePath?: string,
+): Promise<BrowserCanvasDebugEvidence> {
+  const result = await session.send('Runtime.evaluate', {
+    expression: `
+      (() => {
+        const toRect = (element) => {
+          if (!element || !element.getBoundingClientRect) {
+            return null;
+          }
+          const rect = element.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          };
+        };
+        const gameCanvas = document.querySelector('#GameCanvas');
+        const gameDiv = document.querySelector('#GameDiv');
+        const cocos3dGameContainer = document.querySelector('#Cocos3dGameContainer');
+        const canvas = gameCanvas && gameCanvas.tagName === 'CANVAS' ? gameCanvas : null;
+        const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
+        const computed = canvas ? getComputedStyle(canvas) : null;
+        return {
+          viewport: {
+            innerWidth: window.innerWidth,
+            innerHeight: window.innerHeight,
+            devicePixelRatio: window.devicePixelRatio,
+          },
+          elements: {
+            gameCanvas: toRect(gameCanvas),
+            gameDiv: toRect(gameDiv),
+            cocos3dGameContainer: toRect(cocos3dGameContainer),
+          },
+          canvas: {
+            width: canvas ? canvas.width : 0,
+            height: canvas ? canvas.height : 0,
+            computedWidth: computed && Number.parseFloat(computed.width)
+              ? Number.parseFloat(computed.width)
+              : (canvasRect ? canvasRect.width : 0),
+            computedHeight: computed && Number.parseFloat(computed.height)
+              ? Number.parseFloat(computed.height)
+              : (canvasRect ? canvasRect.height : 0),
+          },
+          screenshotFilePath: ${JSON.stringify(screenshotFilePath ?? '')},
+        };
+      })()
+    `,
+    returnByValue: true,
+    awaitPromise: false,
+  });
+
+  if (!result.result?.value || typeof result.result.value !== 'object') {
+    throw new Error('fail-runtime-preview-canvas-debug-evidence: runtime evaluate returned invalid canvas debug evidence.');
+  }
+
+  const evidence = result.result.value as {
+    viewport?: {
+      innerWidth?: unknown;
+      innerHeight?: unknown;
+      devicePixelRatio?: unknown;
+    };
+    elements?: {
+      gameCanvas?: unknown;
+      gameDiv?: unknown;
+      cocos3dGameContainer?: unknown;
+    };
+    canvas?: {
+      width?: unknown;
+      height?: unknown;
+      computedWidth?: unknown;
+      computedHeight?: unknown;
+    };
+    screenshotFilePath?: string;
+  };
+
+  const screenshotPath = screenshotFilePath || evidence.screenshotFilePath || undefined;
+  if (screenshotPath) {
+    const captured = await session.send('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+    });
+    const imageData = captured.data;
+    if (typeof imageData !== 'string') {
+      throw new Error('fail-runtime-preview-canvas-debug-evidence: invalid screenshot data.');
+    }
+    await mkdir(dirname(screenshotPath), { recursive: true });
+    await writeFile(screenshotPath, Buffer.from(imageData, 'base64'));
+  }
+
+  return {
+    viewport: {
+      innerWidth: Number(evidence.viewport?.innerWidth ?? 0),
+      innerHeight: Number(evidence.viewport?.innerHeight ?? 0),
+      devicePixelRatio: Number(evidence.viewport?.devicePixelRatio ?? 1),
+    },
+    elements: {
+      gameCanvas: evidence.elements?.gameCanvas as BrowserElementRect | null,
+      gameDiv: evidence.elements?.gameDiv as BrowserElementRect | null,
+      cocos3dGameContainer: evidence.elements?.cocos3dGameContainer as BrowserElementRect | null,
+    },
+    canvas: {
+      width: Number(evidence.canvas?.width ?? 0),
+      height: Number(evidence.canvas?.height ?? 0),
+      computedWidth: Number(evidence.canvas?.computedWidth ?? 0),
+      computedHeight: Number(evidence.canvas?.computedHeight ?? 0),
+    },
+    screenshotFilePath: screenshotPath,
+  };
+}
+
 export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions): Promise<BrowserRuntimeSmokeResult> {
   const readyTimeoutMs = options.readyTimeoutMs ?? 60_000;
   const stableWindowMs = options.stableWindowMs ?? 5_000;
@@ -376,6 +518,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
   const pageErrors: string[] = [];
   const failedRequests: BrowserNetworkFailure[] = [];
   const badResponses: BrowserNetworkResponse[] = [];
+  let canvasDebugEvidence: BrowserCanvasDebugEvidence | undefined;
   const requestUrls = new Map<string, string>();
   let networkRequestCount = 0;
 
@@ -457,6 +600,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       });
     }
     await new Promise((resolve) => setTimeout(resolve, stableWindowMs));
+    canvasDebugEvidence = await collectCanvasDebugEvidence(session, options.screenshotFilePath);
 
     if (pageErrors.length > 0) {
       throw new Error(`fail-browser-host-boundary: page errors: ${pageErrors.join('\n')}`);
@@ -485,6 +629,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       pageErrors,
       failedRequests,
       badResponses,
+      canvasDebugEvidence,
     };
     await writeSmokeEvidence(options.evidenceFilePath, {
       status: 'pass',
@@ -501,6 +646,7 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       pageErrorCount: pageErrors.length,
       failedRequestCount: failedRequests.length,
       badResponseCount: badResponses.length,
+      canvasDebugEvidence,
     });
 
     return result;
@@ -521,6 +667,8 @@ export async function runBrowserRuntimeSmoke(options: BrowserRuntimeSmokeOptions
       pageErrors,
       failedRequests,
       badResponses,
+      screenshotFilePath: options.screenshotFilePath,
+      canvasDebugEvidence,
     });
     if (options.evidenceFilePath) {
       throw new Error(`${failureMessage}\nevidenceFilePath=${options.evidenceFilePath}`);
