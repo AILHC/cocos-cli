@@ -20,7 +20,7 @@
 
 Editor preview URL：`http://localhost:7457/`。
 
-采集证据保存在本地临时目录：
+本轮采集证据保存在本地临时目录：
 
 - `.codex-tmp/editor-preview-capture-20260625/localhost_7457_.txt`
 - `.codex-tmp/editor-preview-capture-20260625/localhost_7457_settings.js.txt`
@@ -37,6 +37,16 @@ Editor preview URL：`http://localhost:7457/`。
 - 该 prerequisite chunk 是 `System.register(["__unresolved_0", ...], ...)` static dependency 形态，未包含 `import(`，依赖 token 数为 `233`。
 - 90 秒 browser 采集内没有 same-origin failed request，没有 4xx/5xx response，没有 console error；有 2 条 warning。
 - Editor preview 不设置 `window.__RUNTIME_PREVIEW_READY`，因此不能用 CLI preview-app 的 ready marker 判断 Editor preview 是否完成。
+
+这些 `.codex-tmp` 文件只是当前设计输入，不是最终验收文档。实现完成前必须把可复现的 Editor / CLI 对比证据沉淀到 `docs/dev/runtime-preview/facts/`，并记录：
+
+- Cocos Creator 版本和项目路径。
+- 采集命令或脚本入口。
+- root HTML 是否来自项目 `preview-template/index.ejs`。
+- `/settings.js` 中 `engine.debug`、`engine.platform` 和 design resolution 相关字段。
+- `import-map.json#imports["cce:/internal/x/prerequisite-imports"]`。
+- prerequisite chunk path、hash、dependency count、是否包含 sequential dynamic import pattern。
+- browser/network evidence 中 same-origin failed request、4xx/5xx、console/page error 计数。
 
 ## 目标
 
@@ -78,19 +88,27 @@ Editor preview URL：`http://localhost:7457/`。
 
 这样与已确认 Editor 行为一致：项目 `index.ejs` 可定制页面结构，但核心 boot script 仍由当前 runtime preview server 提供。
 
+实现必须覆盖以下负例：
+
+- 项目没有 `preview-template/index.ejs` 时，fallback 到 CLI 内置 `static/runtime-preview/index.ejs`。
+- 项目存在 `preview-template/script.ejs` 时，该文件不应接管当前 CLI boot script。
+- 项目 `preview-template/index.ejs` 存在但 EJS render 失败时，返回 500，并在 runtime preview log 中记录 template absolute path 和 error message。
+
 ### Prerequisite imports policy
 
 将 `preview` target 从 tentative dynamic import policy 改为 static prerequisite imports policy：
 
 - `shouldUseTentativePrerequisiteImportsMod('preview', { isEditor: false })` 应返回 `false`。
-- `target.isEditor === true` 的行为需单独确认。当前任务只以 Editor browser preview 的真实 output 为事实来源；若 Editor target 当前仍依赖 tentative policy，应避免扩大修改范围。
+- `target.isEditor === true` 的行为必须被测试锁住。当前任务只改变 `preview` target；若实现发现 `editor` target 也必须改变，需要先补事实并更新本设计。
 - `makePrerequisiteImportsMod()` 继续生成 source-level static imports，由 packer-driver 输出为 `System.register([...deps])` chunk。
 
 验收重点不是 source template 字符串，而是生成后的 preview import-map 和 prerequisite chunk：
 
+- 必须读取当前 CLI 生成的 `<project>/temp/cli/programming/packer-driver/targets/preview/import-map.json` 和对应 chunk，不能只读 frozen editor reference 或 source template。
 - `import-map.json#imports["cce:/internal/x/prerequisite-imports"]` 存在。
 - 对应 chunk 不包含 `await import(` 或 request list。
 - 对应 chunk 包含 `System.register([...])` static dependency 数组。
+- `System.register` dependency 数量与 chunk scope 中 `__unresolved_N` 映射数量一致；主测试项目允许额外断言等于当前 Editor 采集的 `233`，但如果项目脚本变化，应以重新采集的 Editor baseline 为准。
 
 ### Device 默认尺寸
 
@@ -113,21 +131,44 @@ Editor preview URL：`http://localhost:7457/`。
 需要新增或调整以下测试：
 
 1. `browser-entry-contract.test.ts`
-   - 覆盖项目 `preview-template/index.ejs` 优先于 CLI 内置 `index.ejs`。
-   - 覆盖项目 `preview-template/script.ejs` 存在时，`cocosTemplate` 仍使用 CLI 内置 `script.ejs`。
-   - 覆盖项目 template 渲染失败时返回错误，而不是静默 fallback。
+   - fixture project 的 `preview-template/index.ejs` 带唯一 marker，并包含 `<%- include(cocosTemplate, {}) %>`。
+   - 断言 `/` 返回该 marker。
+   - 断言 `/` 包含 `System.import("/preview-app/index.js")` 或等价 CLI boot script。
+   - fixture project 同时存在 `preview-template/script.ejs` 且带唯一 marker；断言该 marker 不出现在 root HTML。
+   - 覆盖无项目 `preview-template/index.ejs` 时 fallback 到 `static/runtime-preview/index.ejs`。
+   - 覆盖项目 template render 失败时 `/` 返回 500，并在 runtime preview log 中包含 template absolute path 和 error message。
 
 2. `preview-prerequisite-imports-policy.test.ts`
    - 更新 `preview` target 断言：不再使用 tentative prerequisite imports。
+   - 明确断言 `editor` target 当前行为保持已确认事实；如果实现需要改变 `editor` target，必须先更新事实和设计。
    - 增加 fixture 或 focused compile 验证：preview target 生成的 prerequisite chunk 是 static dependency 形态。
 
 3. 设备尺寸测试
-   - settings 中存在 design resolution 时，`devices.Default` 使用该尺寸。
-   - settings 缺少 design resolution 时，fallback 行为稳定。
+   - settings 中存在 `screen.designResolution` 或等价 resolution 字段时，`devices.Default` 使用该宽高。
+   - settings 缺少 design resolution 时，优先使用 `static/runtime-preview/devices/devices.json` 中的 default device。
+   - 只有前两者都不可用时，才允许 fallback 到 `960x640`。
 
-4. Editor parity smoke
+4. CLI preview 产物级 prerequisite 测试
+   - 读取当前 CLI 生成的 `<project>/temp/cli/programming/packer-driver/targets/preview/import-map.json`。
+   - 解析 `imports["cce:/internal/x/prerequisite-imports"]` 指向的 chunk。
+   - 断言 chunk 匹配 `System.register([...], ...)`。
+   - 断言 chunk 不包含 `await import(`、`() => import(`、`const requests`、`for (const request`。
+   - 断言 dependency count 与 import-map scope 中 unresolved mapping count 一致。
+
+5. Editor parity smoke
    - 对主测试项目生成 CLI runtime preview output 后，抓取 `/`、`/settings.js`、`/scripting/x/import-map.json` 和 prerequisite chunk。
-   - 断言 root template、settings debug、prerequisite static deps 与 Editor preview 事实一致。
+   - 保存 evidence JSON。
+   - 断言 root 使用项目 template marker。
+   - 断言 boot script 仍来自 CLI `script.ejs`。
+   - 断言 `settings.engine.debug === true`、`settings.engine.platform === "web-desktop"`。
+   - 断言 prerequisite static deps 与重新采集的 Editor preview 事实一致。
+
+6. Browser smoke
+   - 主测试项目 CLI preview 必须在 120 秒内到达 CLI ready marker。
+   - ready 后保持 10 秒 stable window。
+   - stable window 内 `consoleErrors=[]`、`pageErrors=[]`、`failedRequests=[]`、`badResponses=[]`。
+   - evidence 记录 `networkRequestCount`、`elapsedReadyMs`、prerequisite deps count。
+   - resource timing 或 CDP Network evidence 记录 same-origin chunk requests，且没有 failed request 或 4xx/5xx。
 
 ## 风险
 
@@ -139,11 +180,67 @@ Editor preview URL：`http://localhost:7457/`。
 
 完成后，以下条件必须同时成立：
 
-- CLI root `/` 在主测试项目中使用 `preview-template/index.ejs`。
-- CLI root `/` 仍通过 CLI `script.ejs` 启动 `/preview-app/index.js`。
-- CLI preview target 的 prerequisite chunk 为 static `System.register([...deps])`，不再是 sequential dynamic import request list。
-- 主测试项目 CLI preview 的脚本加载不再表现为逐个 `await System.import()` 长链。
-- 相关 Vitest focused tests 通过。
-- 文档回填 `docs/dev/runtime-preview/issues.md`：
-  - `RP-ISSUE-007` 从 `deferred` 更新为当前处理结果。
-  - `RP-ISSUE-019` 从 `open` 更新为当前处理结果。
+### Root/template
+
+- `browser-entry-contract.test.ts` 覆盖并通过：
+  - 项目 `preview-template/index.ejs` 优先于 CLI 内置 `index.ejs`。
+  - root HTML 包含项目 template marker。
+  - root HTML 包含 CLI boot script，能启动 `/preview-app/index.js`。
+  - 项目 `preview-template/script.ejs` marker 不出现在 root HTML。
+  - 无项目 template 时 fallback 到 CLI 内置 template。
+  - 项目 template render 失败时 `/` 返回 500，log 包含 template absolute path 和 error message。
+
+### Device
+
+- settings 含 design resolution 时，`devices.Default` 使用该宽高。
+- settings 不含 design resolution 时，`devices.Default` 使用 `static/runtime-preview/devices/devices.json` 的 default device。
+- 仅当前两者都不可用时，才允许 `Default: 960x640` fallback。
+- 以上三种路径都有自动化测试。
+
+### Prerequisite imports
+
+- `preview-prerequisite-imports-policy.test.ts` 断言：
+  - `shouldUseTentativePrerequisiteImportsMod('preview', { isEditor: false }) === false`。
+  - `editor` target 行为保持已确认事实，或如果改变，必须有更新后的事实和测试。
+- 产物级测试读取当前 CLI output，而不是 frozen editor reference：
+  - `<project>/temp/cli/programming/packer-driver/targets/preview/import-map.json`。
+  - import-map 指向的 `cce:/internal/x/prerequisite-imports` chunk。
+- prerequisite chunk 必须满足：
+  - 包含 `System.register([...], ...)` static dependency array。
+  - 不包含 `await import(`、`() => import(`、`const requests`、`for (const request`。
+  - dependency count 与 import-map scope 中 `__unresolved_N` mapping count 一致。
+- 主测试项目可用重新采集的 Editor baseline 校验 dependency count；当前采集值为 `233`，项目脚本变化时必须重新采集，不得硬套旧值。
+
+### Browser/runtime
+
+- 主测试项目 CLI preview browser smoke 在 120 秒内到达 CLI ready marker。
+- ready 后 10 秒 stable window 内：
+  - `consoleErrors=[]`
+  - `pageErrors=[]`
+  - `failedRequests=[]`
+  - `badResponses=[]`
+- evidence JSON 保存：
+  - `networkRequestCount`
+  - `elapsedReadyMs`
+  - prerequisite deps count
+  - same-origin chunk request summary
+- 若要声明“脚本加载不再是顺序长链”，硬门槛是 chunk source 不含 sequential dynamic import loop；resource timing 只作为辅助证据。
+
+### Editor parity evidence
+
+- 新增或更新 `docs/dev/runtime-preview/facts/...`，记录可复现 Editor / CLI 对比证据：
+  - Editor 版本、项目路径、采集命令。
+  - Editor root template 来源。
+  - Editor `/settings.js` 的关键字段。
+  - Editor prerequisite import-map、chunk path、hash、dependency count、chunk shape。
+  - CLI 对应字段和产物路径。
+  - browser/network 错误计数。
+- 不得只引用 `.codex-tmp` 作为最终事实来源。
+
+### 文档状态
+
+- 更新 `docs/dev/runtime-preview/issues.md`：
+  - `RP-ISSUE-007` 的状态和结论必须说明本次解决的是 “sequential dynamic import 与 Editor preview static deps 不一致”，不是泛化的“全并发加速”。
+  - `RP-ISSUE-019` 的状态和结论必须覆盖 project template、CLI boot script、Default device 三部分。
+- 更新 `docs/dev/runtime-preview/acceptance/matrix.md` 中相关 `partial` 项的证据和状态。
+- 只有实现、测试、facts、acceptance matrix 都完成后，才能把对应 issue 标为 `fixed`。
