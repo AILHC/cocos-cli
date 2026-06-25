@@ -1,4 +1,4 @@
-System.register(["./prerequisite-imports.js"], function (exports_1, context_1) {
+System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], function (exports_1, context_1) {
     "use strict";
     var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
         function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -36,16 +36,18 @@ System.register(["./prerequisite-imports.js"], function (exports_1, context_1) {
             if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
         }
     };
-    var prerequisite_imports_js_1, LEGACY_RENDER_MODE_WEBGL, LEGACY_RENDER_MODE_WEBGPU;
+    var prerequisite_imports_js_1, systemjs_load_limiter_js_1, LEGACY_RENDER_MODE_WEBGL, LEGACY_RENDER_MODE_WEBGPU;
     var __moduleName = context_1 && context_1.id;
     function main(ui, options) {
         return __awaiter(this, void 0, void 0, function () {
-            var cc, debugMode, option, launchScene, readyResources;
+            var scriptLoadLimiter, cc, debugMode, option, launchScene, readyResources;
             var _this = this;
             var _a;
             return __generator(this, function (_b) {
                 switch (_b.label) {
-                    case 0: return [4 /*yield*/, System.import('cc')];
+                    case 0:
+                        scriptLoadLimiter = systemjs_load_limiter_js_1.installRuntimePreviewScriptLoadLimiter(System);
+                        return [4 /*yield*/, System.import('cc')];
                     case 1:
                         cc = _b.sent();
                         debugMode = (_a = cc.DebugMode[ui.debugMode]) !== null && _a !== void 0 ? _a : cc.DebugMode.INFO;
@@ -73,7 +75,10 @@ System.register(["./prerequisite-imports.js"], function (exports_1, context_1) {
                     case 2:
                         // 等待引擎启动
                         _b.sent();
-                        return [4 /*yield*/, prerequisite_imports_js_1.loadRuntimePreviewPrerequisiteImports({ system: System })];
+                        return [4 /*yield*/, prerequisite_imports_js_1.loadRuntimePreviewPrerequisiteImports({
+                                system: System,
+                                installLimiter: function () { return scriptLoadLimiter; },
+                            })];
                     case 3:
                         _b.sent();
                         return [4 /*yield*/, loadRuntimePreviewReadyResources(cc)];
@@ -290,6 +295,9 @@ System.register(["./prerequisite-imports.js"], function (exports_1, context_1) {
         setters: [
             function (prerequisite_imports_js_1_1) {
                 prerequisite_imports_js_1 = prerequisite_imports_js_1_1;
+            },
+            function (systemjs_load_limiter_js_1_1) {
+                systemjs_load_limiter_js_1 = systemjs_load_limiter_js_1_1;
             }
         ],
         execute: function () {

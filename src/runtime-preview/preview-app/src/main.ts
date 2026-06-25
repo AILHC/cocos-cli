@@ -1,6 +1,7 @@
 import { Ui } from './ui.js';
 import { bootstrap } from './index.js';
 import { loadRuntimePreviewPrerequisiteImports } from './prerequisite-imports.js';
+import { installRuntimePreviewScriptLoadLimiter } from './systemjs-load-limiter.js';
 
 type RuntimePreviewReadyResource = {
     path: string;
@@ -22,6 +23,7 @@ declare global {
 }
 
 export async function main(ui: Ui, options: bootstrap.Options) {
+    const scriptLoadLimiter = installRuntimePreviewScriptLoadLimiter(System);
     const cc = await System.import('cc');
 
     const debugMode = cc.DebugMode[ui.debugMode] ?? cc.DebugMode.INFO;
@@ -50,7 +52,10 @@ export async function main(ui: Ui, options: bootstrap.Options) {
     option.overrideSettings.launch.launchScene = '';
     // 等待引擎启动
     await cc.game.init(option);
-    await loadRuntimePreviewPrerequisiteImports({ system: System });
+    await loadRuntimePreviewPrerequisiteImports({
+        system: System,
+        installLimiter: () => scriptLoadLimiter,
+    });
     const readyResources = await loadRuntimePreviewReadyResources(cc);
     cc.assetManager.onAssetMissing(async (parentAsset: any, owner: any, propName: string, uuid: string) => {
         let assetPathOrUuid = uuid;

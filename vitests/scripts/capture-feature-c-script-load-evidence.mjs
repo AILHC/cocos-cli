@@ -1,5 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 
 const DEFAULT_PREVIEW_URL = 'http://127.0.0.1:19530/?scene=4c721bfe-0b6e-46c2-97f0-644adfdcba31';
@@ -12,7 +14,11 @@ const outputDir = process.env.COCOS_CLI_FEATURE_C_EVIDENCE_DIR
   || path.join(projectRoot, 'temp', 'codex-runtime-preview');
 const readyTimeoutMs = Number(process.env.COCOS_CLI_FEATURE_C_READY_TIMEOUT_MS || 120_000);
 const stableWindowMs = Number(process.env.COCOS_CLI_FEATURE_C_STABLE_WINDOW_MS || 5_000);
+const navigationTimeoutMs = Number(process.env.COCOS_CLI_FEATURE_C_NAVIGATION_TIMEOUT_MS || 180_000);
 const cdpEndpoint = process.env.COCOS_CLI_FEATURE_C_CDP_ENDPOINT || '';
+const batchCandidates = parseNumberList(process.env.COCOS_CLI_FEATURE_C_SCRIPT_LOAD_CONCURRENCY_CANDIDATES || '');
+const batchRuns = Number(process.env.COCOS_CLI_FEATURE_C_SCRIPT_LOAD_RUNS || 0);
+const isBatchChild = process.env.COCOS_CLI_FEATURE_C_BATCH_CHILD === '1';
 const timestamp = formatTimestamp(new Date());
 const urlSafe = toUrlSafe(previewUrl);
 const evidencePath = path.join(outputDir, `feature-c-script-load-evidence-${timestamp}.json`);
@@ -48,6 +54,7 @@ const evidence = {
   limiter: null,
   ready: null,
   readyTimedOut: false,
+  readyElapsedMs: null,
   screenshotPath,
 };
 
@@ -57,6 +64,12 @@ let page;
 let cdp;
 
 await fs.mkdir(outputDir, { recursive: true });
+
+if (batchCandidates.length > 0 && batchRuns > 0 && !isBatchChild) {
+  const summary = await runBatch();
+  console.log(JSON.stringify(summary, null, 2));
+  process.exit(summary.error ? 1 : 0);
+}
 
 try {
   const session = cdpEndpoint
@@ -80,9 +93,10 @@ try {
   });
 
   await page.setViewportSize(VIEWPORT);
+  const navigationStartedAt = Date.now();
   await page.goto(previewUrl, {
     waitUntil: 'domcontentloaded',
-    timeout: 60_000,
+    timeout: navigationTimeoutMs,
   }).catch((error) => {
     failures.push({
       url: previewUrl,
@@ -91,7 +105,7 @@ try {
     });
   });
 
-  await waitForReadyOrTimeout(page, readyTimeoutMs);
+  const readyElapsedMs = await waitForReadyOrTimeout(page, readyTimeoutMs, navigationStartedAt);
   if (stableWindowMs > 0) {
     await page.waitForTimeout(stableWindowMs);
   }
@@ -101,6 +115,7 @@ try {
   evidence.limiter = runtimeState.limiter;
   evidence.ready = runtimeState.ready;
   evidence.readyTimedOut = !runtimeState.ready;
+  evidence.readyElapsedMs = runtimeState.ready ? readyElapsedMs : null;
   prerequisiteTimings.push(...runtimeState.prerequisiteTimings);
 
   await page.screenshot({ path: screenshotPath, fullPage: true }).catch((error) => {
@@ -281,13 +296,15 @@ async function wireCdpEvents(targetCdp) {
   });
 }
 
-async function waitForReadyOrTimeout(targetPage, timeoutMs) {
+async function waitForReadyOrTimeout(targetPage, timeoutMs, startedAt) {
   try {
     await targetPage.waitForFunction(() => Boolean(window.__RUNTIME_PREVIEW_READY), undefined, {
       timeout: timeoutMs,
     });
+    return Date.now() - startedAt;
   } catch {
     // A failing baseline is still useful evidence.
+    return null;
   }
 }
 
@@ -352,6 +369,182 @@ function parsePrerequisiteTiming(text) {
     result[key] = Number.isFinite(numeric) ? numeric : value;
   }
   return result;
+}
+
+async function runBatch() {
+  const scriptPath = fileURLToPath(import.meta.url);
+  const runs = [];
+  for (const concurrency of batchCandidates) {
+    for (let run = 1; run <= batchRuns; run += 1) {
+      const url = withConcurrency(previewUrl, concurrency);
+      const child = spawnSync(process.execPath, [scriptPath], {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          COCOS_CLI_FEATURE_C_BATCH_CHILD: '1',
+          COCOS_CLI_FEATURE_C_PREVIEW_URL: url,
+          COCOS_CLI_FEATURE_C_SCRIPT_LOAD_CONCURRENCY_CANDIDATES: '',
+          COCOS_CLI_FEATURE_C_SCRIPT_LOAD_RUNS: '',
+        },
+      });
+      if (child.stdout) {
+        process.stdout.write(child.stdout);
+      }
+      if (child.stderr) {
+        process.stderr.write(child.stderr);
+      }
+      const childSummary = parseChildSummary(child.stdout);
+      if (!childSummary?.evidencePath) {
+        runs.push({
+          concurrency,
+          run,
+          error: `child evidence path missing; exitCode=${child.status}`,
+        });
+        continue;
+      }
+      const childEvidence = JSON.parse(await fs.readFile(childSummary.evidencePath, 'utf8'));
+      runs.push({
+        concurrency,
+        run,
+        evidencePath: childSummary.evidencePath,
+        screenshotPath: childSummary.screenshotPath,
+        error: child.status === 0 ? undefined : `child exitCode=${child.status}`,
+        ...summarizeEvidenceRun(childEvidence, concurrency),
+      });
+    }
+  }
+
+  const candidates = batchCandidates.map((concurrency) => summarizeCandidate(
+    concurrency,
+    runs.filter((entry) => entry.concurrency === concurrency),
+  ));
+  const viableCandidates = candidates.filter((candidate) => candidate.errorRuns === 0);
+  const selected = viableCandidates
+    .slice()
+    .sort((left, right) => left.readyElapsedMsMedian - right.readyElapsedMsMedian)[0];
+  const summary = {
+    selectedConcurrency: selected?.concurrency ?? null,
+    candidates,
+    runs,
+  };
+  const summaryPath = path.join(outputDir, 'feature-c-script-load-concurrency-summary-20260625.json');
+  await fs.writeFile(summaryPath, JSON.stringify(summary, null, 2), 'utf8');
+  return {
+    ...summary,
+    summaryPath,
+    error: !selected,
+  };
+}
+
+function summarizeEvidenceRun(runEvidence, concurrency) {
+  const limiterMetrics = runEvidence.limiter?.metrics ?? {};
+  const latestTiming = Array.isArray(runEvidence.prerequisiteTimings)
+    ? runEvidence.prerequisiteTimings[runEvidence.prerequisiteTimings.length - 1]
+    : undefined;
+  const consoleErrorText = (runEvidence.consoleErrors ?? []).join('\n');
+  const failureText = (runEvidence.failures ?? [])
+    .map((entry) => `${entry.errorText ?? ''} ${entry.url ?? ''}`)
+    .join('\n');
+  const cacheEvidence = (runEvidence.cacheDisabledEvidence ?? [])
+    .filter((entry) => entry.source === 'Network.responseReceived');
+  const cacheEvidenceOk = Boolean(runEvidence.cacheDisabled)
+    && cacheEvidence.length > 0
+    && cacheEvidence.every((entry) => entry.fromDiskCache === false && entry.fromMemoryCache === false);
+  const hasLoadFailure = /ERR_INSUFFICIENT_RESOURCES|SystemJS Error#3|Get .* failed|Error loading/.test(`${consoleErrorText}\n${failureText}`);
+  const maxActive = Number(limiterMetrics.maxActive ?? 0);
+  const limiterFailed = Number(limiterMetrics.failed ?? 0);
+  return {
+    prerequisiteImportMs: Number(latestTiming?.prerequisiteImportMs ?? NaN),
+    validationMs: Number(latestTiming?.validationMs ?? NaN),
+    readyElapsedMs: Number(runEvidence.readyElapsedMs ?? NaN),
+    maxActive,
+    queuePeak: Number(limiterMetrics.queuePeak ?? 0),
+    retryCount: Number(limiterMetrics.retryCount ?? 0),
+    limiterFailed,
+    cacheEvidenceOk,
+    readyScene: runEvidence.ready?.scene ?? '',
+    failureCount: Array.isArray(runEvidence.failures) ? runEvidence.failures.length : 0,
+    consoleErrorCount: Array.isArray(runEvidence.consoleErrors) ? runEvidence.consoleErrors.length : 0,
+    hasLoadFailure,
+    accepted: cacheEvidenceOk
+      && !hasLoadFailure
+      && limiterFailed === 0
+      && maxActive <= concurrency
+      && Number.isFinite(Number(latestTiming?.prerequisiteImportMs))
+      && Number.isFinite(Number(runEvidence.readyElapsedMs)),
+  };
+}
+
+function summarizeCandidate(concurrency, entries) {
+  const acceptedEntries = entries.filter((entry) => entry.accepted);
+  const errorRuns = entries.length - acceptedEntries.length;
+  return {
+    concurrency,
+    runs: entries.length,
+    errorRuns,
+    prerequisiteImportMsMedian: median(acceptedEntries.map((entry) => entry.prerequisiteImportMs)),
+    prerequisiteImportMsP95: p95(acceptedEntries.map((entry) => entry.prerequisiteImportMs)),
+    readyElapsedMsMedian: median(acceptedEntries.map((entry) => entry.readyElapsedMs)),
+    readyElapsedMsP95: p95(acceptedEntries.map((entry) => entry.readyElapsedMs)),
+    maxActiveMax: max(acceptedEntries.map((entry) => entry.maxActive)),
+    queuePeakMax: max(acceptedEntries.map((entry) => entry.queuePeak)),
+    retryCountTotal: acceptedEntries.reduce((sum, entry) => sum + entry.retryCount, 0),
+  };
+}
+
+function median(values) {
+  const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
+  if (sorted.length === 0) {
+    return null;
+  }
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
+function p95(values) {
+  const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
+  if (sorted.length === 0) {
+    return null;
+  }
+  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)];
+}
+
+function max(values) {
+  const finite = values.filter(Number.isFinite);
+  return finite.length > 0 ? Math.max(...finite) : null;
+}
+
+function parseChildSummary(stdout) {
+  const marker = '{\n  "evidencePath"';
+  const start = stdout.lastIndexOf(marker);
+  if (start < 0) {
+    return null;
+  }
+  const end = stdout.lastIndexOf('}');
+  if (end < start) {
+    return null;
+  }
+  try {
+    return JSON.parse(stdout.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function withConcurrency(urlValue, concurrency) {
+  const parsed = new URL(urlValue);
+  parsed.searchParams.set('runtimePreviewScriptLoadConcurrency', String(concurrency));
+  return parsed.href;
+}
+
+function parseNumberList(value) {
+  return value
+    .split(',')
+    .map((entry) => Number(entry.trim()))
+    .filter((entry) => Number.isFinite(entry) && entry > 0);
 }
 
 function sameOrigin(left, right) {
