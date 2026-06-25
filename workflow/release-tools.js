@@ -1,4 +1,4 @@
-const { execFileSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -258,20 +258,68 @@ function copyReleaseEntry(targetRoot, relativeParts, repoRoot = REPO_ROOT) {
     });
 }
 
-function getNpmVersion() {
-    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    return execFileSync(npmCommand, ['--version'], {
+function quoteWindowsCmdArg(arg) {
+    const text = String(arg);
+    if (text.length === 0) {
+        return '""';
+    }
+    if (!/[\s"&()^|<>]/.test(text)) {
+        return text;
+    }
+    return `"${text.replace(/"/g, '\\"')}"`;
+}
+
+function createNpmInvocation(npmArgs, platform = process.platform) {
+    if (platform === 'win32') {
+        return {
+            command: 'cmd.exe',
+            args: ['/d', '/s', '/c', ['npm', ...npmArgs].map(quoteWindowsCmdArg).join(' ')],
+        };
+    }
+    return {
+        command: 'npm',
+        args: npmArgs,
+    };
+}
+
+function runNpmCommand(npmArgs, options = {}) {
+    const {
+        platform = process.platform,
+        spawnSync: spawnSyncImpl = spawnSync,
+        ...spawnOptions
+    } = options;
+    const invocation = createNpmInvocation(npmArgs, platform);
+    return spawnSyncImpl(invocation.command, invocation.args, {
+        shell: false,
+        ...spawnOptions,
+    });
+}
+
+function getNpmVersionWithOptions(options = {}) {
+    const result = runNpmCommand(['--version'], {
+        platform: options.platform,
+        spawnSync: options.spawnSync,
         encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (result.error) {
+        throw result.error;
+    }
+    if (result.status !== 0) {
+        const stderr = result.stderr ? String(result.stderr).trim() : '';
+        throw new Error(`npm --version failed with exit code ${result.status}${stderr ? `: ${stderr}` : ''}`);
+    }
+    return String(result.stdout || '').trim();
+}
+
+function getNpmVersion() {
+    return getNpmVersionWithOptions();
 }
 
 function runNpmLockfileInstall(targetRoot) {
-    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const result = spawnSync(npmCommand, ['install', '--package-lock-only', '--ignore-scripts'], {
+    const result = runNpmCommand(['install', '--package-lock-only', '--ignore-scripts'], {
         cwd: targetRoot,
         stdio: 'inherit',
-        shell: false,
     });
     if (result.error) {
         throw result.error;
@@ -352,7 +400,10 @@ module.exports = {
     _internals: {
         assertSafeReleaseTarget,
         copyReleaseEntry,
+        createNpmInvocation,
+        getNpmVersionWithOptions,
         isPathInside,
+        runNpmCommand,
         releaseToolsWithOptions,
     },
 };

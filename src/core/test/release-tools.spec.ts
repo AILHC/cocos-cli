@@ -198,6 +198,49 @@ describe('release tools workflow helpers', () => {
         expect(() => assertNoLocalAbsolutePaths(readme)).not.toThrow();
     });
 
+    it('builds npm invocations through cmd.exe on Windows', () => {
+        expect(_internals.createNpmInvocation(['install', '--package-lock-only', '--ignore-scripts'], 'win32')).toEqual({
+            command: 'cmd.exe',
+            args: ['/d', '/s', '/c', 'npm install --package-lock-only --ignore-scripts'],
+        });
+        expect(_internals.createNpmInvocation(['run', 'script name'], 'win32')).toEqual({
+            command: 'cmd.exe',
+            args: ['/d', '/s', '/c', 'npm run "script name"'],
+        });
+    });
+
+    it('keeps direct npm invocation on non-Windows platforms', () => {
+        expect(_internals.createNpmInvocation(['--version'], 'linux')).toEqual({
+            command: 'npm',
+            args: ['--version'],
+        });
+    });
+
+    it('gets npm version through the centralized npm invocation helper', () => {
+        const calls: Array<{ command: string; args: string[]; options: Record<string, unknown> }> = [];
+        const npmVersion = _internals.getNpmVersionWithOptions({
+            platform: 'win32',
+            spawnSync: (command: string, args: string[], options: Record<string, unknown>) => {
+                calls.push({ command, args, options });
+                return {
+                    status: 0,
+                    stdout: '10.9.2\n',
+                };
+            },
+        });
+
+        expect(npmVersion).toBe('10.9.2');
+        expect(calls).toEqual([{
+            command: 'cmd.exe',
+            args: ['/d', '/s', '/c', 'npm --version'],
+            options: {
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'pipe'],
+                shell: false,
+            },
+        }]);
+    });
+
     it('validates a complete release directory and rejects bundled engine source', () => {
         const targetRoot = createDir(join(fixtureRoot, 'tools', 'cocos-cli'));
         writeText(join(targetRoot, '.gitignore'), 'node_modules/\n');
