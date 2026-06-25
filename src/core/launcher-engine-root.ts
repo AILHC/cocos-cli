@@ -1,8 +1,9 @@
+import { existsSync } from 'fs';
+import { homedir } from 'os';
 import { isAbsolute, resolve } from 'path';
 import { readJSON } from 'fs-extra';
-import { GlobalPaths } from '../global';
 
-export type LauncherEngineRootSource = 'test-env' | 'project-config' | 'cli-initialized' | 'global-fallback';
+export type LauncherEngineRootSource = 'test-env' | 'project-config' | 'cli-initialized' | 'creator-profile';
 
 export interface LauncherEngineRootResolution {
     engineRoot: string;
@@ -14,6 +15,12 @@ interface ProjectPackageJson {
         enginePath?: unknown;
     };
 }
+
+interface CreatorEngineProfile {
+    engine?: unknown;
+}
+
+const SUPPORTED_CREATOR_PROFILE_ENGINE_KEY = '386';
 
 export async function resolveLauncherEngineRoot(
     projectPath: string,
@@ -44,8 +51,8 @@ export async function resolveLauncherEngineRoot(
     }
 
     return {
-        engineRoot: resolve(GlobalPaths.enginePath),
-        source: 'global-fallback',
+        engineRoot: await readCreatorProfileEngineRoot(),
+        source: 'creator-profile',
     };
 }
 
@@ -65,11 +72,67 @@ async function readProjectConfigEngineRoot(projectPath: string): Promise<string 
         return null;
     }
     const trimmedEnginePath = configuredEnginePath.trim();
-    return isAbsolute(trimmedEnginePath)
+    const engineRoot = isAbsolute(trimmedEnginePath)
         ? resolve(trimmedEnginePath)
         : resolve(projectPath, trimmedEnginePath);
+    if (!existsSync(engineRoot)) {
+        throw new Error(`Configured project enginePath does not exist: ${engineRoot}`);
+    }
+    return engineRoot;
+}
+
+async function readCreatorProfileEngineRoot(): Promise<string> {
+    const profileRoot = process.env.COCOS_CLI_CREATOR_PROFILE_ROOT || homedir();
+    const engineProfilePath = resolve(
+        profileRoot,
+        '.CocosCreator',
+        'profiles',
+        'v2',
+        'packages',
+        'engine.json',
+    );
+    let profile: CreatorEngineProfile;
+    try {
+        profile = await readJSON(engineProfilePath) as CreatorEngineProfile;
+    } catch (error) {
+        if (isNodeError(error) && error.code === 'ENOENT') {
+            throw new Error(`Creator profile engine config not found: ${engineProfilePath}`);
+        }
+        throw error;
+    }
+
+    if (!isRecord(profile.engine)) {
+        throw new Error('Creator profile engine config is missing engine section.');
+    }
+    const versionProfile = profile.engine[SUPPORTED_CREATOR_PROFILE_ENGINE_KEY];
+    if (!isRecord(versionProfile)) {
+        throw new Error(`Creator profile engine config is missing supported version ${SUPPORTED_CREATOR_PROFILE_ENGINE_KEY}.`);
+    }
+    const javascriptProfile = versionProfile.javascript;
+    if (!isRecord(javascriptProfile)) {
+        throw new Error(`Creator profile engine ${SUPPORTED_CREATOR_PROFILE_ENGINE_KEY} javascript config is missing.`);
+    }
+    if (javascriptProfile.builtin === true) {
+        throw new Error(`Creator profile engine ${SUPPORTED_CREATOR_PROFILE_ENGINE_KEY} is configured as builtin.`);
+    }
+    if (javascriptProfile.builtin !== false) {
+        throw new Error(`Creator profile engine ${SUPPORTED_CREATOR_PROFILE_ENGINE_KEY} javascript.builtin must be false.`);
+    }
+    const customEnginePath = javascriptProfile.custom;
+    if (typeof customEnginePath !== 'string' || customEnginePath.trim() === '') {
+        throw new Error(`Creator profile engine ${SUPPORTED_CREATOR_PROFILE_ENGINE_KEY} javascript.custom must be a non-empty string.`);
+    }
+    const engineRoot = resolve(customEnginePath.trim());
+    if (!existsSync(engineRoot)) {
+        throw new Error(`Creator profile engine ${SUPPORTED_CREATOR_PROFILE_ENGINE_KEY} javascript.custom does not exist: ${engineRoot}`);
+    }
+    return engineRoot;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-    return error instanceof Error && 'code' in error;
+    return typeof error === 'object' && error !== null && 'code' in error;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

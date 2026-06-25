@@ -151,9 +151,6 @@ export default class Launcher {
     private async resolveEngineRoot() {
         if (!this._engineRootResolution) {
             this._engineRootResolution = await resolveLauncherEngineRoot(this.projectPath);
-            if (this._engineRootResolution.source === 'global-fallback') {
-                console.warn(`[runtime-preview] engineRoot:global-fallback ${this._engineRootResolution.engineRoot}`);
-            }
         }
         return this._engineRootResolution;
     }
