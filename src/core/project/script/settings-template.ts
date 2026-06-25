@@ -1,7 +1,6 @@
-import { GlobalPaths } from '../../../global';
 import { createDefaultEngineModuleSettings } from '../../engine/module-config-defaults';
 
-export function createDefaultEngineSettings(engineRoot: string = GlobalPaths.enginePath) {
+export function createDefaultEngineSettings(engineRoot?: string) {
     return {
         '__version__': '1.0.12',
         'modules': createDefaultEngineModuleSettings(engineRoot),

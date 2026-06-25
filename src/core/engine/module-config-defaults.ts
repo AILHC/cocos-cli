@@ -89,7 +89,11 @@ function buildDefaultModuleConfig(renderConfig: ModuleRenderConfig): {
     };
 }
 
-function loadRenderConfig(engineRoot: string): ModuleRenderConfig {
+function loadRenderConfig(engineRoot?: string): ModuleRenderConfig {
+    if (engineRoot === undefined) {
+        return bundledRenderConfig as unknown as ModuleRenderConfig;
+    }
+
     try {
         return getEngineRenderConfig(engineRoot);
     } catch (error) {
@@ -98,7 +102,7 @@ function loadRenderConfig(engineRoot: string): ModuleRenderConfig {
     }
 }
 
-export function createDefaultEngineModuleSettings(engineRoot: string): IEngineModuleSettingsDefaults {
+export function createDefaultEngineModuleSettings(engineRoot?: string): IEngineModuleSettingsDefaults {
     const moduleDefaults = buildDefaultModuleConfig(loadRenderConfig(engineRoot));
 
     return {

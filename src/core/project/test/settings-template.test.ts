@@ -1,7 +1,16 @@
 import type { IFeatureItem, IFlags, IModuleItem, ModuleRenderConfig } from '../../engine/@types/modules';
 import { getEngineRenderConfig } from '../../engine/dynamic-metadata';
-import { createDefaultEngineSettings } from '../script/settings-template';
 import { TestGlobalEnv } from '../../../tests/global-env';
+
+type SettingsTemplate = typeof import('../script/settings-template');
+
+function loadSettingsTemplate(): SettingsTemplate {
+    let settingsTemplate!: SettingsTemplate;
+    jest.isolateModules(() => {
+        settingsTemplate = require('../script/settings-template') as SettingsTemplate;
+    });
+    return settingsTemplate;
+}
 
 function isFeatureGroup(moduleItem: IModuleItem): moduleItem is Extract<IModuleItem, { options: Record<string, IFeatureItem> }> {
     return 'options' in moduleItem;
@@ -68,9 +77,33 @@ function buildExpectedModuleDefaults(renderConfig: ModuleRenderConfig): {
 }
 
 describe('engine settings template', () => {
+    afterEach(() => {
+        jest.restoreAllMocks();
+        jest.dontMock('../../../global');
+    });
+
+    it('should build bundled default engine settings without reading GlobalPaths.enginePath or warning', () => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        jest.doMock('../../../global', () => ({
+            GlobalPaths: {
+                get enginePath(): string {
+                    throw new Error('GlobalPaths.enginePath should not be read');
+                },
+            },
+        }));
+
+        const { createDefaultEngineSettings, defaultEngineSettings } = loadSettingsTemplate();
+        const settings = createDefaultEngineSettings();
+
+        expect(settings.modules.globalConfigKey).toBe('defaultConfig');
+        expect(defaultEngineSettings.modules.globalConfigKey).toBe('defaultConfig');
+        expect(warnSpy).not.toHaveBeenCalled();
+    });
+
     it('should derive default engine module settings from render-config', () => {
         const renderConfig = getEngineRenderConfig(TestGlobalEnv.engineRoot);
         const expectedDefaults = buildExpectedModuleDefaults(renderConfig);
+        const { createDefaultEngineSettings } = loadSettingsTemplate();
         const settings = createDefaultEngineSettings(TestGlobalEnv.engineRoot);
         const defaultConfig = settings.modules.configs.defaultConfig;
 
