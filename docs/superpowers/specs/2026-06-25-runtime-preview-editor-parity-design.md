@@ -44,6 +44,8 @@ Editor preview URL：`http://localhost:7457/`。
 - 采集命令或脚本入口。
 - root HTML 是否来自项目 `preview-template/index.ejs`。
 - `/settings.js` 中 `engine.debug`、`engine.platform` 和 design resolution 相关字段。
+- Browser debug 采集到的 viewport、`#GameCanvas`、`#GameDiv`、`#Cocos3dGameContainer` 的实际 DOM bounding box、canvas backing store size 和 CSS size。
+- 与分辨率验收对应的 Editor / CLI 截图文件路径、截图 viewport、device pixel ratio 和采集时间。
 - `import-map.json#imports["cce:/internal/x/prerequisite-imports"]`。
 - prerequisite chunk path、hash、dependency count、是否包含 sequential dynamic import pattern。
 - browser/network evidence 中 same-origin failed request、4xx/5xx、console/page error 计数。
@@ -120,6 +122,14 @@ Editor preview URL：`http://localhost:7457/`。
 
 该逻辑应集中在 root render 层或一个小 helper 中，不应散落到 template。
 
+分辨率验收不能只检查 render data 或 HTML 字符串。必须用真实浏览器调试证据证明 UI 生效：
+
+- 通过 Playwright/CDP 在实际 preview 页面读取 `window.innerWidth`、`window.innerHeight`、`devicePixelRatio`。
+- 读取 `#GameCanvas`、`#GameDiv`、`#Cocos3dGameContainer` 的 `getBoundingClientRect()`。
+- 读取 canvas `width` / `height` backing store 和 CSS computed size。
+- 保存至少一张 Editor preview 截图和一张 CLI runtime preview 截图，用于人工核对 viewport、canvas 位置、toolbar、splash/error overlay 是否符合预期。
+- 截图文件名必须包含来源、scene 或 URL、viewport、时间戳，例如 `editor-default-device-1280x720-YYYYMMDD-HHMMSS.png`。
+
 ### 错误处理
 
 - 项目 `preview-template/index.ejs` 渲染失败时，返回明确 500，并记录 template path 和 error message；不要静默 fallback 到 CLI 内置模板，否则会掩盖项目模板错误。
@@ -147,6 +157,8 @@ Editor preview URL：`http://localhost:7457/`。
    - settings 中存在 `screen.designResolution` 或等价 resolution 字段时，`devices.Default` 使用该宽高。
    - settings 缺少 design resolution 时，优先使用 `static/runtime-preview/devices/devices.json` 中的 default device。
    - 只有前两者都不可用时，才允许 fallback 到 `960x640`。
+   - browser debug test 或 smoke evidence 读取实际 DOM/canvas 尺寸，证明 `devices.Default` 的 render data 已体现在页面布局上。
+   - screenshot evidence 覆盖 Editor preview 和 CLI runtime preview，截图文件路径写入 facts 文档。
 
 4. CLI preview 产物级 prerequisite 测试
    - 读取当前 CLI 生成的 `<project>/temp/cli/programming/packer-driver/targets/preview/import-map.json`。
@@ -196,6 +208,16 @@ Editor preview URL：`http://localhost:7457/`。
 - settings 不含 design resolution 时，`devices.Default` 使用 `static/runtime-preview/devices/devices.json` 的 default device。
 - 仅当前两者都不可用时，才允许 `Default: 960x640` fallback。
 - 以上三种路径都有自动化测试。
+- Browser debug evidence 必须证明实际页面尺寸与 render data 一致：
+  - `window.innerWidth` / `window.innerHeight`
+  - `devicePixelRatio`
+  - `#GameCanvas.getBoundingClientRect()`
+  - `#GameDiv.getBoundingClientRect()`
+  - `#Cocos3dGameContainer.getBoundingClientRect()`
+  - canvas `width` / `height` backing store
+  - canvas computed CSS `width` / `height`
+- 必须保存 Editor preview 与 CLI runtime preview 的截图证据，截图路径写入 facts 文档。
+- 截图必须能看出 canvas/container 是否按 `Default` device 尺寸布局；不能只截空白页或只截 DevTools 文本。
 
 ### Prerequisite imports
 
@@ -224,6 +246,8 @@ Editor preview URL：`http://localhost:7457/`。
   - `elapsedReadyMs`
   - prerequisite deps count
   - same-origin chunk request summary
+  - viewport、device pixel ratio、canvas/container DOM size
+  - screenshot file paths
 - 若要声明“脚本加载不再是顺序长链”，硬门槛是 chunk source 不含 sequential dynamic import loop；resource timing 只作为辅助证据。
 
 ### Editor parity evidence
@@ -232,8 +256,12 @@ Editor preview URL：`http://localhost:7457/`。
   - Editor 版本、项目路径、采集命令。
   - Editor root template 来源。
   - Editor `/settings.js` 的关键字段。
+  - Editor browser debug 的 viewport、device pixel ratio、canvas/container size。
+  - Editor preview screenshot path。
   - Editor prerequisite import-map、chunk path、hash、dependency count、chunk shape。
   - CLI 对应字段和产物路径。
+  - CLI browser debug 的 viewport、device pixel ratio、canvas/container size。
+  - CLI runtime preview screenshot path。
   - browser/network 错误计数。
 - 不得只引用 `.codex-tmp` 作为最终事实来源。
 
