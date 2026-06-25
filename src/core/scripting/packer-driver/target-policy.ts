@@ -3,8 +3,8 @@ export interface PackerTargetPolicyInput {
 }
 
 export function shouldUseTentativePrerequisiteImportsMod(
-    targetId: string,
+    _targetId: string,
     target: PackerTargetPolicyInput,
 ): boolean {
-    return target.isEditor === true || targetId === 'preview';
+    return target.isEditor === true;
 }
