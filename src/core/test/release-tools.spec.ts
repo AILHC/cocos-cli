@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 
@@ -8,6 +8,7 @@ const {
     assertRuntimeLockfile,
     assertReleaseDirectory,
     renderReadme,
+    _internals,
 } = require('../../../workflow/release-tools.js');
 
 function writeJson(file: string, data: Record<string, unknown>): void {
@@ -23,6 +24,63 @@ function writeText(file: string, content: string): void {
 function createDir(path: string): string {
     mkdirSync(path, { recursive: true });
     return path;
+}
+
+function createReleaseSourceFixture(repoRoot: string): void {
+    writeJson(join(repoRoot, 'package.json'), {
+        name: 'cocos-cli',
+        version: '1.2.3',
+        main: 'dist/index.js',
+        bin: {
+            cocos: './dist/cli.js',
+        },
+        scripts: {
+            cli: 'node ./dist/cli.js',
+            postinstall: 'node workflow/postinstall.js',
+        },
+        dependencies: {
+            cc: 'file:./packages/cc-module',
+            '@cocos/asset-db': 'file:./packages/asset-db',
+        },
+        devDependencies: {
+            jest: '^29.7.0',
+        },
+    });
+    writeText(join(repoRoot, 'dist', 'cli.js'), 'console.log("cli");\n');
+    writeText(join(repoRoot, 'static', 'keep.txt'), 'static\n');
+    writeText(join(repoRoot, 'static', 'node_modules', 'stale.txt'), 'skip\n');
+    writeText(join(repoRoot, 'packages', 'cc-module', 'index.js'), 'module.exports = {};\n');
+    writeText(join(repoRoot, 'packages', 'cc-module', 'node_modules', 'skip.txt'), 'skip\n');
+    writeText(join(repoRoot, 'packages', 'asset-db', 'index.js'), 'module.exports = {};\n');
+    writeText(join(repoRoot, 'packages', 'engine', 'index.js'), 'engine\n');
+    for (const toolDir of [
+        'static/tools/creator-3.8.6/PVRTexTool_win32',
+        'static/tools/PVRTexTool_win32',
+        'static/tools/libwebp_win32',
+        'static/tools/mali_win32',
+        'static/tools/astc-encoder',
+        'static/tools/cmft',
+        'static/tools/LightFX',
+        'static/tools/lightmap-tools',
+        'static/tools/cmake',
+        'static/tools/keystore',
+    ]) {
+        writeText(join(repoRoot, toolDir, '.keep'), 'tool\n');
+    }
+}
+
+function releaseToolsFixture(targetRoot: string, repoRoot: string): void {
+    _internals.releaseToolsWithOptions(targetRoot, {
+        repoRoot,
+        getNpmVersion: () => '10.9.2',
+        runNpmLockfileInstall: (runtimeRoot: string) => {
+            writeJson(join(runtimeRoot, 'package-lock.json'), {
+                packages: {
+                    '': {},
+                },
+            });
+        },
+    });
 }
 
 describe('release tools workflow helpers', () => {
@@ -112,6 +170,9 @@ describe('release tools workflow helpers', () => {
         expect(() => assertNoLocalAbsolutePaths(drivePath)).toThrow('Local absolute path is not allowed');
         expect(() => assertNoLocalAbsolutePaths(windowsDrivePath)).toThrow('Local absolute path is not allowed');
         expect(() => assertNoLocalAbsolutePaths(uncPath)).toThrow('UNC path is not allowed');
+        expect(() => assertNoLocalAbsolutePaths(`path=${uncPath}`)).toThrow('UNC path is not allowed');
+        expect(() => assertNoLocalAbsolutePaths(`\`${uncPath}\``)).toThrow('UNC path is not allowed');
+        expect(() => assertNoLocalAbsolutePaths(`路径：${uncPath}`)).toThrow('UNC path is not allowed');
     });
 
     it('renders a Chinese README with runtime metadata and diagnostics', () => {
@@ -184,5 +245,62 @@ describe('release tools workflow helpers', () => {
 
         createDir(join(targetRoot, 'packages', 'engine'));
         expect(() => assertReleaseDirectory(targetRoot)).toThrow('Release directory must not include packages/engine');
+    });
+
+    it('clears stale target content before writing release output', () => {
+        const repoRoot = createDir(join(fixtureRoot, 'repo'));
+        const targetRoot = createDir(join(fixtureRoot, 'target'));
+        createReleaseSourceFixture(repoRoot);
+        writeText(join(targetRoot, 'old.txt'), 'old\n');
+        writeText(join(targetRoot, 'node_modules', 'stale.txt'), 'stale\n');
+        writeText(join(targetRoot, 'packages', 'engine', 'stale.txt'), 'stale\n');
+
+        releaseToolsFixture(targetRoot, repoRoot);
+
+        expect(() => assertReleaseDirectory(targetRoot)).not.toThrow();
+        expect(existsSync(join(targetRoot, 'old.txt'))).toBe(false);
+        expect(existsSync(join(targetRoot, 'node_modules'))).toBe(false);
+        expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
+        expect(existsSync(join(targetRoot, 'dist', 'cli.js'))).toBe(true);
+    });
+
+    it('rejects an unsafe target equal to the repo root before deletion', () => {
+        const repoRoot = createDir(join(fixtureRoot, 'repo'));
+        createReleaseSourceFixture(repoRoot);
+        writeText(join(repoRoot, 'marker.txt'), 'keep\n');
+
+        expect(() => releaseToolsFixture(repoRoot, repoRoot)).toThrow('Release target must not be the repository root');
+        expect(existsSync(join(repoRoot, 'marker.txt'))).toBe(true);
+    });
+
+    it('rejects an unsafe target that is an ancestor of the repo root before deletion', () => {
+        const parentRoot = createDir(join(fixtureRoot, 'parent'));
+        const repoRoot = createDir(join(parentRoot, 'repo'));
+        createReleaseSourceFixture(repoRoot);
+        writeText(join(parentRoot, 'marker.txt'), 'keep\n');
+
+        expect(() => releaseToolsFixture(parentRoot, repoRoot)).toThrow('Release target must not be an ancestor of the repository root');
+        expect(existsSync(join(parentRoot, 'marker.txt'))).toBe(true);
+    });
+
+    it('rejects an unsafe target inside a copied source tree', () => {
+        const repoRoot = createDir(join(fixtureRoot, 'repo'));
+        createReleaseSourceFixture(repoRoot);
+        const targetRoot = join(repoRoot, 'static', 'release-target');
+
+        expect(() => releaseToolsFixture(targetRoot, repoRoot)).toThrow('Release target must not be inside a copied source entry');
+    });
+
+    it('excludes nested node_modules and packages/engine while copying release entries', () => {
+        const repoRoot = createDir(join(fixtureRoot, 'repo'));
+        const targetRoot = createDir(join(fixtureRoot, 'target'));
+        createReleaseSourceFixture(repoRoot);
+
+        releaseToolsFixture(targetRoot, repoRoot);
+
+        expect(() => assertReleaseDirectory(targetRoot)).not.toThrow();
+        expect(existsSync(join(targetRoot, 'static', 'node_modules'))).toBe(false);
+        expect(existsSync(join(targetRoot, 'packages', 'cc-module', 'node_modules'))).toBe(false);
+        expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
     });
 });

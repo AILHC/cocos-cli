@@ -56,7 +56,7 @@ function assertNoLocalAbsolutePaths(content) {
     if (/(^|[^\w])([A-Za-z]:[\\/])/.test(text)) {
         throw new Error('Local absolute path is not allowed');
     }
-    if (/(^|[\s"'(])\\\\[^\\/\s]+[\\/][^\\/\s]+/.test(text)) {
+    if (/\\\\[^\\/\s`"'<>]+[\\/][^\\/\s`"'<>]+/.test(text)) {
         throw new Error('UNC path is not allowed');
     }
 }
@@ -119,6 +119,37 @@ function findDirectoryNamed(root, directoryName) {
         }
     }
     return undefined;
+}
+
+function isPathInside(parent, child) {
+    const relative = path.relative(path.resolve(parent), path.resolve(child));
+    return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function isSamePath(left, right) {
+    const resolvedLeft = path.resolve(left);
+    const resolvedRight = path.resolve(right);
+    if (process.platform === 'win32') {
+        return resolvedLeft.toLowerCase() === resolvedRight.toLowerCase();
+    }
+    return resolvedLeft === resolvedRight;
+}
+
+function assertSafeReleaseTarget(targetRoot, repoRoot, copyEntries = COPY_ENTRIES) {
+    const resolvedTargetRoot = path.resolve(targetRoot);
+    const resolvedRepoRoot = path.resolve(repoRoot);
+    if (isSamePath(resolvedTargetRoot, resolvedRepoRoot)) {
+        throw new Error('Release target must not be the repository root');
+    }
+    if (isPathInside(resolvedTargetRoot, resolvedRepoRoot)) {
+        throw new Error('Release target must not be an ancestor of the repository root');
+    }
+    for (const entry of copyEntries) {
+        const sourceRoot = path.join(resolvedRepoRoot, ...entry);
+        if (isSamePath(resolvedTargetRoot, sourceRoot) || isPathInside(sourceRoot, resolvedTargetRoot)) {
+            throw new Error('Release target must not be inside a copied source entry');
+        }
+    }
 }
 
 function assertReleaseDirectory(targetRoot) {
@@ -203,8 +234,8 @@ CLI 运行时按以下顺序解析 engine source：
     return readme;
 }
 
-function copyReleaseEntry(targetRoot, relativeParts) {
-    const source = path.join(REPO_ROOT, ...relativeParts);
+function copyReleaseEntry(targetRoot, relativeParts, repoRoot = REPO_ROOT) {
+    const source = path.join(repoRoot, ...relativeParts);
     const destination = path.join(targetRoot, ...relativeParts);
     if (!fs.existsSync(source)) {
         throw new Error(`Release source is missing: ${relativeParts.join('/')}`);
@@ -215,7 +246,7 @@ function copyReleaseEntry(targetRoot, relativeParts) {
         recursive: true,
         dereference: true,
         filter(sourcePath) {
-            const relative = path.relative(REPO_ROOT, sourcePath).replace(/\\/g, '/');
+            const relative = path.relative(repoRoot, sourcePath).replace(/\\/g, '/');
             if (/(^|\/)node_modules($|\/)/.test(relative)) {
                 return false;
             }
@@ -247,30 +278,43 @@ function runNpmLockfileInstall(targetRoot) {
     }
 }
 
-function releaseTools(targetRoot) {
+function releaseToolsWithOptions(targetRoot, options = {}) {
     if (!targetRoot) {
         throw new Error('Missing required --target <path>');
     }
 
+    const {
+        repoRoot = REPO_ROOT,
+        copyEntries = COPY_ENTRIES,
+        getNpmVersion: getNpmVersionImpl = getNpmVersion,
+        runNpmLockfileInstall: runNpmLockfileInstallImpl = runNpmLockfileInstall,
+    } = options;
     const resolvedTargetRoot = path.resolve(targetRoot);
+    const resolvedRepoRoot = path.resolve(repoRoot);
+    assertSafeReleaseTarget(resolvedTargetRoot, resolvedRepoRoot, copyEntries);
+    fs.rmSync(resolvedTargetRoot, { recursive: true, force: true });
     fs.mkdirSync(resolvedTargetRoot, { recursive: true });
 
-    for (const entry of COPY_ENTRIES) {
-        copyReleaseEntry(resolvedTargetRoot, entry);
+    for (const entry of copyEntries) {
+        copyReleaseEntry(resolvedTargetRoot, entry, resolvedRepoRoot);
     }
 
-    const sourcePackage = readJson(path.join(REPO_ROOT, 'package.json'));
+    const sourcePackage = readJson(path.join(resolvedRepoRoot, 'package.json'));
     const runtimePackage = createRuntimePackageJson(sourcePackage);
     assertRuntimePackage(runtimePackage);
     writeJson(path.join(resolvedTargetRoot, 'package.json'), runtimePackage);
     fs.writeFileSync(path.join(resolvedTargetRoot, '.gitignore'), 'node_modules/\n', 'utf8');
     fs.writeFileSync(path.join(resolvedTargetRoot, 'README.md'), renderReadme({
         nodeVersion: process.version,
-        npmVersion: getNpmVersion(),
+        npmVersion: getNpmVersionImpl(),
     }), 'utf8');
 
-    runNpmLockfileInstall(resolvedTargetRoot);
+    runNpmLockfileInstallImpl(resolvedTargetRoot);
     assertReleaseDirectory(resolvedTargetRoot);
+}
+
+function releaseTools(targetRoot) {
+    releaseToolsWithOptions(targetRoot);
 }
 
 function parseTargetArg(argv) {
@@ -302,4 +346,10 @@ module.exports = {
     assertReleaseDirectory,
     renderReadme,
     releaseTools,
+    _internals: {
+        assertSafeReleaseTarget,
+        copyReleaseEntry,
+        isPathInside,
+        releaseToolsWithOptions,
+    },
 };
