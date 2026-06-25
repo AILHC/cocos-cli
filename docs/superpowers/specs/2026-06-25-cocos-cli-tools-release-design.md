@@ -25,14 +25,15 @@
 
 ## Engine Root 解析
 
-新增或改造 `resolveLauncherEngineRoot()`，保留测试专用覆盖，同时移除 production 的 `<cliRoot>/packages/engine` fallback。
+新增或改造 `resolveLauncherEngineRoot()`，保留测试专用覆盖和现有 CLI 初始化链路，同时移除 production 的 `<cliRoot>/packages/engine` fallback。
 
 解析优先级：
 
 1. 测试环境：当 `COCOS_CLI_TEST_ENGINE_ROOT` 与 `COCOS_CLI_TEST_PROJECT_ROOT` 同时匹配当前项目时，返回 test engine root，source 为 `test-env`。
 2. 项目配置：读取 `<projectRoot>/package.json` 的 `cocos-cli.enginePath`。支持绝对路径和相对项目根目录的相对路径。该路径必须存在，否则报错。
-3. 本机 Creator profile：读取用户目录下 `.CocosCreator/profiles/v2/packages/engine.json`。CLI supported engine versions 当前为 `["3.8.6"]`，对应 profile key 为 `386`。profile key 由 supported version 去掉 `.` 得到，后续多位版本如有歧义应改为显式 map。只接受 `engine[386].javascript.builtin === false` 且 `engine[386].javascript.custom` 为非空 string 的自定义 engine source。该路径必须存在。若 `builtin === true`，即使残留 `custom` 字段也必须按内置引擎报错。
-4. 无可用 engine 时直接报错，不启动。
+3. CLI 初始化链路：当调用方显式传入 `cliInitializedEngineRoot` 时返回该路径，source 为 `cli-initialized`。这是现有初始化链路，不等同于发布包内置 engine。
+4. 本机 Creator profile：读取用户目录下 `.CocosCreator/profiles/v2/packages/engine.json`。CLI supported engine versions 当前为 `["3.8.6"]`，对应 profile key 为 `386`。profile key 由 supported version 去掉 `.` 得到，后续多位版本如有歧义应改为显式 map。只接受 `engine[386].javascript.builtin === false` 且 `engine[386].javascript.custom` 为非空 string 的自定义 engine source。该路径必须存在。若 `builtin === true`，即使残留 `custom` 字段也必须按内置引擎报错。
+5. 无可用 engine 时直接报错，不启动。
 
 错误信息需要说明实际失败原因，例如：
 
@@ -138,7 +139,8 @@ node .\dist\cli.js --help
    - `cocos-cli.enginePath` 优先。
    - 相对 `enginePath` 按 project root 解析。
    - project config path 不存在时报错。
-   - 无 project config 时读取 Creator profile custom engine。
+   - 无 project config 且没有 `cliInitializedEngineRoot` 时读取 Creator profile custom engine。
+   - 显式传入 `cliInitializedEngineRoot` 时保留 source `cli-initialized`。
    - Creator profile 缺失时报错。
    - Creator profile 中 supported version 是内置引擎时报错。
    - Creator profile custom path 不存在时报错。
