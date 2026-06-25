@@ -163,59 +163,46 @@ it('returns 500 when project preview-template index render fails', async () => {
 });
 ```
 
-- [ ] **Step 4: Add failing Default device derivation tests**
+- [ ] **Step 4: Add failing Default device source-order tests**
+
+Add this import:
+
+```ts
+import { createRuntimePreviewDeviceMap } from '../../../src/runtime-preview/server/preview-entry-template';
+```
 
 Append these tests:
 
 ```ts
 it('derives Default device from preview settings design resolution', async () => {
-  const projectRoot = await createTempProjectRoot();
-  await writeFile(join(projectRoot, 'preview-template', 'index.ejs'), `
-<html><body><script id="devices-json" type="application/json"><%- JSON.stringify(devices) %></script></body></html>
-`, 'utf8');
-
-  const response = await handleRuntimePreviewRequest(createRouteContextForProject(projectRoot, async () => ({
-    settings: {
-      assets: {},
-      screen: {
-        designResolution: {
-          width: 1920,
-          height: 1080,
-        },
+  const devices = createRuntimePreviewDeviceMap([], {
+    screen: {
+      designResolution: {
+        width: 1920,
+        height: 1080,
       },
     },
-    script2library: {},
-    bundleConfigs: [],
-  })), '/');
-  const html = await responseBodyText(response);
+  });
 
-  expect(html).toContain('"Default":{"name":"Default","width":1920,"height":1080');
+  expect(devices.Default).toMatchObject({ name: 'Default', width: 1920, height: 1080 });
 });
 
-it('does not use hardcoded 960x640 when settings design resolution exists', async () => {
-  const projectRoot = await createTempProjectRoot();
-  await writeFile(join(projectRoot, 'preview-template', 'index.ejs'), `
-<html><body><script id="devices-json" type="application/json"><%- JSON.stringify(devices) %></script></body></html>
-`, 'utf8');
+it('uses devices json default when settings resolution is missing', () => {
+  const devices = createRuntimePreviewDeviceMap([
+    { name: 'Browser Default', width: 1136, height: 640, default: true },
+    { name: 'Phone', width: 390, height: 844 },
+  ]);
 
-  const response = await handleRuntimePreviewRequest(createRouteContextForProject(projectRoot, async () => ({
-    settings: {
-      assets: {},
-      screen: {
-        designResolution: {
-          width: 1280,
-          height: 720,
-        },
-      },
-    },
-    script2library: {},
-    bundleConfigs: [],
-  })), '/');
-  const html = await responseBodyText(response);
+  expect(devices.Default).toMatchObject({ name: 'Default', width: 1136, height: 640 });
+  expect(devices.Phone).toMatchObject({ name: 'Phone', width: 390, height: 844 });
+});
 
-  expect(html).toContain('"width":1280');
-  expect(html).toContain('"height":720');
-  expect(html).not.toContain('"width":960,"height":640');
+it('falls back to hardcoded 960x640 only when settings and devices json default are unavailable', () => {
+  const devices = createRuntimePreviewDeviceMap([
+    { name: 'Phone', width: 390, height: 844 },
+  ]);
+
+  expect(devices.Default).toMatchObject({ name: 'Default', width: 960, height: 640 });
 });
 ```
 
@@ -224,7 +211,7 @@ it('does not use hardcoded 960x640 when settings design resolution exists', asyn
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; npm --prefix vitests test -- suites/runtime-preview/browser-entry-contract.test.ts"
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; npm --prefix vitests test -- suites/runtime-preview/browser-entry-contract.test.ts'
 ```
 
 Expected now: FAIL on the new project template priority / render error / device tests.
@@ -281,7 +268,25 @@ async function resolveRuntimePreviewEntryTemplate(context: RuntimePreviewContext
 }
 ```
 
-- [ ] **Step 3: Add design resolution parser**
+- [ ] **Step 3: Add project template render error type**
+
+Add this exported error before `renderRuntimePreviewEntry()`:
+
+```ts
+export class RuntimePreviewTemplateRenderError extends Error {
+    public constructor(
+        public readonly templatePath: string,
+        cause: unknown,
+    ) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        super(`runtime-preview-template-error ${templatePath}: ${message}`);
+        this.name = 'RuntimePreviewTemplateRenderError';
+        this.cause = cause;
+    }
+}
+```
+
+- [ ] **Step 4: Add design resolution parser**
 
 Add this helper:
 
@@ -303,37 +308,63 @@ function readDesignResolution(settings: Record<string, any> | undefined): { widt
 }
 ```
 
-- [ ] **Step 4: Let devices use settings resolution**
+- [ ] **Step 5: Let devices use source-ordered Default resolution**
 
-Replace:
+Add or export this helper:
 
 ```ts
-async function loadRuntimePreviewDevices(): Promise<Record<string, RuntimePreviewDevice>> {
+export function createRuntimePreviewDeviceMap(
+    source: Array<Record<string, any>>,
+    settings?: Record<string, any>,
+): Record<string, RuntimePreviewDevice> {
+    const devices: Record<string, RuntimePreviewDevice> = {};
+    let defaultFromSource: RuntimePreviewDevice | null = null;
+
+    for (const device of source) {
+        const name = typeof device.name === 'string' && device.name.trim() ? device.name.trim() : '';
+        const width = Number(device.width);
+        const height = Number(device.height);
+        if (!name || !Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+            continue;
+        }
+        const normalized = { name, width, height };
+        devices[name] = normalized;
+        if (device.default === true && !defaultFromSource) {
+            defaultFromSource = { name: 'Default', width, height };
+        }
+    }
+
+    devices.Default = defaultFromSource ?? { name: 'Default', width: 960, height: 640 };
+
+    const resolution = readDesignResolution(settings);
+    if (resolution) {
+        devices.Default = {
+            name: 'Default',
+            width: resolution.width,
+            height: resolution.height,
+        };
+    }
+    return devices;
+}
 ```
 
-with:
+Then change `loadRuntimePreviewDevices()` so it calls this helper after reading `devices.json`:
 
 ```ts
 async function loadRuntimePreviewDevices(settings?: Record<string, any>): Promise<Record<string, RuntimePreviewDevice>> {
-```
-
-After `const devices = ...` is computed, apply the resolution:
-
-```ts
-const resolution = readDesignResolution(settings);
-if (resolution) {
-    devices.Default = {
-        name: 'Default',
-        width: resolution.width,
-        height: resolution.height,
-    };
+    try {
+        const content = await readFile(join(runtimePreviewStaticRoot, 'devices', 'devices.json'), 'utf8');
+        const source = JSON.parse(content);
+        return createRuntimePreviewDeviceMap(Array.isArray(source) ? source : [], settings);
+    } catch {
+        return createRuntimePreviewDeviceMap([], settings);
+    }
 }
-return devices;
 ```
 
-Keep the existing fallback behavior when `devices.json` cannot be read.
+This preserves the required source order: settings resolution > `devices.json` default entry > hardcoded `960x640`.
 
-- [ ] **Step 5: Render selected template with settings-backed devices**
+- [ ] **Step 6: Render selected template with settings-backed devices**
 
 Inside `renderRuntimePreviewEntry()`, replace:
 
@@ -350,53 +381,76 @@ const previewSettings = await settingsProvider.getPreviewSettings();
 const devices = await loadRuntimePreviewDevices(previewSettings.settings as Record<string, any>);
 const sceneQuery = await getSceneQuery(context, requestPath);
 const templatePath = await resolveRuntimePreviewEntryTemplate(context);
-const html = await ejs.renderFile(templatePath, {
+let html: string;
+try {
+    html = await ejs.renderFile(templatePath, {
 ```
 
-- [ ] **Step 6: Return 500 on project template render error**
+Close the `try` immediately after the `ejs.renderFile()` data object:
 
-In `src/runtime-preview/server/runtime-preview-routes.ts`, replace the root route block:
+```ts
+    });
+} catch (error) {
+    if (templatePath.startsWith(context.projectRoot)) {
+        throw new RuntimePreviewTemplateRenderError(templatePath, error);
+    }
+    throw error;
+}
+```
+
+- [ ] **Step 7: Return 500 only on project template render error**
+
+In `src/runtime-preview/server/runtime-preview-routes.ts`, import the custom error together with `renderRuntimePreviewEntry()`:
+
+```ts
+import { RuntimePreviewTemplateRenderError, renderRuntimePreviewEntry } from './preview-entry-template';
+```
+
+Then replace the root route block:
 
 ```ts
 if (pathname === '/') {
     return textResponse(
         200,
+        await renderRuntimePreviewEntry(context.runtimeContext, context.settingsProvider, requestPath),
         'text/html; charset=utf-8',
-        await renderRuntimePreviewEntry(context.runtimeContext, requestPath),
     );
 }
 ```
 
-with:
+with a catch for the custom template error only:
 
 ```ts
 if (pathname === '/') {
     try {
         return textResponse(
             200,
-            'text/html; charset=utf-8',
             await renderRuntimePreviewEntry(context.runtimeContext, context.settingsProvider, requestPath),
+            'text/html; charset=utf-8',
         );
     } catch (error) {
+        if (!(error instanceof RuntimePreviewTemplateRenderError)) {
+            throw error;
+        }
         const message = error instanceof Error ? error.message : String(error);
         const line = `runtime-preview-template-error ${message}`;
         await context.logger?.write(line);
-        return textResponse(500, 'text/plain; charset=utf-8', line);
+        return textResponse(500, line, 'text/plain; charset=utf-8');
     }
 }
 ```
 
-- [ ] **Step 7: Run focused test**
+- [ ] **Step 8: Run focused test**
 
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; npm --prefix vitests test -- suites/runtime-preview/browser-entry-contract.test.ts"
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; npm --prefix vitests test -- suites/runtime-preview/browser-entry-contract.test.ts'
 ```
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 2**
+- [ ] **Step 9: Commit Task 2**
 
 ```powershell
 rtk git add src/runtime-preview/server/preview-entry-template.ts src/runtime-preview/server/runtime-preview-routes.ts vitests/suites/runtime-preview/browser-entry-contract.test.ts
@@ -442,7 +496,7 @@ it('keeps editor target tentative behavior', () => {
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; npm --prefix vitests test -- suites/runtime-preview/preview-prerequisite-imports-policy.test.ts"
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; npm --prefix vitests test -- suites/runtime-preview/preview-prerequisite-imports-policy.test.ts'
 ```
 
 Expected now: FAIL because preview still returns `true`.
@@ -466,7 +520,7 @@ return target.isEditor === true;
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; npm --prefix vitests test -- suites/runtime-preview/preview-prerequisite-imports-policy.test.ts"
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; npm --prefix vitests test -- suites/runtime-preview/preview-prerequisite-imports-policy.test.ts'
 ```
 
 Expected: PASS.
@@ -591,7 +645,7 @@ System.register(["__unresolved_0", "__unresolved_1"], function () {
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; npm --prefix vitests test -- suites/runtime-preview/preview-prerequisite-imports-policy.test.ts"
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; npm --prefix vitests test -- suites/runtime-preview/preview-prerequisite-imports-policy.test.ts'
 ```
 
 Expected: PASS.
@@ -782,7 +836,8 @@ with:
 ```ts
 const defaultEntryHtml = await defaultEntryResponse.text();
 expect(defaultEntryHtml).toContain(`/settings.js?scene=${targetScene.uuid}`);
-expect(defaultEntryHtml).toContain('Cocos Creator');
+expect(defaultEntryHtml).toContain('<title>Cocos Creator - cocos-test-projects</title>');
+expect(defaultEntryHtml).toContain('/test.js');
 expect(defaultEntryHtml).toContain('System.import("/preview-app/index.js")');
 expect(defaultEntryHtml).not.toContain('__PROJECT_SCRIPT_TEMPLATE_SHOULD_NOT_LOAD__');
 
@@ -818,12 +873,24 @@ expect(prerequisiteEvidence.dependencyCount).toBeGreaterThan(0);
 expect(prerequisiteEvidence.unresolvedMappingCount).toBe(prerequisiteEvidence.dependencyCount);
 ```
 
-- [ ] **Step 4: Pass screenshot path into browser smoke**
+- [ ] **Step 4: Pass timestamped screenshot path into browser smoke**
 
-In `runBrowserRuntimeSmoke()` options, add:
+Before `runBrowserRuntimeSmoke()`, add a stable evidence name:
 
 ```ts
-screenshotFilePath: join(paths.projectRoot, 'temp', 'runtime-preview-main-test-project-cli-test-bundle-zip-scene.png'),
+const evidenceTimestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+const sceneEvidenceName = targetScene.uuid.replace(/[^a-zA-Z0-9-]/g, '-');
+const screenshotFilePath = join(
+  paths.projectRoot,
+  'temp',
+  `cli-${sceneEvidenceName}-1280x720-${evidenceTimestamp}.png`,
+);
+```
+
+Then add this to `runBrowserRuntimeSmoke()` options:
+
+```ts
+screenshotFilePath,
 ```
 
 Extend `evidenceContext`:
@@ -870,7 +937,7 @@ canvasDebugEvidence: sceneSmoke.canvasDebugEvidence,
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; npm --prefix vitests test -- suites/runtime-preview/main-test-project-cli-integration.test.ts"
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; npm --prefix vitests test -- suites/runtime-preview/main-test-project-cli-integration.test.ts'
 ```
 
 Expected: PASS. Evidence files should appear under `E:\own_space\engines\cocos-test-projects\temp\`.
@@ -884,7 +951,76 @@ rtk git commit -m "test: verify runtime preview editor parity evidence"
 
 ---
 
-### Task 7: Facts And Runtime Preview Issue Updates
+### Task 7: Editor Preview Browser Evidence Capture
+
+**Files:**
+- Create: `vitests/scripts/capture-existing-preview-evidence.mjs`
+- Output: `E:\own_space\engines\cocos-cli\.codex-tmp\editor-preview-capture-<timestamp>\`
+
+- [ ] **Step 1: Add capture script**
+
+Create `vitests/scripts/capture-existing-preview-evidence.mjs`. The script must:
+
+- Read `COCOS_CLI_CAPTURE_PREVIEW_URL`, defaulting to `http://localhost:7457/`.
+- Read `COCOS_CLI_CAPTURE_OUTPUT_DIR`; if absent, create `.codex-tmp/editor-preview-capture-<yyyyMMddHHmmss>/`.
+- Open the URL with `playwright-core` Chromium/CDP.
+- Capture:
+  - root HTML into `editor-root-<url-safe>-1280x720-<timestamp>.html`
+  - `/settings.js` text into `editor-settings-<timestamp>.js`
+  - `/scripting/x/import-map.json` into `editor-import-map-<timestamp>.json`
+  - prerequisite chunk content into `editor-prerequisite-chunk-<timestamp>.js` when the import-map contains `cce:/internal/x/prerequisite-imports`
+  - browser debug JSON into `editor-browser-debug-<url-safe>-1280x720-<timestamp>.json`
+  - screenshot into `editor-root-<url-safe>-1280x720-<timestamp>.png`
+- Fail non-zero if:
+  - root response is not 2xx
+  - `settings.js` is not 2xx
+  - `import-map.json` is not 2xx
+  - screenshot file is missing or zero bytes
+  - `#GameCanvas` exists but has zero bounding rect or zero backing store after the stable wait
+  - console errors, page errors, failed requests, or bad HTTP responses are present
+
+The browser debug JSON must include at least:
+
+```json
+{
+  "source": "editor",
+  "url": "http://localhost:7457/",
+  "viewport": { "width": 1280, "height": 720, "devicePixelRatio": 1 },
+  "elements": {
+    "gameCanvas": {},
+    "gameDiv": {},
+    "cocos3dGameContainer": {}
+  },
+  "canvas": {
+    "width": 0,
+    "height": 0,
+    "computedWidth": "",
+    "computedHeight": ""
+  },
+  "screenshotFilePath": "..."
+}
+```
+
+- [ ] **Step 2: Run against Editor preview URL**
+
+Run while Cocos Creator preview is serving `http://localhost:7457/`:
+
+```powershell
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_CAPTURE_PREVIEW_URL="http://localhost:7457/"; $env:COCOS_CLI_CAPTURE_OUTPUT_DIR="E:\own_space\engines\cocos-cli\.codex-tmp\editor-preview-capture-final"; node vitests/scripts/capture-existing-preview-evidence.mjs'
+```
+
+Expected: PASS and output file paths printed as JSON.
+
+- [ ] **Step 3: Commit Task 7**
+
+```powershell
+rtk git add vitests/scripts/capture-existing-preview-evidence.mjs
+rtk git commit -m "test: capture editor preview browser evidence"
+```
+
+---
+
+### Task 8: Facts And Runtime Preview Issue Updates
 
 **Files:**
 - Create: `docs/dev/runtime-preview/facts/runtime-preview-editor-parity-20260625.md`
@@ -893,17 +1029,17 @@ rtk git commit -m "test: verify runtime preview editor parity evidence"
 
 - [ ] **Step 1: Extract evidence values**
 
-Run after Task 6 passes:
+Run after Task 6 and Task 7 pass:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$summary='E:\own_space\engines\cocos-test-projects\temp\runtime-preview-main-test-project-cli-evidence.json'; $scene='E:\own_space\engines\cocos-test-projects\temp\runtime-preview-main-test-project-cli-test-bundle-zip-scene.json'; $summaryJson=Get-Content -LiteralPath $summary -Raw | ConvertFrom-Json; $sceneJson=Get-Content -LiteralPath $scene -Raw | ConvertFrom-Json; [pscustomobject]@{ summary=$summary; scene=$scene; serverUrl=$summaryJson.serverUrl; logFilePath=$summaryJson.logFilePath; elapsedStartupMs=$summaryJson.elapsedStartupMs; elapsedReadyMs=$sceneJson.elapsedReadyMs; networkRequestCount=$sceneJson.networkRequestCount; screenshot=$sceneJson.canvasDebugEvidence.screenshotFilePath; canvasWidth=$sceneJson.canvasDebugEvidence.canvas.width; canvasHeight=$sceneJson.canvasDebugEvidence.canvas.height; dpr=$sceneJson.canvasDebugEvidence.viewport.devicePixelRatio; prereqDeps=$summaryJson.prerequisiteEvidence.dependencyCount; prereqChunk=$summaryJson.prerequisiteEvidence.chunkPath } | ConvertTo-Json -Depth 8"
+rtk pwsh -NoProfile -Command '$summary="E:\own_space\engines\cocos-test-projects\temp\runtime-preview-main-test-project-cli-evidence.json"; $scene=(Get-ChildItem -LiteralPath "E:\own_space\engines\cocos-test-projects\temp" -Filter "runtime-preview-main-test-project-cli-*.json" | Where-Object { $_.Name -notlike "*evidence.json" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName; $editor=(Get-ChildItem -LiteralPath "E:\own_space\engines\cocos-cli\.codex-tmp\editor-preview-capture-final" -Filter "editor-browser-debug-*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName; $summaryJson=Get-Content -LiteralPath $summary -Raw | ConvertFrom-Json; $sceneJson=Get-Content -LiteralPath $scene -Raw | ConvertFrom-Json; $editorJson=Get-Content -LiteralPath $editor -Raw | ConvertFrom-Json; [pscustomobject]@{ summary=$summary; scene=$scene; editor=$editor; serverUrl=$summaryJson.serverUrl; logFilePath=$summaryJson.logFilePath; elapsedStartupMs=$summaryJson.elapsedStartupMs; elapsedReadyMs=$sceneJson.elapsedReadyMs; networkRequestCount=$sceneJson.networkRequestCount; cliScreenshot=$sceneJson.canvasDebugEvidence.screenshotFilePath; editorScreenshot=$editorJson.screenshotFilePath; cliCanvasWidth=$sceneJson.canvasDebugEvidence.canvas.width; cliCanvasHeight=$sceneJson.canvasDebugEvidence.canvas.height; editorCanvasWidth=$editorJson.canvas.width; editorCanvasHeight=$editorJson.canvas.height; dpr=$sceneJson.canvasDebugEvidence.viewport.devicePixelRatio; prereqDeps=$summaryJson.prerequisiteEvidence.dependencyCount; prereqChunk=$summaryJson.prerequisiteEvidence.chunkPath } | ConvertTo-Json -Depth 8'
 ```
 
 Expected:
 
 - `serverUrl` is the CLI runtime preview URL.
-- `screenshot` points to an existing `.png`.
-- `canvasWidth` and `canvasHeight` are greater than 0.
+- `cliScreenshot` and `editorScreenshot` point to existing `.png` files.
+- `cliCanvasWidth` / `cliCanvasHeight` and `editorCanvasWidth` / `editorCanvasHeight` are greater than 0.
 - `prereqDeps` is greater than 0.
 - `prereqChunk` points to the CLI generated prerequisite chunk.
 
@@ -943,10 +1079,10 @@ Create `docs/dev/runtime-preview/facts/runtime-preview-editor-parity-20260625.md
 
 ## 分辨率与截图证据
 
-- Editor browser debug：来自本轮 Editor capture evidence 的 viewport、DPR、`#GameCanvas`、`#GameDiv`、`#Cocos3dGameContainer`、canvas backing store。
-- Editor screenshot：保存到 `docs/dev/runtime-preview/facts/artifacts/` 或项目 `temp/` 中，并在本文列出绝对路径。
-- CLI browser debug：来自 `runtime-preview-main-test-project-cli-test-bundle-zip-scene.json#canvasDebugEvidence`。
-- CLI screenshot：来自 `runtime-preview-main-test-project-cli-test-bundle-zip-scene.json#canvasDebugEvidence.screenshotFilePath`。
+- Editor browser debug：来自 `editor-browser-debug-<url-safe>-1280x720-<timestamp>.json` 的 viewport、DPR、`#GameCanvas`、`#GameDiv`、`#Cocos3dGameContainer`、canvas backing store。
+- Editor screenshot：来自 `editor-root-<url-safe>-1280x720-<timestamp>.png`，并在本文列出绝对路径。
+- CLI browser debug：来自 `runtime-preview-main-test-project-cli-*.json#canvasDebugEvidence`。
+- CLI screenshot：来自 `runtime-preview-main-test-project-cli-*.json#canvasDebugEvidence.screenshotFilePath`，文件名包含 `cli`、scene、`1280x720`、timestamp。
 
 ## 结论
 
@@ -954,7 +1090,7 @@ Create `docs/dev/runtime-preview/facts/runtime-preview-editor-parity-20260625.md
 - `RP-ISSUE-019` 本轮覆盖 project template、CLI boot script 和 Default device 实际浏览器尺寸证据。
 ```
 
-Before committing, paste the JSON output from Step 1 into the facts document under a `## CLI evidence summary` section, then write the factual conclusion from those values.
+Before committing, paste the JSON output from Step 1 into the facts document under a `## Evidence summary` section, then write the factual conclusion from those values.
 
 - [ ] **Step 3: Update issues ledger**
 
@@ -987,7 +1123,7 @@ vitests/suites/runtime-preview/preview-prerequisite-imports-policy.test.ts
 vitests/suites/runtime-preview/main-test-project-cli-integration.test.ts
 ```
 
-- [ ] **Step 5: Commit Task 7**
+- [ ] **Step 5: Commit Task 8**
 
 ```powershell
 rtk git add docs/dev/runtime-preview/facts/runtime-preview-editor-parity-20260625.md docs/dev/runtime-preview/issues.md docs/dev/runtime-preview/acceptance/matrix.md
@@ -996,7 +1132,7 @@ rtk git commit -m "docs: record runtime preview editor parity"
 
 ---
 
-### Task 8: Final Verification And Review
+### Task 9: Final Verification And Review
 
 **Files:**
 - No planned code edits unless verification reveals a defect.
@@ -1006,7 +1142,7 @@ rtk git commit -m "docs: record runtime preview editor parity"
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'; npm --prefix vitests test -- suites/runtime-preview/browser-entry-contract.test.ts suites/runtime-preview/preview-prerequisite-imports-policy.test.ts suites/runtime-preview/main-test-project-cli-integration.test.ts"
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_TEST_ENGINE_ROOT="D:\workspace\engines\cocos\3.8.6"; npm --prefix vitests test -- suites/runtime-preview/browser-entry-contract.test.ts suites/runtime-preview/preview-prerequisite-imports-policy.test.ts suites/runtime-preview/main-test-project-cli-integration.test.ts'
 ```
 
 Expected: PASS.
@@ -1026,13 +1162,13 @@ Expected: PASS.
 Run:
 
 ```powershell
-rtk pwsh -NoProfile -Command "$e='E:\own_space\engines\cocos-test-projects\temp\runtime-preview-main-test-project-cli-test-bundle-zip-scene.json'; $s='E:\own_space\engines\cocos-test-projects\temp\runtime-preview-main-test-project-cli-test-bundle-zip-scene.png'; Get-Item -LiteralPath $e,$s | Select-Object FullName,Length,LastWriteTime | Format-Table -AutoSize; Get-Content -LiteralPath $e -Raw | ConvertFrom-Json | Select-Object status,elapsedReadyMs,networkRequestCount | Format-List"
+rtk pwsh -NoProfile -Command '$e=(Get-ChildItem -LiteralPath "E:\own_space\engines\cocos-test-projects\temp" -Filter "runtime-preview-main-test-project-cli-*.json" | Where-Object { $_.Name -notlike "*evidence.json" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName; $editor=(Get-ChildItem -LiteralPath "E:\own_space\engines\cocos-cli\.codex-tmp\editor-preview-capture-final" -Filter "editor-browser-debug-*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName; $sceneJson=Get-Content -LiteralPath $e -Raw | ConvertFrom-Json; $editorJson=Get-Content -LiteralPath $editor -Raw | ConvertFrom-Json; $s=$sceneJson.canvasDebugEvidence.screenshotFilePath; $es=$editorJson.screenshotFilePath; Get-Item -LiteralPath $e,$s,$editor,$es | Select-Object FullName,Length,LastWriteTime | Format-Table -AutoSize; [pscustomobject]@{ status=$sceneJson.status; elapsedReadyMs=$sceneJson.elapsedReadyMs; networkRequestCount=$sceneJson.networkRequestCount; cliScreenshot=$s; editorScreenshot=$es } | Format-List'
 ```
 
 Expected:
 
-- JSON evidence exists.
-- PNG screenshot exists and has non-zero length.
+- CLI and Editor JSON evidence exists.
+- CLI and Editor PNG screenshots exist and have non-zero length.
 - `status` is `pass`.
 - `elapsedReadyMs` is less than 120000.
 - `networkRequestCount` is greater than 0.
@@ -1070,22 +1206,22 @@ rtk git log --oneline -8
 Expected:
 
 - Working tree clean.
-- Recent commits show Task 2 through Task 7 implementation commits.
+- Recent commits show Task 2 through Task 8 implementation commits.
 
 ---
 
 ## Self-Review
 
 - Spec coverage:
-  - Root template priority: Task 1, Task 2, Task 6, Task 7.
+  - Root template priority: Task 1, Task 2, Task 6, Task 8.
   - Project `script.ejs` non-authority: Task 1, Task 2.
   - Template render failure: Task 1, Task 2.
-  - Device settings/fallback and browser evidence: Task 1, Task 2, Task 5, Task 6, Task 7.
-  - Preview prerequisite static deps: Task 3, Task 4, Task 6, Task 7.
-  - Browser smoke: Task 5, Task 6, Task 8.
-  - Facts/issues/acceptance docs: Task 7.
+  - Device settings/fallback and browser evidence: Task 1, Task 2, Task 5, Task 6, Task 7, Task 8.
+  - Preview prerequisite static deps: Task 3, Task 4, Task 6, Task 7, Task 8.
+  - Browser smoke: Task 5, Task 6, Task 9.
+  - Facts/issues/acceptance docs: Task 8.
 - Red-flag scan:
-  - The plan contains no deferred-content sections. Task 7 derives facts from concrete evidence JSON paths.
+  - The plan contains no deferred-content sections. Task 8 derives facts from concrete evidence JSON paths.
 - Type consistency:
   - `BrowserCanvasDebugEvidence` is added to `BrowserRuntimeSmokeResult` and reused in `main-test-project-cli-integration.test.ts`.
   - `readRuntimePreviewPrerequisiteEvidence()` returns the fields consumed by Task 6.
