@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { shouldUseTentativePrerequisiteImportsMod } from '../../../src/core/scripting/packer-driver/target-policy';
+import { loadRuntimePreviewPrerequisiteImports } from '../../../src/runtime-preview/preview-app/src/prerequisite-imports';
 import { readRuntimePreviewPrerequisiteEvidence } from '@shared/runtime-preview-prerequisite-evidence';
 
 describe('runtime preview prerequisite imports policy', () => {
@@ -14,22 +15,51 @@ describe('runtime preview prerequisite imports policy', () => {
     expect(shouldUseTentativePrerequisiteImportsMod('editor', { isEditor: true })).toBe(true);
   });
 
-  it('awaits the generated prerequisite import module before runtime scene loading', async () => {
-    const previewMain = await readFile(join(process.cwd(), '..', 'src', 'runtime-preview', 'preview-app', 'src', 'main.ts'), 'utf8');
+  it('installs the script load limiter before importing the generated prerequisite module', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const calls: string[] = [];
+    const system = {
+      instantiate: async () => undefined,
+      import: async (id: string) => {
+        calls.push(`import:${id}`);
+        return undefined;
+      },
+    };
 
-    expect(previewMain).toContain("System.import('cce:/internal/x/prerequisite-imports')");
-    expect(previewMain).toContain('validateRuntimePreviewPrerequisiteImportMap');
-    expect(previewMain).toContain('Runtime preview prerequisite scope is missing');
-    expect(previewMain).not.toContain('prerequisite chunk import failed');
-    const gameInitIndex = previewMain.indexOf('await cc.game.init(option)');
-    const prerequisiteIndex = previewMain.indexOf('await loadRuntimePreviewPrerequisiteImports()');
-    const readyResourcesIndex = previewMain.indexOf('const readyResources = await loadRuntimePreviewReadyResources(cc)');
-    const loadSceneIndex = previewMain.indexOf('cc.assetManager.loadWithJson');
+    try {
+      await loadRuntimePreviewPrerequisiteImports({
+        system: system as any,
+        installLimiter: () => {
+          calls.push('install-limiter');
+          return {
+            hook: 'instantiate',
+            concurrency: 32,
+            metrics: {
+              active: 0,
+              maxActive: 0,
+              queuePeak: 0,
+              enqueued: 0,
+              completed: 0,
+              failed: 0,
+              retryCount: 0,
+              bypassed: 0,
+            },
+          };
+        },
+        validateImportMap: async () => {
+          calls.push('validate-import-map');
+        },
+        now: () => 1,
+      });
+    } finally {
+      info.mockRestore();
+    }
 
-    expect(gameInitIndex).toBeGreaterThanOrEqual(0);
-    expect(prerequisiteIndex).toBeGreaterThan(gameInitIndex);
-    expect(prerequisiteIndex).toBeLessThan(readyResourcesIndex);
-    expect(prerequisiteIndex).toBeLessThan(loadSceneIndex);
+    expect(calls).toEqual([
+      'install-limiter',
+      'import:cce:/internal/x/prerequisite-imports',
+      'validate-import-map',
+    ]);
   });
 
   it('classifies generated prerequisite chunk shape from import-map output', async () => {

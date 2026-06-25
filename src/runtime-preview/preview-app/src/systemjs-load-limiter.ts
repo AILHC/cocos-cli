@@ -169,14 +169,14 @@ async function callWithRetry(
 
 function resolveConcurrency(explicit: number | undefined): number {
     const candidate = explicit ?? readConcurrencyFromQuery();
-    if (!Number.isFinite(candidate) || candidate < 1) {
+    if (typeof candidate !== 'number' || !Number.isFinite(candidate) || candidate < 1) {
         return DEFAULT_CONCURRENCY;
     }
     return Math.floor(candidate);
 }
 
 function resolveRetry(explicit: number | undefined): number {
-    if (!Number.isFinite(explicit)) {
+    if (typeof explicit !== 'number' || !Number.isFinite(explicit)) {
         return DEFAULT_RETRY;
     }
     return Math.max(0, Math.floor(explicit));
