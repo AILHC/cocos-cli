@@ -1,13 +1,15 @@
 import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-preview-context';
 import { handleRuntimePreviewRequest } from '@runtime-preview/server/runtime-preview-routes';
-import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
+import { PreviewSettingsProvider, type LoadPreviewSettings } from '@runtime-preview/settings/preview-settings-provider';
 import type { RuntimePreviewHttpResponse } from '@runtime-preview/server/serve-on-demand-file';
+import { createRuntimePreviewDeviceMap } from '@runtime-preview/server/preview-entry-template';
+import { tmpdir } from 'node:os';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, '../../..');
@@ -46,39 +48,45 @@ async function collectTextFiles(root: string): Promise<string[]> {
   return files;
 }
 
-function createRouteContext() {
+function createRouteContextForProject(
+  projectRoot: string,
+  loadPreviewSettings: LoadPreviewSettings = async () => ({
+    settings: {
+      assets: {
+        importBase: 'http://127.0.0.1:19530/assets',
+        nativeBase: 'http://127.0.0.1:19530/assets',
+        server: 'http://127.0.0.1:19530',
+        remoteBundles: ['resources'],
+      },
+    },
+    script2library: {},
+    bundleConfigs: [
+      {
+        name: 'resources',
+        importBase: 'import',
+        nativeBase: 'native',
+        paths: {},
+      },
+    ],
+  }),
+) {
   const paths = getFixturePaths();
   const runtimeContext = createRuntimePreviewContext({
-    projectRoot: paths.projectRoot,
+    projectRoot,
     engineRoot: paths.engineRoot,
     projectLibraryRoot: paths.editorLibraryRef,
     internalLibraryRoot: join(paths.engineRoot, 'editor', 'library'),
     projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
-    cliProgrammingRoot: join(paths.projectRoot, 'temp', 'cli', 'programming'),
+    cliProgrammingRoot: join(projectRoot, 'temp', 'cli', 'programming'),
   });
-  const settingsProvider = new PreviewSettingsProvider({
-    loadPreviewSettings: async () => ({
-      settings: {
-        assets: {
-          importBase: 'http://127.0.0.1:19530/assets',
-          nativeBase: 'http://127.0.0.1:19530/assets',
-          server: 'http://127.0.0.1:19530',
-          remoteBundles: ['resources'],
-        },
-      },
-      script2library: {},
-      bundleConfigs: [
-        {
-          name: 'resources',
-          importBase: 'import',
-          nativeBase: 'native',
-          paths: {},
-        },
-      ],
-    }),
-  });
+  const settingsProvider = new PreviewSettingsProvider({ loadPreviewSettings });
 
   return { runtimeContext, settingsProvider };
+}
+
+function createRouteContext() {
+  const paths = getFixturePaths();
+  return createRouteContextForProject(paths.projectRoot);
 }
 
 async function responseBodyText(response: RuntimePreviewHttpResponse): Promise<string> {
@@ -152,6 +160,139 @@ describe('runtime preview browser entry contract', () => {
       'utf8',
     );
     expect(backupTemplateTest).toContain('System.import("/preview-app/index.js")');
+  });
+
+  it('uses project preview-template/index.ejs and keeps CLI builtin script include source', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-project-template-'));
+    const templateRoot = join(projectRoot, 'preview-template');
+    await mkdir(templateRoot, { recursive: true });
+    await writeFile(
+      join(templateRoot, 'index.ejs'),
+      [
+        '<div id="project-preview-template">project preview-template loaded</div>',
+        '<%- include(cocosTemplate, {}) %>',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(templateRoot, 'script.ejs'),
+      '__PROJECT_SCRIPT_TEMPLATE_SHOULD_NOT_LOAD__',
+      'utf8',
+    );
+
+    const routeContext = createRouteContextForProject(projectRoot);
+    const rootResponse = await handleRuntimePreviewRequest(routeContext, '/');
+    const html = await responseBodyText(rootResponse);
+
+    expect(rootResponse.statusCode).toBe(200);
+    expect(html).toContain('id="project-preview-template"');
+    expect(html).toContain('System.import("/preview-app/index.js")');
+    expect(html).toContain('assets.projectBundles');
+    expect(html).not.toContain('__PROJECT_SCRIPT_TEMPLATE_SHOULD_NOT_LOAD__');
+  });
+
+  it('falls back to builtin preview index when project preview-template/index.ejs is missing', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-project-template-missing-'));
+    const routeContext = createRouteContextForProject(projectRoot);
+    const rootResponse = await handleRuntimePreviewRequest(routeContext, '/');
+    const html = await responseBodyText(rootResponse);
+
+    expect(rootResponse.statusCode).toBe(200);
+    expect(html).toContain('System.import("/preview-app/index.js")');
+    expect(html).toContain('id="GameCanvas"');
+  });
+
+  it('returns 500 with runtime-preview-template-error when project preview-template render fails', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-project-template-error-'));
+    const templateRoot = join(projectRoot, 'preview-template');
+    await mkdir(templateRoot, { recursive: true });
+    await writeFile(join(templateRoot, 'index.ejs'), '<% throw new Error("boom") %>', 'utf8');
+
+    const routeContext = createRouteContextForProject(projectRoot, async () => ({
+      settings: {
+        launch: {
+          launchScene: '',
+        },
+      },
+      script2library: {},
+      bundleConfigs: [
+        {
+          name: 'resources',
+          importBase: 'import',
+          nativeBase: 'native',
+          paths: {},
+        },
+      ],
+    }));
+    const rootResponse = await handleRuntimePreviewRequest(routeContext, '/');
+    const message = await responseBodyText(rootResponse);
+
+    expect(rootResponse.statusCode).toBe(500);
+    expect(message).toContain('runtime-preview-template-error');
+    expect(message).toContain('preview-template');
+    expect(message).toContain('index.ejs');
+  });
+
+  it('writes template render error line for project template failures', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-project-template-error-log-'));
+    const templateRoot = join(projectRoot, 'preview-template');
+    await mkdir(templateRoot, { recursive: true });
+    await writeFile(join(templateRoot, 'index.ejs'), '<% throw new Error("boom") %>', 'utf8');
+
+    const lines: string[] = [];
+    const routeContext = {
+      ...createRouteContextForProject(projectRoot, async () => ({
+        settings: {
+          launch: {
+            launchScene: '',
+          },
+        },
+        script2library: {},
+        bundleConfigs: [
+          {
+            name: 'resources',
+            importBase: 'import',
+            nativeBase: 'native',
+            paths: {},
+          },
+        ],
+      })),
+      logger: {
+        write: (line: string) => {
+          lines.push(line);
+          return Promise.resolve();
+        },
+      },
+    };
+
+    const rootResponse = await handleRuntimePreviewRequest(routeContext, '/');
+    const message = await responseBodyText(rootResponse);
+
+    expect(rootResponse.statusCode).toBe(500);
+    expect(message).toContain('runtime-preview-template-error');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('runtime-preview-template-error');
+  });
+
+  it('prefers settings designResolution for runtime preview Default device, then device json default, then hardcoded', () => {
+    const defaultBySettings = createRuntimePreviewDeviceMap([], {
+      screen: {
+        designResolution: '1080x1920',
+      },
+    });
+    expect(defaultBySettings.Default.width).toBe(1080);
+    expect(defaultBySettings.Default.height).toBe(1920);
+
+    const defaultByDevicesJson = createRuntimePreviewDeviceMap(
+      [{ name: 'Device A', width: 300, height: 500, default: true }],
+      {},
+    );
+    expect(defaultByDevicesJson.Default.width).toBe(300);
+    expect(defaultByDevicesJson.Default.height).toBe(500);
+
+    const defaultByFallback = createRuntimePreviewDeviceMap([{ name: 'Device A', width: 300, height: 500 }], {});
+    expect(defaultByFallback.Default.width).toBe(960);
+    expect(defaultByFallback.Default.height).toBe(640);
   });
 
   it('allows official preview-app bootstrap base while forbidding CLI glue from owning URL/base mapping', async () => {

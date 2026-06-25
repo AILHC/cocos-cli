@@ -16,6 +16,7 @@ import {
 import {
     renderRuntimePreviewEntry,
     resolveRuntimePreviewStaticFile,
+    RuntimePreviewTemplateRenderError,
 } from './preview-entry-template';
 import { handlePreviewAppRequiredRoute } from './preview-app-required-routes';
 import {
@@ -195,11 +196,20 @@ export async function handleRuntimePreviewRequest(
     }
 
     if (pathname === '/') {
-        return textResponse(
-            200,
-            await renderRuntimePreviewEntry(context.runtimeContext, requestPath),
-            'text/html; charset=utf-8',
-        );
+        try {
+            return textResponse(
+                200,
+                await renderRuntimePreviewEntry(context.runtimeContext, context.settingsProvider, requestPath),
+                'text/html; charset=utf-8',
+            );
+        } catch (error) {
+            if (error instanceof RuntimePreviewTemplateRenderError) {
+                const line = error.message;
+                await context.logger?.write(line);
+                return textResponse(500, line, 'text/plain; charset=utf-8');
+            }
+            throw error;
+        }
     }
 
     const runtimePreviewStaticFile = await resolveRuntimePreviewStaticFile(pathname);
