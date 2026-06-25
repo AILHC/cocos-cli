@@ -16,6 +16,7 @@ export class PreviewCommand extends BaseCommand {
             .option('--runtime', 'Start the runtime preview server without opening a browser')
             .option('--scene <uuid>', 'Start scene uuid for runtime preview diagnostics')
             .option('--settings-timeout-ms <number>', 'Runtime preview settings generation timeout in milliseconds')
+            .option('--script-load-concurrency <number>', 'Runtime preview project script load concurrency')
             .option('--clear-programming-cache', 'Clear runtime preview programming cache before startup script sync')
             .action(async (options: any) => {
                 try {
@@ -24,6 +25,9 @@ export class PreviewCommand extends BaseCommand {
                     const settingsTimeoutMs = options.settingsTimeoutMs === undefined
                         ? undefined
                         : parseInt(options.settingsTimeoutMs, 10);
+                    const scriptLoadConcurrency = options.scriptLoadConcurrency === undefined
+                        ? undefined
+                        : parseInt(options.scriptLoadConcurrency, 10);
 
                     // 验证端口号
                     if (isNaN(port) || port < 1 || port > 65535) {
@@ -32,6 +36,13 @@ export class PreviewCommand extends BaseCommand {
                     }
                     if (settingsTimeoutMs !== undefined && (isNaN(settingsTimeoutMs) || settingsTimeoutMs < 1)) {
                         console.error(chalk.red('Error: Invalid settings timeout. Timeout must be a positive number.'));
+                        process.exit(1);
+                    }
+                    if (
+                        scriptLoadConcurrency !== undefined
+                        && (isNaN(scriptLoadConcurrency) || scriptLoadConcurrency < 1)
+                    ) {
+                        console.error(chalk.red('Error: Invalid script load concurrency. Concurrency must be a positive number.'));
                         process.exit(1);
                     }
 
@@ -43,6 +54,7 @@ export class PreviewCommand extends BaseCommand {
                             host: options.host,
                             scene: options.scene,
                             settingsTimeoutMs,
+                            scriptLoadConcurrency,
                             clearProgrammingCache: options.clearProgrammingCache === true,
                         });
                     } else {

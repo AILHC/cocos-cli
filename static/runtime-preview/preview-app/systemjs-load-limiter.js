@@ -190,7 +190,8 @@ System.register([], function (exports_1, context_1) {
         });
     }
     function resolveConcurrency(explicit) {
-        var candidate = explicit !== null && explicit !== void 0 ? explicit : readConcurrencyFromQuery();
+        var _a;
+        var candidate = (_a = explicit !== null && explicit !== void 0 ? explicit : readConcurrencyFromQuery()) !== null && _a !== void 0 ? _a : readConcurrencyFromInjectedConfig();
         if (typeof candidate !== 'number' || !Number.isFinite(candidate) || candidate < 1) {
             return DEFAULT_CONCURRENCY;
         }
@@ -212,6 +213,13 @@ System.register([], function (exports_1, context_1) {
         }
         var value = Number(raw);
         return Number.isFinite(value) ? value : undefined;
+    }
+    function readConcurrencyFromInjectedConfig() {
+        if (typeof window === 'undefined') {
+            return undefined;
+        }
+        var value = window.__RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__;
+        return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
     }
     return {
         setters: [],

@@ -221,6 +221,7 @@ export async function renderRuntimePreviewEntry(
             cocosTemplate: join(runtimePreviewStaticRoot, 'script.ejs'),
             cocosToolBar: join(runtimePreviewStaticRoot, 'toolbar.ejs'),
             devices,
+            scriptLoadConcurrency: context.scriptLoadConcurrency ?? null,
             config: {
                 device: 'Default',
                 showFps: shouldShowFps(requestPath),

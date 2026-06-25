@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   installRuntimePreviewScriptLoadLimiter,
   isRuntimePreviewProjectChunkUrl,
@@ -9,7 +9,21 @@ function createPreviewChunkUrl(name: string): string {
   return `http://127.0.0.1:19530/scripting/x/packer-driver/targets/preview/chunks/aa/${name}.js`;
 }
 
+function stubRuntimePreviewWindow(search: string, scriptLoadConcurrency?: number): void {
+  vi.stubGlobal('window', {
+    location: {
+      href: `http://127.0.0.1:19530/${search}`,
+      search,
+    },
+    __RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__: scriptLoadConcurrency,
+  });
+}
+
 describe('runtime preview SystemJS script load limiter', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('matches only preview project chunk URLs', () => {
     expect(isRuntimePreviewProjectChunkUrl(
       'http://127.0.0.1:19530/scripting/x/packer-driver/targets/preview/chunks/aa/a.js',
@@ -91,6 +105,28 @@ describe('runtime preview SystemJS script load limiter', () => {
     expect(first.concurrency).toBe(2);
     await system.instantiate(createPreviewChunkUrl('a'), undefined);
     expect(originalInstantiate).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses injected runtime preview scriptLoadConcurrency when URL query is absent', () => {
+    stubRuntimePreviewWindow('', 24);
+    const system = {
+      instantiate: vi.fn(async (url: string) => `loaded:${url}`),
+    };
+
+    const limiter = installRuntimePreviewScriptLoadLimiter(system, { retry: 0 });
+
+    expect(limiter.concurrency).toBe(24);
+  });
+
+  it('prefers URL query concurrency over injected runtime preview config', () => {
+    stubRuntimePreviewWindow('?runtimePreviewScriptLoadConcurrency=12', 24);
+    const system = {
+      instantiate: vi.fn(async (url: string) => `loaded:${url}`),
+    };
+
+    const limiter = installRuntimePreviewScriptLoadLimiter(system, { retry: 0 });
+
+    expect(limiter.concurrency).toBe(12);
   });
 
   it('retries script load failure only', async () => {

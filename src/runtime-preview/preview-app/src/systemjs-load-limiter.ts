@@ -168,7 +168,7 @@ async function callWithRetry(
 }
 
 function resolveConcurrency(explicit: number | undefined): number {
-    const candidate = explicit ?? readConcurrencyFromQuery();
+    const candidate = explicit ?? readConcurrencyFromQuery() ?? readConcurrencyFromInjectedConfig();
     if (typeof candidate !== 'number' || !Number.isFinite(candidate) || candidate < 1) {
         return DEFAULT_CONCURRENCY;
     }
@@ -192,4 +192,12 @@ function readConcurrencyFromQuery(): number | undefined {
     }
     const value = Number(raw);
     return Number.isFinite(value) ? value : undefined;
+}
+
+function readConcurrencyFromInjectedConfig(): number | undefined {
+    if (typeof window === 'undefined') {
+        return undefined;
+    }
+    const value = window.__RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__;
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }

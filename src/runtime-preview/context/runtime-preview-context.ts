@@ -15,6 +15,7 @@ export interface RuntimePreviewContextOptions {
     cliProgrammingRoot?: string;
     editorLibraryRef?: string;
     editorProgrammingRef?: string;
+    scriptLoadConcurrency?: number;
 }
 
 export interface RuntimePreviewContext extends RuntimePreviewContextOptions {

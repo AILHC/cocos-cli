@@ -69,6 +69,9 @@ function createRouteContextForProject(
       },
     ],
   }),
+  options: {
+    scriptLoadConcurrency?: number;
+  } = {},
 ) {
   const paths = getFixturePaths();
   const runtimeContext = createRuntimePreviewContext({
@@ -78,6 +81,7 @@ function createRouteContextForProject(
     internalLibraryRoot: join(paths.engineRoot, 'editor', 'library'),
     projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
     cliProgrammingRoot: join(projectRoot, 'temp', 'cli', 'programming'),
+    scriptLoadConcurrency: options.scriptLoadConcurrency,
   });
   const settingsProvider = new PreviewSettingsProvider({ loadPreviewSettings });
 
@@ -189,6 +193,28 @@ describe('runtime preview browser entry contract', () => {
     expect(html).toContain('System.import("/preview-app/index.js")');
     expect(html).toContain('assets.projectBundles');
     expect(html).not.toContain('__PROJECT_SCRIPT_TEMPLATE_SHOULD_NOT_LOAD__');
+  });
+
+  it('injects runtime preview scriptLoadConcurrency from startup config into project templates', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-project-script-load-concurrency-'));
+    const templateRoot = join(projectRoot, 'preview-template');
+    await mkdir(templateRoot, { recursive: true });
+    await writeFile(
+      join(templateRoot, 'index.ejs'),
+      [
+        '<div id="project-preview-template">project preview-template loaded</div>',
+        '<%- include(cocosTemplate, {}) %>',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const routeContext = createRouteContextForProject(projectRoot, undefined, { scriptLoadConcurrency: 24 });
+    const rootResponse = await handleRuntimePreviewRequest(routeContext, '/');
+    const html = await responseBodyText(rootResponse);
+
+    expect(rootResponse.statusCode).toBe(200);
+    expect(html).toContain('window.__RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__ = 24;');
+    expect(html).toContain('System.import("/preview-app/index.js")');
   });
 
   it('serves root preview-template test.js while not exposing .ejs scripts directly', async () => {

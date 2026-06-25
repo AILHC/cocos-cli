@@ -296,6 +296,7 @@ export default class Launcher {
         host?: string;
         scene?: string;
         settingsTimeoutMs?: number;
+        scriptLoadConcurrency?: number;
         clearProgrammingCache?: boolean;
     } = {}) {
         const {
@@ -441,6 +442,7 @@ export default class Launcher {
             host: options.host,
             port: options.port,
             scene: options.scene,
+            scriptLoadConcurrency: options.scriptLoadConcurrency,
             settingsProvider,
         });
         serverUrl = server.url;

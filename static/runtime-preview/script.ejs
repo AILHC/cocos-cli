@@ -98,6 +98,7 @@
             );
         }
         installDiagnosisRoutine();
+        window.__RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__ = <%- JSON.stringify(scriptLoadConcurrency ?? null) %>;
     }
     catch (error) {
         console.error(error);

@@ -26,6 +26,7 @@ export interface RuntimePreviewServerOptions {
     settingsBuildOptions?: Record<string, any>;
     settingsProvider?: PreviewSettingsProvider;
     capturedRuntimeUrls?: Array<{ url: string }>;
+    scriptLoadConcurrency?: number;
 }
 
 export interface StartedRuntimePreviewServer {
@@ -133,6 +134,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         projectProgrammingRoot: options.projectProgrammingRoot,
         cliProgrammingRoot: options.cliProgrammingRoot,
         internalLibraryRoot: options.internalLibraryRoot,
+        scriptLoadConcurrency: options.scriptLoadConcurrency,
     });
     let serverUrl = '';
     let settingsProvider = options.settingsProvider;
@@ -163,6 +165,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         `projectProgrammingRoot=${context.projectProgrammingRoot}`,
         `cliProgrammingRoot=${context.cliProgrammingRoot ?? ''}`,
         `internalLibraryRoot=${context.internalLibraryRoot ?? ''}`,
+        `scriptLoadConcurrency=${context.scriptLoadConcurrency ?? ''}`,
     ];
     for (const line of startupLogLines) {
         await logger.write(line);

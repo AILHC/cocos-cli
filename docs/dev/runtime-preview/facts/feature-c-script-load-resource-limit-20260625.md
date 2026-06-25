@@ -160,6 +160,9 @@ hook probe：
 - 首轮将 limiter 安装在 `loadRuntimePreviewPrerequisiteImports()` 内时，`window.__RUNTIME_PREVIEW_SCRIPT_LOAD_LIMITER__.metrics.enqueued=0`，说明此位置过晚，真实 preview chunk script load 已在 prerequisite 函数执行前发生。
 - 修正后在 `main()` 开始、`System.import('cc')` 前安装 limiter；matcher 仍只限制 `/scripting/x/packer-driver/targets/preview/chunks/*.js`，不限制 engine、settings、asset、import-map。
 - `runtimePreviewScriptLoadConcurrency=<n>` query override 已验证；默认值为 `32`。
+- 启动预览时可通过 `preview --runtime --script-load-concurrency <n>` 配置 limiter 并发数；该值会进入 runtime preview context、server template 和 `window.__RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__`。URL query `runtimePreviewScriptLoadConcurrency=<n>` 仍保留为临时覆盖入口，优先级高于启动参数。
+- 如果未传 `--script-load-concurrency` 且 URL query 也未指定，preview-app 使用内置默认值 `32`。
+- `preview --runtime` 端口冲突处理未在本次变更中改变：CLI `preview` 命令默认传入 `9527`，显式端口被占用时仍由 server listen 抛错；只有底层 `startRuntimePreviewServer({ port: 0 })` 的随机端口路径会规避 Chromium fetch-blocked ports，不会自动处理普通 `EADDRINUSE`。
 - `retry` 只对 `Error loading <url>`、`ERR_INSUFFICIENT_RESOURCES`、`Get <url> failed` 等 script load failure 生效，不 retry 模块执行异常。
 
 候选并发 summary：
@@ -204,3 +207,48 @@ hook probe：
 ```
 
 该错误在本 issue 的 script load failure 分类之外，本轮没有作为 `ERR_INSUFFICIENT_RESOURCES` / `SystemJS Error#3` / preview chunk load failure 处理。
+
+## 启动参数和默认缓存验证
+
+执行时间：2026-06-25 14:33-14:38（Asia/Shanghai）。
+
+启动命令：
+
+```text
+node node_modules/tsx/dist/cli.mjs src/cli.ts preview --project D:\ps_copy\p6\trunk\Project\GameClient\feature-c --runtime --port 19531 --host 127.0.0.1 --scene 4c721bfe-0b6e-46c2-97f0-644adfdcba31 --script-load-concurrency 24
+```
+
+server log：
+
+`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\preview-logs\runtime-preview-20260625-143307.log`
+
+关键事实：
+
+- log 中存在 `scriptLoadConcurrency=24`。
+- 根页面 HTML 中存在 `window.__RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__ = 24;`。
+- 本轮 Playwright/CDP 只执行 `Network.enable`，未执行 `Network.setCacheDisabled`，即浏览器使用默认缓存策略。
+
+默认缓存 evidence：
+
+- JSON：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-default-cache-20260625T063836Z.json`
+- screenshot：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-default-cache-20260625T063836Z.png`
+
+结果：
+
+| 指标 | 值 |
+| --- | --- |
+| `cacheDisabled` | `false` |
+| `window.__RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__` | `24` |
+| limiter `concurrency` | `24` |
+| limiter `maxActive` | `24` |
+| limiter `completed` | `3259` |
+| limiter `failed` | `0` |
+| limiter `retryCount` | `0` |
+| `window.__RUNTIME_PREVIEW_READY` | `true` |
+| page error | `0` |
+| console error | `[Physics] PhysicsSystem initDefaultMaterial() Failed to load builtinMaterial.` |
+
+结论：
+
+- 新增启动参数链路在真实 feature-c runtime preview 页面中生效。
+- 不禁用浏览器缓存时，本轮未出现 `ERR_INSUFFICIENT_RESOURCES`、`SystemJS Error#3` 或 preview chunk load failure。
