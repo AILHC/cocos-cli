@@ -138,3 +138,69 @@ hook probe：
 - 本轮辅助 profile 未复现 `net::ERR_INSUFFICIENT_RESOURCES`，不能反向否定用户当前 Edge DevTools 环境中的复现。
 - 现有 server log baseline 仍为 `browser:preview-error=659`、preview chunk `Get ... failed=284`。
 - 当前可用 hook 中 `System.fetchScript` 不存在，因此 limiter 应优先 patch `System.instantiate`；如果后续真实 Edge 页面 probe 发现不同 hook 形态，需要补充事实后再调整。
+
+## limiter 实现和候选并发验证
+
+执行时间：2026-06-25 13:50-13:59（Asia/Shanghai）。
+
+实现文件：
+
+- `src/runtime-preview/preview-app/src/systemjs-load-limiter.ts`
+- `src/runtime-preview/preview-app/src/prerequisite-imports.ts`
+- `src/runtime-preview/preview-app/src/main.ts`
+- `src/runtime-preview/preview-app/@types/type.d.ts`
+- `static/runtime-preview/preview-app/*`
+- `vitests/scripts/capture-feature-c-script-load-evidence.mjs`
+- `vitests/suites/runtime-preview/script-load-limiter.test.ts`
+- `vitests/suites/runtime-preview/preview-prerequisite-imports-policy.test.ts`
+
+关键实现事实：
+
+- `System.fetchScript` 为 `undefined`，不能作为 hook。
+- 首轮将 limiter 安装在 `loadRuntimePreviewPrerequisiteImports()` 内时，`window.__RUNTIME_PREVIEW_SCRIPT_LOAD_LIMITER__.metrics.enqueued=0`，说明此位置过晚，真实 preview chunk script load 已在 prerequisite 函数执行前发生。
+- 修正后在 `main()` 开始、`System.import('cc')` 前安装 limiter；matcher 仍只限制 `/scripting/x/packer-driver/targets/preview/chunks/*.js`，不限制 engine、settings、asset、import-map。
+- `runtimePreviewScriptLoadConcurrency=<n>` query override 已验证；默认值为 `32`。
+- `retry` 只对 `Error loading <url>`、`ERR_INSUFFICIENT_RESOURCES`、`Get <url> failed` 等 script load failure 生效，不 retry 模块执行异常。
+
+候选并发 summary：
+
+`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-concurrency-summary-20260625.json`
+
+| concurrency | runs | errorRuns | median readyElapsedMs | p95 readyElapsedMs | median prerequisiteImportMs | p95 prerequisiteImportMs | maxActiveMax | queuePeakMax | retryCountTotal |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `16` | 5 | 0 | `16297` | `18253` | `1` | `1` | `16` | `3238` | `0` |
+| `24` | 5 | 0 | `14983` | `15530` | `1` | `2` | `24` | `3230` | `0` |
+| `32` | 5 | 0 | `14963` | `15494` | `1` | `1` | `32` | `3222` | `0` |
+| `48` | 5 | 0 | `15535` | `19213` | `0` | `1` | `48` | `3206` | `0` |
+
+选择：
+
+`selectedConcurrency=32`。
+
+原因：
+
+- 四个候选均为零错误候选：无 `ERR_INSUFFICIENT_RESOURCES`、无 `SystemJS Error#3`、无 preview chunk `Get ... failed`、limiter `failed=0`、`maxActive <= concurrency`。
+- `readyElapsedMs` 是本轮更有区分度的主指标；`prerequisiteImportMs` 在 limiter 提前安装后只记录后续 prerequisite import/validation 阶段，median 基本为 `0-1ms`，不足以区分候选。
+- 在零错误候选中，`32` 的 `median(readyElapsedMs)=14963ms` 最低，`p95(readyElapsedMs)=15494ms` 也低于 `16` 和 `48`，略低于 `24`。
+
+本轮代表性 evidence：
+
+- `16`：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-evidence-20260625-135327.json`
+- `24`：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-evidence-20260625-135505.json`
+- `32`：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-evidence-20260625-135636.json`
+- `48`：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-evidence-20260625-135807.json`
+
+每轮 evidence 均包含：
+
+- `cacheDisabled=true`，来源为 CDP `Network.setCacheDisabled({ cacheDisabled: true })`。
+- preview chunk `Network.responseReceived` cache evidence，`fromDiskCache=false`、`fromMemoryCache=false`。
+- `window.__RUNTIME_PREVIEW_READY.scene=4c721bfe-0b6e-46c2-97f0-644adfdcba31`。
+- limiter metrics：`enqueued=3259`、`completed=3259`、`failed=0`、`retryCount=0`。
+
+残留非阻塞 console error：
+
+```text
+[Physics] PhysicsSystem initDefaultMaterial() Failed to load builtinMaterial.
+```
+
+该错误在本 issue 的 script load failure 分类之外，本轮没有作为 `ERR_INSUFFICIENT_RESOURCES` / `SystemJS Error#3` / preview chunk load failure 处理。
