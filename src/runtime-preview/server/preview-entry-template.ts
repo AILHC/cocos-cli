@@ -212,7 +212,7 @@ export async function renderRuntimePreviewEntry(
 
     try {
         const html = await ejs.renderFile(templatePath, {
-            title: `Cocos Creator Preview - ${basename(context.projectRoot)}`,
+            title: `Cocos Creator - ${basename(context.projectRoot)}`,
             tip_sceneIsEmpty: 'No user scene found to load.',
             enableDebugger: false,
             settingsJs: `/settings.js${sceneQuery}`,

@@ -191,6 +191,35 @@ describe('runtime preview browser entry contract', () => {
     expect(html).not.toContain('__PROJECT_SCRIPT_TEMPLATE_SHOULD_NOT_LOAD__');
   });
 
+  it('serves root preview-template test.js while not exposing .ejs scripts directly', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-project-template-root-js-'));
+    const templateRoot = join(projectRoot, 'preview-template');
+    await mkdir(templateRoot, { recursive: true });
+    await writeFile(
+      join(templateRoot, 'index.ejs'),
+      [
+        '<%- include(cocosTemplate, {}) %>',
+      ].join('\n'),
+      'utf8',
+    );
+    const testJsContent = 'console.log("runtime-preview test script");';
+    await writeFile(join(templateRoot, 'test.js'), testJsContent, 'utf8');
+
+    const routeContext = createRouteContextForProject(projectRoot);
+
+    const testJsResponse = await handleRuntimePreviewRequest(routeContext, '/test.js');
+    expect(testJsResponse.statusCode).toBe(200);
+    expect(testJsResponse.kind).toBe('file');
+    expect(testJsResponse.headers['content-type']).toBe('application/javascript; charset=utf-8');
+    expect(await responseBodyText(testJsResponse)).toBe(testJsContent);
+
+    const scriptEjsResponse = await handleRuntimePreviewRequest(routeContext, '/script.ejs');
+    expect(scriptEjsResponse.statusCode).not.toBe(200);
+
+    const indexEjsResponse = await handleRuntimePreviewRequest(routeContext, '/index.ejs');
+    expect(indexEjsResponse.statusCode).not.toBe(200);
+  });
+
   it('falls back to builtin preview index when project preview-template/index.ejs is missing', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-project-template-missing-'));
     const routeContext = createRouteContextForProject(projectRoot);

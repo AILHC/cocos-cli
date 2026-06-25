@@ -148,6 +148,23 @@ function getPluginScriptRequestPath(pathname: string): string | null {
     return scriptPath;
 }
 
+function getProjectTemplateRuntimePreviewFile(pathname: string, context: RuntimePreviewContext): string | null {
+    if (!pathname.startsWith('/') || pathname === '/' || pathname.includes('..')) {
+        return null;
+    }
+    const normalized = pathname.slice(1).replace(/\\/g, '/');
+    if (normalized.includes('/')) {
+        return null;
+    }
+    if (!normalized.endsWith('.js')) {
+        return null;
+    }
+    if (normalized.endsWith('.ejs')) {
+        return null;
+    }
+    return resolve(context.projectRoot, 'preview-template', normalized);
+}
+
 async function resolvePluginScriptLibraryFile(
     context: RuntimePreviewContext,
     scriptLibraryPath: string,
@@ -210,6 +227,14 @@ export async function handleRuntimePreviewRequest(
             }
             throw error;
         }
+    }
+
+    const projectTemplateRootRequest = getProjectTemplateRuntimePreviewFile(pathname, context.runtimeContext);
+    const projectTemplateRootFile = projectTemplateRootRequest
+        ? await resolveExistingFile(projectTemplateRootRequest)
+        : null;
+    if (projectTemplateRootFile) {
+        return serveOnDemandFile({ absolutePath: projectTemplateRootFile });
     }
 
     const runtimePreviewStaticFile = await resolveRuntimePreviewStaticFile(pathname);
