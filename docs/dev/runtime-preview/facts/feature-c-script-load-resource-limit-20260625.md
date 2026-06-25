@@ -95,3 +95,46 @@ script-load.js:69 Uncaught (in promise) Error: Error loading http://127.0.0.1:19
   - runtime preview log 是否新增 `browser:preview-error`。
   - `System.instantiate` / `System.fetchScript` / `System.createScript` hook probe 结果。
   - prerequisite import 耗时、validation 耗时、ready 耗时和截图。
+
+## Task 0 baseline 和 hook probe
+
+执行时间：2026-06-25 13:36（Asia/Shanghai）。
+
+工具：
+
+`vitests/scripts/capture-feature-c-script-load-evidence.mjs`
+
+输出：
+
+- JSON evidence：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-evidence-20260625-133601.json`
+- screenshot：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-evidence-http-3A-2F-2F127.0.0.1-3A19530-2F-3Fscene-3D4c721bfe-0b6e-46c2-97f0-644adfdcba31-20260625-133601.png`
+
+运行条件：
+
+- 因当前会话未暴露可直接 claim 用户 Edge tab 的浏览器工具，且 `http://127.0.0.1:9222/json/version` 不可用，本轮使用脚本启动的 Chromium/Edge 新 profile 辅助 baseline。
+- 脚本通过 CDP 执行 `Network.enable` 和 `Network.setCacheDisabled({ cacheDisabled: true })`。
+- evidence 中 `cacheDisabled=true`，并包含 `Network.responseReceived` 的 chunk cache evidence；preview chunk response 的 `fromDiskCache=false`、`fromMemoryCache=false`。
+
+hook probe：
+
+| hook | typeof |
+| --- | --- |
+| `System.instantiate` | `function` |
+| `System.fetchScript` | `undefined` |
+| `System.createScript` | `function` |
+
+本轮 Playwright/Edge 新 profile 结果：
+
+| 指标 | 值 |
+| --- | --- |
+| `ready.scene` | `4c721bfe-0b6e-46c2-97f0-644adfdcba31` |
+| request failure | `0` |
+| preview chunk response records | `6520` |
+| `SystemJS Error#3` | `0` |
+| console error | `[Physics] PhysicsSystem initDefaultMaterial() Failed to load builtinMaterial.` |
+
+解释：
+
+- 本轮辅助 profile 未复现 `net::ERR_INSUFFICIENT_RESOURCES`，不能反向否定用户当前 Edge DevTools 环境中的复现。
+- 现有 server log baseline 仍为 `browser:preview-error=659`、preview chunk `Get ... failed=284`。
+- 当前可用 hook 中 `System.fetchScript` 不存在，因此 limiter 应优先 patch `System.instantiate`；如果后续真实 Edge 页面 probe 发现不同 hook 形态，需要补充事实后再调整。
