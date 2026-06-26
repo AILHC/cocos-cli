@@ -8,6 +8,7 @@ import {
 } from '../context/runtime-preview-context';
 import { createRuntimePreviewLogger, type RuntimePreviewLogger } from '../logging/runtime-preview-logger';
 import { PreviewSettingsProvider } from '../settings/preview-settings-provider';
+import { createImportReplacementExtensionResolver } from './import-replacement-extension-cache';
 import { handleRuntimePreviewRequest } from './runtime-preview-routes';
 import type { RuntimePreviewHttpResponse } from './serve-on-demand-file';
 
@@ -136,6 +137,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         internalLibraryRoot: options.internalLibraryRoot,
         scriptLoadConcurrency: options.scriptLoadConcurrency,
     });
+    const importReplacementExtensionResolver = createImportReplacementExtensionResolver(context);
     let serverUrl = '';
     let settingsProvider = options.settingsProvider;
     const getSettingsProvider = (): PreviewSettingsProvider => {
@@ -207,6 +209,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 logger,
                 method: request.method,
                 body: typeof request.body === 'string' ? request.body : undefined,
+                importReplacementExtensionResolver,
             }, request.originalUrl || request.url || '/');
             sendRuntimePreviewResponse(response, routeResponse, next);
         } catch (error) {

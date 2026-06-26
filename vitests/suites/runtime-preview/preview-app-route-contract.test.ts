@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { mkdir, readFile, writeFile, mkdtemp } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { describe, expect, it, vi } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
@@ -492,6 +492,46 @@ describe('runtime preview preview-app required route contract', () => {
     expect(response.kind).toBe('body');
     expect(response.statusCode).toBe(200);
     expect(await responseBodyText(response)).toBe('.ccon');
+  });
+
+  it('reuses positive import replacement extension lookups for the server lifetime', async () => {
+    const uuid = 'dddddddd-dddd-4ccc-8ddd-eeeeeeeeeeee';
+    const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-server-ext-cache-'));
+    const projectLibraryRoot = join(tempRoot, 'project-library');
+    const bucket = join(projectLibraryRoot, uuid.slice(0, 2));
+    await mkdir(bucket, { recursive: true });
+    await writeFile(join(bucket, `${uuid}.cconb`), 'binary');
+
+    const server = await startRuntimePreviewServer({
+      projectRoot: tempRoot,
+      engineRoot: tempRoot,
+      projectLibraryRoot,
+      internalLibraryRoot: join(tempRoot, 'internal-library'),
+      projectProgrammingRoot: join(tempRoot, 'programming'),
+      host: '127.0.0.1',
+      port: 0,
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings: async () => ({
+          settings: {},
+          script2library: {},
+          bundleConfigs: [],
+        }),
+      }),
+    });
+
+    try {
+      const firstResponse = await fetch(`${server.url}/query-extname/${uuid}`);
+      expect(firstResponse.status).toBe(200);
+      expect(await firstResponse.text()).toBe('.cconb');
+
+      await rm(join(bucket, `${uuid}.cconb`));
+
+      const secondResponse = await fetch(`${server.url}/query-extname/${uuid}`);
+      expect(secondResponse.status).toBe(200);
+      expect(await secondResponse.text()).toBe('.cconb');
+    } finally {
+      await server.close();
+    }
   });
 
   it('serves production library URLs without settings generation', async () => {

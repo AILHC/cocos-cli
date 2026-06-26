@@ -16,15 +16,34 @@ type RuntimePreviewReadyState = {
     limitation?: string;
 };
 
+type RuntimePreviewPhaseTiming = {
+    phase: string;
+    durationMs: number;
+    timestamp: number;
+    limiter?: {
+        hook: string;
+        concurrency: number;
+        active: number;
+        maxActive: number;
+        queuePeak: number;
+        enqueued: number;
+        completed: number;
+        failed: number;
+        retryCount: number;
+        bypassed: number;
+    };
+};
+
 declare global {
     interface Window {
         __RUNTIME_PREVIEW_READY?: RuntimePreviewReadyState;
+        __RUNTIME_PREVIEW_PHASE_TIMINGS__?: unknown[];
     }
 }
 
 export async function main(ui: Ui, options: bootstrap.Options) {
     const scriptLoadLimiter = installRuntimePreviewScriptLoadLimiter(System);
-    const cc = await System.import('cc');
+    const cc = await recordRuntimePreviewPhase('ccImport', () => System.import('cc'));
 
     const debugMode = cc.DebugMode[ui.debugMode] ?? cc.DebugMode.INFO;
 
@@ -51,12 +70,19 @@ export async function main(ui: Ui, options: bootstrap.Options) {
     option.overrideSettings.launch = option.overrideSettings.launch || {};
     option.overrideSettings.launch.launchScene = '';
     // 等待引擎启动
-    await cc.game.init(option);
-    await loadRuntimePreviewPrerequisiteImports({
+    await recordRuntimePreviewPhase(
+        'gameInit',
+        () => cc.game.init(option),
+        () => collectScriptLoadLimiterPhaseTiming(scriptLoadLimiter),
+    );
+    await recordRuntimePreviewPhase('postGamePrerequisiteImports', () => loadRuntimePreviewPrerequisiteImports({
         system: System,
         installLimiter: () => scriptLoadLimiter,
-    });
-    const readyResources = await loadRuntimePreviewReadyResources(cc);
+    }), () => collectScriptLoadLimiterPhaseTiming(scriptLoadLimiter));
+    const readyResources = await recordRuntimePreviewPhase(
+        'readyResources',
+        () => loadRuntimePreviewReadyResources(cc),
+    );
     cc.assetManager.onAssetMissing(async (parentAsset: any, owner: any, propName: string, uuid: string) => {
         let assetPathOrUuid = uuid;
         let errorInfo = `The asset ${uuid} used by ${parentAsset.name}{${cc.js.getClassName(parentAsset)}(${parentAsset.uuid})} is missing! \n`;
@@ -77,7 +103,9 @@ export async function main(ui: Ui, options: bootstrap.Options) {
         console.error(errorInfo);
     });
 
+    const gameRunRequestedAt = Date.now();
     await cc.game.run(async () => {
+        recordRuntimePreviewPhaseTiming('gameRunCallbackDelay', gameRunRequestedAt);
         cc.director.once(cc.Director.EVENT_AFTER_SCENE_LAUNCH, () => {
             ui.hideSplash();
             if (isCurrentSceneEmpty(cc)) {
@@ -97,7 +125,7 @@ export async function main(ui: Ui, options: bootstrap.Options) {
             });
             return;
         }
-        const json = await getCurrentScene(launchScene);
+        const json = await recordRuntimePreviewPhase('sceneJsonFetch', () => getCurrentScene(launchScene));
         try {
             launchScene = json[1]._id;
         } catch (error) {
@@ -105,6 +133,7 @@ export async function main(ui: Ui, options: bootstrap.Options) {
         }
         // load scene
         // Load scene progress reports the first 60% of the splash progress.
+        const sceneLoadStartedAt = Date.now();
         cc.assetManager.loadWithJson(
             json,
             { assetId: launchScene },
@@ -113,6 +142,11 @@ export async function main(ui: Ui, options: bootstrap.Options) {
                 ui.reportLoadProgress(progress);
             },
             (error: null | Error, sceneAsset: any) => {
+                recordRuntimePreviewPhaseTiming(
+                    'sceneLoadWithJson',
+                    sceneLoadStartedAt,
+                    collectScriptLoadLimiterPhaseTiming(scriptLoadLimiter),
+                );
                 if (error) {
                     ui.showError(error);
                     cc.error(error);
@@ -132,9 +166,9 @@ export async function main(ui: Ui, options: bootstrap.Options) {
         );
     });
 
-    await new Promise((resolve) => {
+    await recordRuntimePreviewPhase('postRunDelay', () => new Promise((resolve) => {
         setTimeout(resolve, 100);
-    });
+    }));
 }
 
 async function loadRuntimePreviewReadyResources(cc: any): Promise<RuntimePreviewReadyResource[]> {
@@ -177,6 +211,7 @@ function getRuntimePreviewReadyResourceRequest(cc: any): { path: string; type: s
 
 const LEGACY_RENDER_MODE_WEBGL = 2;
 const LEGACY_RENDER_MODE_WEBGPU = 4;
+const EDITOR_PREVIEW_SPLASH_TOTAL_TIME_MS = 50;
 
 function applyRuntimePreviewBrowserOverrides(overrideSettings: Record<string, any>): void {
     const params = new URLSearchParams(window.location.search);
@@ -187,11 +222,64 @@ function applyRuntimePreviewBrowserOverrides(overrideSettings: Record<string, an
     overrideSettings.rendering.renderMode = renderType === 'webgpu'
         ? LEGACY_RENDER_MODE_WEBGPU
         : LEGACY_RENDER_MODE_WEBGL;
+    overrideSettings.splashScreen = overrideSettings.splashScreen || {};
+    overrideSettings.splashScreen.totalTime = EDITOR_PREVIEW_SPLASH_TOTAL_TIME_MS;
 }
 
 function setRuntimePreviewReady(state: RuntimePreviewReadyState): void {
     window.__RUNTIME_PREVIEW_READY = state;
     window.dispatchEvent(new CustomEvent('runtime-preview-ready', { detail: state }));
+}
+
+async function recordRuntimePreviewPhase<T>(
+    phase: string,
+    run: () => T | Promise<T>,
+    collectExtra?: () => Partial<RuntimePreviewPhaseTiming>,
+): Promise<T> {
+    const startedAt = Date.now();
+    try {
+        return await run();
+    } finally {
+        recordRuntimePreviewPhaseTiming(phase, startedAt, collectExtra?.());
+    }
+}
+
+function recordRuntimePreviewPhaseTiming(
+    phase: string,
+    startedAt: number,
+    extra: Partial<RuntimePreviewPhaseTiming> = {},
+): void {
+    const timing: RuntimePreviewPhaseTiming = {
+        phase,
+        durationMs: Date.now() - startedAt,
+        timestamp: Date.now(),
+        ...extra,
+    };
+    const previousTimings = (window.__RUNTIME_PREVIEW_PHASE_TIMINGS__ ?? []) as RuntimePreviewPhaseTiming[];
+    window.__RUNTIME_PREVIEW_PHASE_TIMINGS__ = [
+        ...previousTimings,
+        timing,
+    ];
+    console.info(`[runtime-preview] phase:done phase=${timing.phase} durationMs=${timing.durationMs}`);
+}
+
+function collectScriptLoadLimiterPhaseTiming(
+    limiter: ReturnType<typeof installRuntimePreviewScriptLoadLimiter>,
+): Partial<RuntimePreviewPhaseTiming> {
+    return {
+        limiter: {
+            hook: limiter.hook,
+            concurrency: limiter.concurrency,
+            active: limiter.metrics.active,
+            maxActive: limiter.metrics.maxActive,
+            queuePeak: limiter.metrics.queuePeak,
+            enqueued: limiter.metrics.enqueued,
+            completed: limiter.metrics.completed,
+            failed: limiter.metrics.failed,
+            retryCount: limiter.metrics.retryCount,
+            bypassed: limiter.metrics.bypassed,
+        },
+    };
 }
 
 /**

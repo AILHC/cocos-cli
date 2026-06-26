@@ -212,9 +212,19 @@
         });
     }
 
+    function scheduleSceneSelectorInstall() {
+        var install = function() {
+            installSceneSelector();
+        };
+        if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(install, { timeout: 1000 });
+            return;
+        }
+        setTimeout(install, 0);
+    }
+
     window.onload = function() {
-        installSceneSelector();
-        System.import("/preview-app/index.js").then(function (mod) {
+        System.import("/preview-app/index.js").then(function(mod) {
             return mod.bootstrap({
                 engineBaseUrl: '/scripting/engine',
                 settings: window._CCSettings,
@@ -222,6 +232,8 @@
             });
         }).catch(function(err) {
             console.error(err);
+        }).then(function() {
+            scheduleSceneSelectorInstall();
         });
     };
 </script>

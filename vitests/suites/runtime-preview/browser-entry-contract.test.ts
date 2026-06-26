@@ -217,6 +217,39 @@ describe('runtime preview browser entry contract', () => {
     expect(html).toContain('System.import("/preview-app/index.js")');
   });
 
+  it('schedules scene-list after preview app bootstrap instead of before bootstrap', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-lazy-scene-list-'));
+    const templateRoot = join(projectRoot, 'preview-template');
+    await mkdir(templateRoot, { recursive: true });
+    await writeFile(
+      join(templateRoot, 'index.ejs'),
+      [
+        '<select id="scene-select"></select>',
+        '<%- include(cocosTemplate, {}) %>',
+      ].join('\n'),
+      'utf8',
+    );
+    const routeContext = createRouteContextForProject(projectRoot);
+    const rootResponse = await handleRuntimePreviewRequest(routeContext, '/');
+    const html = await responseBodyText(rootResponse);
+    const installStart = html.indexOf('function installSceneSelector()');
+    const fetchStart = html.indexOf('fetch(sceneListUrl.href)', installStart);
+    const bootstrapStart = html.indexOf('return mod.bootstrap({');
+    const catchStart = html.indexOf('console.error(err);', bootstrapStart);
+    const scheduledInstallStart = html.indexOf('scheduleSceneSelectorInstall();', bootstrapStart);
+
+    expect(rootResponse.statusCode).toBe(200);
+    expect(html).toContain("new URL('/scene-list', window.location)");
+    expect(html).toContain('function scheduleSceneSelectorInstall()');
+    expect(html).toContain('window.requestIdleCallback(install, { timeout: 1000 });');
+    expect(html).toContain('setTimeout(install, 0);');
+    expect(installStart).toBeGreaterThan(-1);
+    expect(fetchStart).toBeGreaterThan(installStart);
+    expect(bootstrapStart).toBeGreaterThan(fetchStart);
+    expect(catchStart).toBeGreaterThan(bootstrapStart);
+    expect(scheduledInstallStart).toBeGreaterThan(catchStart);
+  });
+
   it('serves root preview-template test.js while not exposing .ejs scripts directly', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-project-template-root-js-'));
     const templateRoot = join(projectRoot, 'preview-template');

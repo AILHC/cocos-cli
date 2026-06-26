@@ -1,5 +1,16 @@
 System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], function (exports_1, context_1) {
     "use strict";
+    var __assign = (this && this.__assign) || function () {
+        __assign = Object.assign || function(t) {
+            for (var s, i = 1, n = arguments.length; i < n; i++) {
+                s = arguments[i];
+                for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                    t[p] = s[p];
+            }
+            return t;
+        };
+        return __assign.apply(this, arguments);
+    };
     var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
         function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
         return new (P || (P = Promise))(function (resolve, reject) {
@@ -36,18 +47,27 @@ System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], fun
             if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
         }
     };
-    var prerequisite_imports_js_1, systemjs_load_limiter_js_1, LEGACY_RENDER_MODE_WEBGL, LEGACY_RENDER_MODE_WEBGPU;
+    var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
+        if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+            if (ar || !(i in from)) {
+                if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+                ar[i] = from[i];
+            }
+        }
+        return to.concat(ar || Array.prototype.slice.call(from));
+    };
+    var prerequisite_imports_js_1, systemjs_load_limiter_js_1, LEGACY_RENDER_MODE_WEBGL, LEGACY_RENDER_MODE_WEBGPU, EDITOR_PREVIEW_SPLASH_TOTAL_TIME_MS;
     var __moduleName = context_1 && context_1.id;
     function main(ui, options) {
         return __awaiter(this, void 0, void 0, function () {
-            var scriptLoadLimiter, cc, debugMode, option, launchScene, readyResources;
+            var scriptLoadLimiter, cc, debugMode, option, launchScene, readyResources, gameRunRequestedAt;
             var _this = this;
             var _a;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
                         scriptLoadLimiter = systemjs_load_limiter_js_1.installRuntimePreviewScriptLoadLimiter(System);
-                        return [4 /*yield*/, System.import('cc')];
+                        return [4 /*yield*/, recordRuntimePreviewPhase('ccImport', function () { return System.import('cc'); })];
                     case 1:
                         cc = _b.sent();
                         debugMode = (_a = cc.DebugMode[ui.debugMode]) !== null && _a !== void 0 ? _a : cc.DebugMode.INFO;
@@ -71,17 +91,17 @@ System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], fun
                         option.overrideSettings.launch = option.overrideSettings.launch || {};
                         option.overrideSettings.launch.launchScene = '';
                         // 等待引擎启动
-                        return [4 /*yield*/, cc.game.init(option)];
+                        return [4 /*yield*/, recordRuntimePreviewPhase('gameInit', function () { return cc.game.init(option); }, function () { return collectScriptLoadLimiterPhaseTiming(scriptLoadLimiter); })];
                     case 2:
                         // 等待引擎启动
                         _b.sent();
-                        return [4 /*yield*/, prerequisite_imports_js_1.loadRuntimePreviewPrerequisiteImports({
+                        return [4 /*yield*/, recordRuntimePreviewPhase('postGamePrerequisiteImports', function () { return prerequisite_imports_js_1.loadRuntimePreviewPrerequisiteImports({
                                 system: System,
                                 installLimiter: function () { return scriptLoadLimiter; },
-                            })];
+                            }); }, function () { return collectScriptLoadLimiterPhaseTiming(scriptLoadLimiter); })];
                     case 3:
                         _b.sent();
-                        return [4 /*yield*/, loadRuntimePreviewReadyResources(cc)];
+                        return [4 /*yield*/, recordRuntimePreviewPhase('readyResources', function () { return loadRuntimePreviewReadyResources(cc); })];
                     case 4:
                         readyResources = _b.sent();
                         cc.assetManager.onAssetMissing(function (parentAsset, owner, propName, uuid) { return __awaiter(_this, void 0, void 0, function () {
@@ -117,11 +137,13 @@ System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], fun
                                 }
                             });
                         }); });
+                        gameRunRequestedAt = Date.now();
                         return [4 /*yield*/, cc.game.run(function () { return __awaiter(_this, void 0, void 0, function () {
-                                var json;
+                                var json, sceneLoadStartedAt;
                                 return __generator(this, function (_a) {
                                     switch (_a.label) {
                                         case 0:
+                                            recordRuntimePreviewPhaseTiming('gameRunCallbackDelay', gameRunRequestedAt);
                                             cc.director.once(cc.Director.EVENT_AFTER_SCENE_LAUNCH, function () {
                                                 ui.hideSplash();
                                                 if (isCurrentSceneEmpty(cc)) {
@@ -141,7 +163,7 @@ System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], fun
                                                 });
                                                 return [2 /*return*/];
                                             }
-                                            return [4 /*yield*/, getCurrentScene(launchScene)];
+                                            return [4 /*yield*/, recordRuntimePreviewPhase('sceneJsonFetch', function () { return getCurrentScene(launchScene); })];
                                         case 1:
                                             json = _a.sent();
                                             try {
@@ -150,12 +172,12 @@ System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], fun
                                             catch (error) {
                                                 console.debug(error);
                                             }
-                                            // load scene
-                                            // Load scene progress reports the first 60% of the splash progress.
+                                            sceneLoadStartedAt = Date.now();
                                             cc.assetManager.loadWithJson(json, { assetId: launchScene }, function (completedCount, totalCount) {
                                                 var progress = ((100 * completedCount) / totalCount) * 0.6; // 划分加载进度，场景加载 60%
                                                 ui.reportLoadProgress(progress);
                                             }, function (error, sceneAsset) {
+                                                recordRuntimePreviewPhaseTiming('sceneLoadWithJson', sceneLoadStartedAt, collectScriptLoadLimiterPhaseTiming(scriptLoadLimiter));
                                                 if (error) {
                                                     ui.showError(error);
                                                     cc.error(error);
@@ -178,9 +200,9 @@ System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], fun
                             }); })];
                     case 5:
                         _b.sent();
-                        return [4 /*yield*/, new Promise(function (resolve) {
+                        return [4 /*yield*/, recordRuntimePreviewPhase('postRunDelay', function () { return new Promise(function (resolve) {
                                 setTimeout(resolve, 100);
-                            })];
+                            }); })];
                     case 6:
                         _b.sent();
                         return [2 /*return*/];
@@ -239,10 +261,58 @@ System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], fun
         overrideSettings.rendering.renderMode = renderType === 'webgpu'
             ? LEGACY_RENDER_MODE_WEBGPU
             : LEGACY_RENDER_MODE_WEBGL;
+        overrideSettings.splashScreen = overrideSettings.splashScreen || {};
+        overrideSettings.splashScreen.totalTime = EDITOR_PREVIEW_SPLASH_TOTAL_TIME_MS;
     }
     function setRuntimePreviewReady(state) {
         window.__RUNTIME_PREVIEW_READY = state;
         window.dispatchEvent(new CustomEvent('runtime-preview-ready', { detail: state }));
+    }
+    function recordRuntimePreviewPhase(phase, run, collectExtra) {
+        return __awaiter(this, void 0, void 0, function () {
+            var startedAt;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        startedAt = Date.now();
+                        _a.label = 1;
+                    case 1:
+                        _a.trys.push([1, , 3, 4]);
+                        return [4 /*yield*/, run()];
+                    case 2: return [2 /*return*/, _a.sent()];
+                    case 3:
+                        recordRuntimePreviewPhaseTiming(phase, startedAt, collectExtra === null || collectExtra === void 0 ? void 0 : collectExtra());
+                        return [7 /*endfinally*/];
+                    case 4: return [2 /*return*/];
+                }
+            });
+        });
+    }
+    function recordRuntimePreviewPhaseTiming(phase, startedAt, extra) {
+        var _a;
+        if (extra === void 0) { extra = {}; }
+        var timing = __assign({ phase: phase, durationMs: Date.now() - startedAt, timestamp: Date.now() }, extra);
+        var previousTimings = ((_a = window.__RUNTIME_PREVIEW_PHASE_TIMINGS__) !== null && _a !== void 0 ? _a : []);
+        window.__RUNTIME_PREVIEW_PHASE_TIMINGS__ = __spreadArray(__spreadArray([], previousTimings, true), [
+            timing,
+        ], false);
+        console.info("[runtime-preview] phase:done phase=".concat(timing.phase, " durationMs=").concat(timing.durationMs));
+    }
+    function collectScriptLoadLimiterPhaseTiming(limiter) {
+        return {
+            limiter: {
+                hook: limiter.hook,
+                concurrency: limiter.concurrency,
+                active: limiter.metrics.active,
+                maxActive: limiter.metrics.maxActive,
+                queuePeak: limiter.metrics.queuePeak,
+                enqueued: limiter.metrics.enqueued,
+                completed: limiter.metrics.completed,
+                failed: limiter.metrics.failed,
+                retryCount: limiter.metrics.retryCount,
+                bypassed: limiter.metrics.bypassed,
+            },
+        };
     }
     /**
      * Check if current scene is empty.
@@ -303,6 +373,7 @@ System.register(["./prerequisite-imports.js", "./systemjs-load-limiter.js"], fun
         execute: function () {
             LEGACY_RENDER_MODE_WEBGL = 2;
             LEGACY_RENDER_MODE_WEBGPU = 4;
+            EDITOR_PREVIEW_SPLASH_TOTAL_TIME_MS = 50;
         }
     };
 });

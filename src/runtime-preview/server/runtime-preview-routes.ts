@@ -23,6 +23,10 @@ import {
     getRequestedScene,
     resolveRuntimePreviewStartScene,
 } from './preview-scenes';
+import {
+    createImportReplacementExtensionResolver,
+    type ImportReplacementExtensionResolver,
+} from './import-replacement-extension-cache';
 
 export interface RuntimePreviewRouteContext {
     runtimeContext: RuntimePreviewContext;
@@ -31,6 +35,7 @@ export interface RuntimePreviewRouteContext {
     logger?: RuntimePreviewLogger;
     method?: string;
     body?: string;
+    importReplacementExtensionResolver?: ImportReplacementExtensionResolver;
 }
 
 function decodePathname(requestPath: string): string | null {
@@ -54,34 +59,6 @@ function getBundleNameFromIndexRoute(pathname: string): string | null {
 function getQueryExtnameUuid(pathname: string): string | null {
     const match = /^\/query-extname\/([^/]+)$/.exec(pathname);
     return match?.[1] ?? null;
-}
-
-async function queryImportReplacementExtension(context: RuntimePreviewContext, uuid: string): Promise<string> {
-    if (!/^[0-9a-fA-F-]+$/.test(uuid)) {
-        return '';
-    }
-
-    const lookupRoots = Array.from(new Set([
-        context.projectLibraryRoot,
-        ...context.extensionLibraryRoots.map((entry) => entry.root),
-        context.internalLibraryRoot,
-    ].filter((value): value is string => Boolean(value))));
-
-    for (const root of lookupRoots) {
-        const bucket = join(root, uuid.slice(0, 2));
-        for (const extension of ['.cconb', '.ccon']) {
-            try {
-                const fileStat = await stat(join(bucket, `${uuid}${extension}`));
-                if (fileStat.isFile()) {
-                    return extension;
-                }
-            } catch {
-                // Try the next import payload extension candidate.
-            }
-        }
-    }
-
-    return '';
 }
 
 const prerequisiteImportsModURL = 'cce:/internal/x/prerequisite-imports';
@@ -295,7 +272,9 @@ export async function handleRuntimePreviewRequest(
 
     const queryExtnameUuid = getQueryExtnameUuid(pathname);
     if (queryExtnameUuid) {
-        return textResponse(200, await queryImportReplacementExtension(context.runtimeContext, queryExtnameUuid));
+        const resolver = context.importReplacementExtensionResolver
+            ?? createImportReplacementExtensionResolver(context.runtimeContext);
+        return textResponse(200, await resolver.query(queryExtnameUuid));
     }
 
     if (pathname === '/scripting/import-map-global') {

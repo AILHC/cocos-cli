@@ -22,6 +22,7 @@ declare global {
         __RUNTIME_PREVIEW_SCRIPT_LOAD_CONCURRENCY__?: number | null;
         __RUNTIME_PREVIEW_SCRIPT_LOAD_LIMITER__?: unknown;
         __RUNTIME_PREVIEW_PREREQUISITE_TIMINGS__?: unknown[];
+        __RUNTIME_PREVIEW_PHASE_TIMINGS__?: unknown[];
     }
 }
 

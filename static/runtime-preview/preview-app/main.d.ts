@@ -14,6 +14,7 @@ type RuntimePreviewReadyState = {
 declare global {
     interface Window {
         __RUNTIME_PREVIEW_READY?: RuntimePreviewReadyState;
+        __RUNTIME_PREVIEW_PHASE_TIMINGS__?: unknown[];
     }
 }
 export declare function main(ui: Ui, options: bootstrap.Options): Promise<void>;
