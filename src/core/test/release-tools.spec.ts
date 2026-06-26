@@ -58,6 +58,7 @@ function createReleaseSourceFixture(repoRoot: string): void {
             },
         },
     });
+    writeText(join(repoRoot, 'docs', 'usage.md'), '# usage\n');
     writeText(join(repoRoot, 'dist', 'cli.js'), 'console.log("cli");\n');
     writeText(join(repoRoot, 'static', 'keep.txt'), 'static\n');
     writeText(join(repoRoot, 'static', 'node_modules', 'stale.txt'), 'skip\n');
@@ -240,6 +241,7 @@ describe('release tools workflow helpers', () => {
         expect(readme).toContain('npm: 10.9.2');
         expect(readme).toContain('npm install');
         expect(readme).toContain('node .\\dist\\cli.js --help');
+        expect(readme).toContain('docs/usage.md');
         expect(readme).toContain('preview --runtime');
         expect(readme).toContain('cocos-cli.enginePath');
         expect(readme).toContain('cliInitializedEngineRoot');
@@ -320,6 +322,7 @@ describe('release tools workflow helpers', () => {
         });
         createDir(join(targetRoot, 'packages', 'asset-db'));
         createDir(join(targetRoot, 'packages', 'cc-module'));
+        writeText(join(targetRoot, 'docs', 'usage.md'), '# usage\n');
         for (const toolDir of [
             'static/tools/creator-3.8.6/PVRTexTool_win32',
             'static/tools/PVRTexTool_win32',
@@ -360,6 +363,7 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(targetRoot, 'node_modules'))).toBe(false);
         expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
         expect(existsSync(join(targetRoot, 'dist', 'cli.js'))).toBe(true);
+        expect(readFileSync(join(targetRoot, 'docs', 'usage.md'), 'utf8')).toBe('# usage\n');
     });
 
     it('uses the source lockfile when writing the runtime package', () => {

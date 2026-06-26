@@ -6,6 +6,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const RUNTIME_SCRIPT_ALLOWLIST = ['cli'];
 const COPY_ENTRIES = [
     ['dist'],
+    ['docs', 'usage.md'],
     ['static'],
     ['packages', 'cc-module'],
     ['packages', 'asset-db'],
@@ -187,6 +188,7 @@ function assertReleaseDirectory(targetRoot) {
     }
 
     assertPathExists(resolvedTargetRoot, '.gitignore', 'file');
+    assertPathExists(resolvedTargetRoot, 'docs/usage.md', 'file');
     assertPathExists(resolvedTargetRoot, 'package.json', 'file');
     assertPathExists(resolvedTargetRoot, 'package-lock.json', 'file');
     assertPathExists(resolvedTargetRoot, 'packages/asset-db', 'directory');
@@ -200,6 +202,7 @@ function assertReleaseDirectory(targetRoot) {
     if (!/(^|\r?\n)node_modules\/(\r?\n|$)/.test(gitignore)) {
         throw new Error('Release .gitignore must contain node_modules/');
     }
+    assertNoLocalAbsolutePaths(fs.readFileSync(path.join(resolvedTargetRoot, 'docs', 'usage.md'), 'utf8'));
 
     const runtimePackage = readJson(path.join(resolvedTargetRoot, 'package.json'));
     assertRuntimePackage(runtimePackage);
@@ -211,6 +214,8 @@ function renderReadme(metadata) {
     const readme = `# Cocos CLI tools runtime
 
 本文档说明 \`<p6Root>/tools/cocos-cli\` 中的 Cocos CLI runtime 使用方式。当前支持的 Creator 版本为 \`3.8.6\`。
+
+给 agent 使用的注意事项见 \`docs/usage.md\`；CLI help 已覆盖的参数说明不在该文档重复。
 
 ## 环境版本
 
