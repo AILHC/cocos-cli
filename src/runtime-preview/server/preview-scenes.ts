@@ -3,15 +3,26 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { RuntimePreviewContext } from '../context/runtime-preview-context';
 
 const currentSceneKeyword = 'current_scene';
+const cliAssetsDataFile = '.cli-assets-data.json';
+const editorAssetsDataFile = '.assets-data.json';
 
 interface AssetDataRecord {
     url?: string;
+}
+
+interface AssetDataSource {
+    root: string;
+    fileName: string;
 }
 
 interface PreviewProfile {
     general?: {
         start_scene?: unknown;
     };
+}
+
+interface EditorSceneSettings {
+    'current-scene'?: unknown;
 }
 
 export interface PreviewSceneRecord {
@@ -60,10 +71,41 @@ export function getProjectLibraryRoots(context: RuntimePreviewContext): string[]
     const cliLibraryRoot = join(projectLibraryRoot, 'cli');
     const configuredLibraryRoot = resolve(context.projectLibraryRoot);
     const roots = configuredLibraryRoot === projectLibraryRoot
-        ? [cliLibraryRoot, context.projectLibraryRoot]
+        ? [context.projectLibraryRoot, cliLibraryRoot]
         : [context.projectLibraryRoot, cliLibraryRoot, projectLibraryRoot];
 
     return Array.from(new Set(roots.filter((value): value is string => Boolean(value))));
+}
+
+function uniqueAssetDataSources(sources: AssetDataSource[]): AssetDataSource[] {
+    const seen = new Set<string>();
+    return sources.filter((source) => {
+        const key = `${resolve(source.root)}\0${source.fileName}`;
+        if (seen.has(key)) {
+            return false;
+        }
+        seen.add(key);
+        return true;
+    });
+}
+
+function getProjectLibraryAssetDataSources(context: RuntimePreviewContext): AssetDataSource[] {
+    const projectLibraryRoot = resolve(context.projectRoot, 'library');
+    const cliLibraryRoot = join(projectLibraryRoot, 'cli');
+    const configuredLibraryRoot = resolve(context.projectLibraryRoot);
+
+    if (configuredLibraryRoot === projectLibraryRoot) {
+        return uniqueAssetDataSources([
+            { root: context.projectLibraryRoot, fileName: cliAssetsDataFile },
+            { root: cliLibraryRoot, fileName: editorAssetsDataFile },
+            { root: context.projectLibraryRoot, fileName: editorAssetsDataFile },
+        ]);
+    }
+
+    return uniqueAssetDataSources(getProjectLibraryRoots(context).flatMap((root) => [
+        { root, fileName: cliAssetsDataFile },
+        { root, fileName: editorAssetsDataFile },
+    ]));
 }
 
 async function readJsonFile<T>(absolutePath: string): Promise<T | null> {
@@ -74,8 +116,8 @@ async function readJsonFile<T>(absolutePath: string): Promise<T | null> {
     }
 }
 
-async function loadAssetData(root: string): Promise<Record<string, AssetDataRecord> | null> {
-    return readJsonFile<Record<string, AssetDataRecord>>(join(root, '.assets-data.json'));
+async function loadAssetData(source: AssetDataSource): Promise<Record<string, AssetDataRecord> | null> {
+    return readJsonFile<Record<string, AssetDataRecord>>(join(source.root, source.fileName));
 }
 
 function sceneNameFromUrl(url: string): string | undefined {
@@ -93,8 +135,8 @@ function sceneBundleFromUrl(url: string): string | undefined {
 }
 
 export async function listPreviewScenes(context: RuntimePreviewContext): Promise<PreviewSceneRecord[]> {
-    for (const root of getProjectLibraryRoots(context)) {
-        const assetData = await loadAssetData(root);
+    for (const source of getProjectLibraryAssetDataSources(context)) {
+        const assetData = await loadAssetData(source);
         if (!assetData) {
             continue;
         }
@@ -118,13 +160,13 @@ export async function resolveSceneJsonFile(context: RuntimePreviewContext, uuid:
         return null;
     }
 
-    for (const root of getProjectLibraryRoots(context)) {
-        const assetData = await loadAssetData(root);
+    for (const source of getProjectLibraryAssetDataSources(context)) {
+        const assetData = await loadAssetData(source);
         if (!assetData?.[uuid]?.url?.endsWith('.scene')) {
             continue;
         }
 
-        const file = await resolveExistingFileInside(root, `${uuid.slice(0, 2)}/${uuid}.json`);
+        const file = await resolveExistingFileInside(source.root, `${uuid.slice(0, 2)}/${uuid}.json`);
         if (file) {
             return file;
         }
@@ -156,6 +198,12 @@ async function readProfileStartScene(context: RuntimePreviewContext): Promise<st
     return typeof startScene === 'string' ? startScene.trim() : '';
 }
 
+async function readEditorCurrentScene(context: RuntimePreviewContext): Promise<string> {
+    const settings = await readJsonFile<EditorSceneSettings>(join(context.projectRoot, 'settings', 'v2', 'packages', 'scene.json'));
+    const currentScene = settings?.['current-scene'];
+    return typeof currentScene === 'string' ? currentScene.trim() : '';
+}
+
 function resolveSceneRecord(scenes: PreviewSceneRecord[], scene: string): PreviewSceneRecord | null {
     return scenes.find((record) => record.uuid === scene || record.url === scene) ?? null;
 }
@@ -178,10 +226,14 @@ export async function resolveRuntimePreviewStartScene(
     const scenes = await listPreviewScenes(context);
     const fallbackScene = await findFirstLoadableScene(context, scenes);
     const explicitScene = requestedScene?.trim() || cliScene?.trim();
+    const editorCurrentScene = await readEditorCurrentScene(context);
+    const currentSceneFallback = editorCurrentScene
+        ? resolveSceneRecord(scenes, editorCurrentScene)?.uuid ?? fallbackScene
+        : fallbackScene;
 
     if (explicitScene) {
         if (explicitScene === currentSceneKeyword) {
-            return fallbackScene;
+            return currentSceneFallback;
         }
 
         return resolveSceneRecord(scenes, explicitScene)?.uuid ?? explicitScene;
@@ -189,7 +241,7 @@ export async function resolveRuntimePreviewStartScene(
 
     const profileScene = await readProfileStartScene(context);
     if (!profileScene || profileScene === currentSceneKeyword) {
-        return fallbackScene;
+        return currentSceneFallback;
     }
 
     return resolveSceneRecord(scenes, profileScene)?.uuid ?? fallbackScene;

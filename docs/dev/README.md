@@ -6,17 +6,19 @@
 
 1. 项目整体结构：`architecture/overview.md`
 2. 源码模块地图：`architecture/module-map.md`
-3. 文档维护规则：`architecture/documentation-policy.md`
-4. 模块正式文档：`modules/`
-5. Superpowers spec / implementation plan：`../superpowers/`
-6. 可验证事实：`facts/`
-7. 设计决策：`decisions/`
-8. 专题过程记录、验收和交接：各主题目录下的 `facts/`、`acceptance/`、`handoff/`
+3. 项目测试规范：`testing-spec.md`
+4. 文档维护规则：`architecture/documentation-policy.md`
+5. 模块正式文档：`modules/`
+6. Superpowers spec / implementation plan：`../superpowers/`
+7. 可验证事实：`facts/`
+8. 设计决策：`decisions/`
+9. 专题过程记录、验收和交接：各主题目录下的 `facts/`、`acceptance/`、`handoff/`
 
 ## Document Types
 
 - `architecture/`：跨模块架构、生命周期、数据流和文档维护规则。
 - `modules/`：当前模块职责、入口、输出、依赖和边界。
+- `testing-spec.md`：项目级测试、诊断、验收、真实项目复现和环境变量边界规范。
 - `facts/`：源码位置、真实产物、命令输出和对比记录。
 - `decisions/`：带取舍的长期设计决策。
 - `reference/`：长期保留的外部参考材料；只能用于事实核对和历史行为理解，不能作为 production 默认策略。

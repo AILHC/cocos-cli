@@ -182,36 +182,153 @@ describe('runtime preview preview-app required route contract', () => {
     expect(await responseBodyText(response)).toContain(`"launchScene":"${requestedScene}"`);
   });
 
-  it('prefers current CLI AssetDB scene output when production root is project library', async () => {
+  it('serves scene list and scene json from shared CLI sidecar records when production root is project library', async () => {
     const paths = getFixturePaths();
-    const routeContext = createProductionLibraryRouteContext();
-    const cliAssetData = JSON.parse(
-      await readFile(join(paths.projectRoot, 'library', 'cli', '.assets-data.json'), 'utf8'),
-    ) as Record<string, { url?: string }>;
-    const sceneEntry = Object.entries(cliAssetData)
-      .find((entry): entry is [string, { url: string }] => typeof entry[1].url === 'string' && entry[1].url.endsWith('.scene'));
-    if (!sceneEntry) {
-      throw new Error('Current CLI AssetDB output has no .scene entry.');
-    }
-    const [sceneUuid, sceneRecord] = sceneEntry;
+    const sceneUuid = '4c721bfe-0b6e-46c2-97f0-644adfdcba31';
+    const staleSceneUuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-shared-sidecar-'));
+    const projectLibraryRoot = join(tempRoot, 'library');
+    await mkdir(join(projectLibraryRoot, sceneUuid.slice(0, 2)), { recursive: true });
+    await mkdir(join(projectLibraryRoot, 'cli', staleSceneUuid.slice(0, 2)), { recursive: true });
+    await writeFile(join(projectLibraryRoot, '.cli-assets-data.json'), JSON.stringify({
+      [sceneUuid]: {
+        url: 'db://assets/scenes/start.scene',
+      },
+    }), 'utf8');
+    await writeFile(join(projectLibraryRoot, sceneUuid.slice(0, 2), `${sceneUuid}.json`), '{"__type__":"cc.SceneAsset","name":"shared"}', 'utf8');
+    await writeFile(join(projectLibraryRoot, 'cli', '.assets-data.json'), JSON.stringify({
+      [staleSceneUuid]: {
+        url: 'db://assets/scenes/stale.scene',
+      },
+    }), 'utf8');
+    await writeFile(join(projectLibraryRoot, 'cli', staleSceneUuid.slice(0, 2), `${staleSceneUuid}.json`), '{"__type__":"cc.SceneAsset","name":"stale"}', 'utf8');
 
-    expect(sceneRecord.url).toMatch(/^db:\/\/assets\/.*\.scene$/);
+    const routeContext = {
+      ...createRouteContext(),
+      runtimeContext: createRuntimePreviewContext({
+        projectRoot: tempRoot,
+        engineRoot: paths.engineRoot,
+        projectLibraryRoot,
+        internalLibraryRoot: join(tempRoot, 'internal-library'),
+        projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+        cliProgrammingRoot: join(tempRoot, 'temp', 'cli', 'programming'),
+      }),
+    };
+
+    const sceneListResponse = await handleRuntimePreviewRequest(routeContext, '/scene-list');
+    const sceneList = JSON.parse(await responseBodyText(sceneListResponse)) as {
+      scenes: Array<{ uuid: string; url: string }>;
+      currentScene?: string;
+    };
+
+    expect(sceneList.scenes).toEqual([expect.objectContaining({
+      uuid: sceneUuid,
+      url: 'db://assets/scenes/start.scene',
+    })]);
+    expect(sceneList.currentScene).toBe(sceneUuid);
+
+    const sceneResponse = await handleRuntimePreviewRequest(routeContext, `/scene/${sceneUuid}.json`);
+
+    expect(sceneResponse.statusCode).toBe(200);
+    expect(await responseBodyText(sceneResponse)).toContain('"name":"shared"');
+  });
+
+  it('keeps legacy library cli scene records ahead of editor records when shared sidecar records are absent', async () => {
+    const paths = getFixturePaths();
+    const legacySceneUuid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const editorSceneUuid = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-legacy-cli-records-'));
+    const projectLibraryRoot = join(tempRoot, 'library');
+    await mkdir(join(projectLibraryRoot, 'cli', legacySceneUuid.slice(0, 2)), { recursive: true });
+    await mkdir(join(projectLibraryRoot, editorSceneUuid.slice(0, 2)), { recursive: true });
+    await writeFile(join(projectLibraryRoot, 'cli', '.assets-data.json'), JSON.stringify({
+      [legacySceneUuid]: {
+        url: 'db://assets/scenes/legacy.scene',
+      },
+    }), 'utf8');
+    await writeFile(join(projectLibraryRoot, 'cli', legacySceneUuid.slice(0, 2), `${legacySceneUuid}.json`), '{"__type__":"cc.SceneAsset","name":"legacy"}', 'utf8');
+    await writeFile(join(projectLibraryRoot, '.assets-data.json'), JSON.stringify({
+      [editorSceneUuid]: {
+        url: 'db://assets/scenes/editor.scene',
+      },
+    }), 'utf8');
+    await writeFile(join(projectLibraryRoot, editorSceneUuid.slice(0, 2), `${editorSceneUuid}.json`), '{"__type__":"cc.SceneAsset","name":"editor"}', 'utf8');
+
+    const routeContext = {
+      ...createRouteContext(),
+      runtimeContext: createRuntimePreviewContext({
+        projectRoot: tempRoot,
+        engineRoot: paths.engineRoot,
+        projectLibraryRoot,
+        internalLibraryRoot: join(tempRoot, 'internal-library'),
+        projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+        cliProgrammingRoot: join(tempRoot, 'temp', 'cli', 'programming'),
+      }),
+    };
 
     const sceneListResponse = await handleRuntimePreviewRequest(routeContext, '/scene-list');
     const sceneList = JSON.parse(await responseBodyText(sceneListResponse)) as {
       scenes: Array<{ uuid: string; url: string }>;
     };
 
-    expect(sceneList.scenes).toContainEqual(expect.objectContaining({
-      uuid: sceneUuid,
-      url: sceneRecord.url,
-    }));
+    expect(sceneList.scenes).toEqual([expect.objectContaining({
+      uuid: legacySceneUuid,
+      url: 'db://assets/scenes/legacy.scene',
+    })]);
 
-    const sceneResponse = await handleRuntimePreviewRequest(routeContext, `/scene/${sceneUuid}.json`);
-    const cliSceneJson = await readFile(join(paths.projectRoot, 'library', 'cli', sceneUuid.slice(0, 2), `${sceneUuid}.json`), 'utf8');
+    const sceneResponse = await handleRuntimePreviewRequest(routeContext, `/scene/${legacySceneUuid}.json`);
 
     expect(sceneResponse.statusCode).toBe(200);
-    expect(await responseBodyText(sceneResponse)).toBe(cliSceneJson);
+    expect(await responseBodyText(sceneResponse)).toContain('"name":"legacy"');
+  });
+
+  it('uses the editor current scene setting as the default scene when no scene is requested', async () => {
+    const paths = getFixturePaths();
+    const sceneUuid = '4c721bfe-0b6e-46c2-97f0-644adfdcba31';
+    const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-current-scene-'));
+    const projectLibraryRoot = join(tempRoot, 'library');
+    await mkdir(join(projectLibraryRoot, sceneUuid.slice(0, 2)), { recursive: true });
+    await mkdir(join(tempRoot, 'settings', 'v2', 'packages'), { recursive: true });
+    await writeFile(join(projectLibraryRoot, '.cli-assets-data.json'), JSON.stringify({
+      [sceneUuid]: {
+        url: 'db://assets/scenes/start.scene',
+      },
+    }), 'utf8');
+    await writeFile(join(projectLibraryRoot, sceneUuid.slice(0, 2), `${sceneUuid}.json`), '{"__type__":"cc.SceneAsset","name":"start"}', 'utf8');
+    await writeFile(join(tempRoot, 'settings', 'v2', 'packages', 'scene.json'), JSON.stringify({
+      'current-scene': sceneUuid,
+    }), 'utf8');
+    const loadPreviewSettings = vi.fn(async (buildOptions?: Record<string, unknown>) => ({
+      settings: {
+        launch: {
+          launchScene: buildOptions?.startScene,
+        },
+      },
+      script2library: {},
+      bundleConfigs: [],
+    }));
+    const routeContext = {
+      ...createRouteContext(),
+      runtimeContext: createRuntimePreviewContext({
+        projectRoot: tempRoot,
+        engineRoot: paths.engineRoot,
+        projectLibraryRoot,
+        internalLibraryRoot: join(tempRoot, 'internal-library'),
+        projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+        cliProgrammingRoot: join(tempRoot, 'temp', 'cli', 'programming'),
+      }),
+      settingsProvider: new PreviewSettingsProvider({
+        loadPreviewSettings,
+      }),
+    };
+
+    const response = await handleRuntimePreviewRequest(routeContext, '/settings.js');
+
+    expect(response.statusCode).toBe(200);
+    expect(loadPreviewSettings).toHaveBeenCalledWith({
+      startScene: sceneUuid,
+    });
+    expect(await responseBodyText(response)).toContain(`"launchScene":"${sceneUuid}"`);
   });
 
   it('serves preview-app browser support and diagnostic routes', async () => {

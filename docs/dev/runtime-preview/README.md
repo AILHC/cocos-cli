@@ -15,14 +15,16 @@
 
 ## 必读顺序
 
-1. [issues.md](issues.md)：当前反馈问题、状态、事实入口、计划入口和验收入口。
-2. [acceptance/matrix.md](acceptance/matrix.md)：当前验收矩阵。
-3. [facts/architecture.md](facts/architecture.md)：当前事实、已否定假设和 2026-06-11 裁决。
-4. [design/core-flow.md](design/core-flow.md)：核心流程目标、边界、route 规则、script loading 和 strict acceptance。
-5. [plans/core-flow-implementation-20260610.md](plans/core-flow-implementation-20260610.md)：本轮执行计划和执行记录。
-6. [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)：production engine root 解析退化和启动日志重复的修复计划。
-7. [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)：项目级 internal library 事实、缓存干扰和最小修复边界。
-8. [acceptance/feedback-20260609.md](acceptance/feedback-20260609.md)：历史反馈闭环长文；新问题状态以 [issues.md](issues.md) 为索引。
+1. [../testing-spec.md](../testing-spec.md)：项目级测试规范；定义所有测试层级、项目/fixture 分类、环境变量边界和构建语义。
+2. [issues.md](issues.md)：当前反馈问题、状态、事实入口、计划入口和验收入口。
+3. [testing-spec.md](testing-spec.md)：runtime preview 专项测试分层、项目选择、环境变量边界和真实项目验收要求。
+4. [acceptance/matrix.md](acceptance/matrix.md)：当前验收矩阵。
+5. [facts/architecture.md](facts/architecture.md)：当前事实、已否定假设和 2026-06-11 裁决。
+6. [design/core-flow.md](design/core-flow.md)：核心流程目标、边界、route 规则、script loading 和 strict acceptance。
+7. [plans/core-flow-implementation-20260610.md](plans/core-flow-implementation-20260610.md)：本轮执行计划和执行记录。
+8. [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)：production engine root 解析退化和启动日志重复的修复计划。
+9. [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)：项目级 internal library 事实、缓存干扰和最小修复边界。
+10. [acceptance/feedback-20260609.md](acceptance/feedback-20260609.md)：历史反馈闭环长文；新问题状态以 [issues.md](issues.md) 为索引。
 
 ## Cross-Module References
 

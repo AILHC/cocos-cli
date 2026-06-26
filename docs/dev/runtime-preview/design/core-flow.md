@@ -53,7 +53,7 @@ option.overrideSettings.assets.nativeBase = 'assets/general/native';
 
 ### URL namespace 不等于 library 物理目录
 
-[../facts/architecture.md](../facts/architecture.md) 已记录：当前 CLI project library root 是 `<project>/library/cli`，资源文件是 uuid/hash bucket layout。engine runtime 生成的 `/assets/<namespace>/(import|native)/<tail>` 中，`<namespace>` 是 HTTP URL namespace / bundle config 语义，不是 `library/cli` 下的目录。
+[../facts/architecture.md](../facts/architecture.md) 已记录：当前 CLI production 默认 project library root 是 `<project>/library`，shared CLI records 使用 `<project>/library/.cli-assets-*` sidecar 文件；legacy isolated output `<project>/library/cli/.assets-data.json` 仅作为兼容路径。资源文件仍是 uuid/hash bucket layout。engine runtime 生成的 `/assets/<namespace>/(import|native)/<tail>` 中，`<namespace>` 是 HTTP URL namespace / bundle config 语义，不是 `library` 或 `library/cli` 下的目录。
 
 因此本设计只把 `<tail>` 作为 library 相对路径。`import` / `native` 是 engine 已生成的 HTTP route segment，不是 physical directory，也不参与拼接 disk path。
 
@@ -79,7 +79,7 @@ resolve(context.projectLibraryRoot, 'resources/import/20/<uuid>@<version>.json')
 <projectRoot>/library
 ```
 
-如果 production 需要使用 `D:\ps_copy\p6\trunk\Project\GameClient\feature-c\library\cli`，启动链路必须在创建 `RuntimePreviewContext` 前解析好，并作为 `context.projectLibraryRoot` 传入。
+如果 production 需要使用 shared output 默认路径，启动链路必须在创建 `RuntimePreviewContext` 前把 `<projectRoot>/library` 解析好，并作为 `context.projectLibraryRoot` 传入；如果专项验证需要 legacy isolated output，也必须显式传入 `<projectRoot>/library/cli`，不能由 `LibraryRequestResolver` 自行猜测。
 
 extension library 同理。启动链路必须根据 AssetDB mount 解析出 extension output root，并显式传入 context，例如：
 
