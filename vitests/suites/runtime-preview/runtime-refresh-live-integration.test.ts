@@ -94,12 +94,33 @@ async function fetchText(url) {
   return text;
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function requestRootReload(server) {
   const html = await fetchText(server.url + '/');
   if (!html.includes('__RUNTIME_PREVIEW_REFRESH_STATE__')) {
     throw new Error('Root HTML did not include runtime refresh state injection.');
   }
   return html;
+}
+
+async function requestEndpointRefresh(server) {
+  const response = await fetch(server.url + '/__runtime-preview/refresh', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  const text = await response.text();
+  if (response.status !== 200) {
+    throw new Error('Unexpected refresh endpoint HTTP ' + response.status + ': ' + text.slice(0, 200));
+  }
+  const result = JSON.parse(text);
+  if (!result.ok) {
+    throw new Error('Refresh endpoint returned ok:false: ' + text.slice(0, 400));
+  }
+  return result;
 }
 
 async function readLastRefreshLog(logFilePath) {
@@ -204,19 +225,32 @@ async function main() {
     const beforeResourcePath = toLibraryRequestPath(server.context.projectLibraryRoot, getJsonLibraryFile(assetQuery));
     const beforeResourceText = await fetchText(server.url + beforeResourcePath);
     await writeJson(path.join(prepared.projectRoot, resourceRelativePath), {
-      marker: 'RP_LIVE_RESOURCE_AFTER_20260627',
+      marker: 'RP_LIVE_RESOURCE_AFTER_ENDPOINT_20260627',
     });
+    const resourceEndpointRefresh = await requestEndpointRefresh(server);
+    const resourceEndpointLog = await readLastRefreshLog(server.logFilePath);
+    const endpointResourcePath = toLibraryRequestPath(server.context.projectLibraryRoot, getJsonLibraryFile(assetQuery));
+    const endpointResourceText = await fetchText(server.url + endpointResourcePath);
+    await writeJson(path.join(prepared.projectRoot, resourceRelativePath), {
+      marker: 'RP_LIVE_RESOURCE_AFTER_RELOAD_20260627',
+    });
+    await wait(2200);
     await requestRootReload(server);
-    const resourceRefreshLog = await readLastRefreshLog(server.logFilePath);
-    const afterResourcePath = toLibraryRequestPath(server.context.projectLibraryRoot, getJsonLibraryFile(assetQuery));
-    const afterResourceText = await fetchText(server.url + afterResourcePath);
+    const resourceReloadLog = await readLastRefreshLog(server.logFilePath);
+    const reloadResourcePath = toLibraryRequestPath(server.context.projectLibraryRoot, getJsonLibraryFile(assetQuery));
+    const reloadResourceText = await fetchText(server.url + reloadResourcePath);
     result.resource = {
       beforeRequestPath: beforeResourcePath,
-      afterRequestPath: afterResourcePath,
+      endpointRequestPath: endpointResourcePath,
+      reloadRequestPath: reloadResourcePath,
       beforeContainsOld: beforeResourceText.includes('RP_LIVE_RESOURCE_BEFORE_20260627'),
-      afterContainsNew: afterResourceText.includes('RP_LIVE_RESOURCE_AFTER_20260627'),
-      afterContainsOld: afterResourceText.includes('RP_LIVE_RESOURCE_BEFORE_20260627'),
-      refreshLog: resourceRefreshLog,
+      endpointContainsNew: endpointResourceText.includes('RP_LIVE_RESOURCE_AFTER_ENDPOINT_20260627'),
+      endpointContainsOld: endpointResourceText.includes('RP_LIVE_RESOURCE_BEFORE_20260627'),
+      reloadContainsNew: reloadResourceText.includes('RP_LIVE_RESOURCE_AFTER_RELOAD_20260627'),
+      reloadContainsEndpoint: reloadResourceText.includes('RP_LIVE_RESOURCE_AFTER_ENDPOINT_20260627'),
+      endpointRefresh: resourceEndpointRefresh,
+      endpointLog: resourceEndpointLog,
+      reloadLog: resourceReloadLog,
     };
 
     const beforeChunk = await findPreviewScriptChunk(server.context.projectProgrammingRoot, 'RP_LIVE_SCRIPT_BEFORE_20260627');
@@ -224,21 +258,37 @@ async function main() {
     const beforeChunkText = await fetchText(server.url + beforeChunkPath);
     await writeFile(
       path.join(prepared.projectRoot, scriptRelativePath),
-      'export const RP_LIVE_SCRIPT_MARKER = "RP_LIVE_SCRIPT_AFTER_20260627";\n',
+      'export const RP_LIVE_SCRIPT_MARKER = "RP_LIVE_SCRIPT_AFTER_ENDPOINT_20260627";\n',
       'utf8',
     );
+    const scriptEndpointRefresh = await requestEndpointRefresh(server);
+    const scriptEndpointLog = await readLastRefreshLog(server.logFilePath);
+    const endpointChunk = await findPreviewScriptChunk(server.context.projectProgrammingRoot, 'RP_LIVE_SCRIPT_AFTER_ENDPOINT_20260627');
+    const endpointChunkPath = toProgrammingRequestPath(server.context.projectProgrammingRoot, endpointChunk);
+    const endpointChunkText = await fetchText(server.url + endpointChunkPath);
+    await writeFile(
+      path.join(prepared.projectRoot, scriptRelativePath),
+      'export const RP_LIVE_SCRIPT_MARKER = "RP_LIVE_SCRIPT_AFTER_RELOAD_20260627";\n',
+      'utf8',
+    );
+    await wait(2200);
     await requestRootReload(server);
-    const scriptRefreshLog = await readLastRefreshLog(server.logFilePath);
-    const afterChunk = await findPreviewScriptChunk(server.context.projectProgrammingRoot, 'RP_LIVE_SCRIPT_AFTER_20260627');
-    const afterChunkPath = toProgrammingRequestPath(server.context.projectProgrammingRoot, afterChunk);
-    const afterChunkText = await fetchText(server.url + afterChunkPath);
+    const scriptReloadLog = await readLastRefreshLog(server.logFilePath);
+    const reloadChunk = await findPreviewScriptChunk(server.context.projectProgrammingRoot, 'RP_LIVE_SCRIPT_AFTER_RELOAD_20260627');
+    const reloadChunkPath = toProgrammingRequestPath(server.context.projectProgrammingRoot, reloadChunk);
+    const reloadChunkText = await fetchText(server.url + reloadChunkPath);
     result.script = {
       beforeRequestPath: beforeChunkPath,
-      afterRequestPath: afterChunkPath,
+      endpointRequestPath: endpointChunkPath,
+      reloadRequestPath: reloadChunkPath,
       beforeContainsOld: beforeChunkText.includes('RP_LIVE_SCRIPT_BEFORE_20260627'),
-      afterContainsNew: afterChunkText.includes('RP_LIVE_SCRIPT_AFTER_20260627'),
-      afterContainsOld: afterChunkText.includes('RP_LIVE_SCRIPT_BEFORE_20260627'),
-      refreshLog: scriptRefreshLog,
+      endpointContainsNew: endpointChunkText.includes('RP_LIVE_SCRIPT_AFTER_ENDPOINT_20260627'),
+      endpointContainsOld: endpointChunkText.includes('RP_LIVE_SCRIPT_BEFORE_20260627'),
+      reloadContainsNew: reloadChunkText.includes('RP_LIVE_SCRIPT_AFTER_RELOAD_20260627'),
+      reloadContainsEndpoint: reloadChunkText.includes('RP_LIVE_SCRIPT_AFTER_ENDPOINT_20260627'),
+      endpointRefresh: scriptEndpointRefresh,
+      endpointLog: scriptEndpointLog,
+      reloadLog: scriptReloadLog,
     };
   } finally {
     await server?.close().catch(() => {});
@@ -266,9 +316,17 @@ interface LiveIntegrationResult {
   levelBoundary: string;
   resource: {
     beforeContainsOld: boolean;
-    afterContainsNew: boolean;
-    afterContainsOld: boolean;
-    refreshLog: {
+    endpointContainsNew: boolean;
+    endpointContainsOld: boolean;
+    reloadContainsNew: boolean;
+    reloadContainsEndpoint: boolean;
+    endpointRefresh: {
+      ok: boolean;
+      reason: string;
+      target: string;
+      scriptCompile: { status: string };
+    };
+    reloadLog: {
       ok: boolean;
       reason: string;
       target: string;
@@ -277,9 +335,17 @@ interface LiveIntegrationResult {
   };
   script: {
     beforeContainsOld: boolean;
-    afterContainsNew: boolean;
-    afterContainsOld: boolean;
-    refreshLog: {
+    endpointContainsNew: boolean;
+    endpointContainsOld: boolean;
+    reloadContainsNew: boolean;
+    reloadContainsEndpoint: boolean;
+    endpointRefresh: {
+      ok: boolean;
+      reason: string;
+      target: string;
+      scriptCompile: { status: string };
+    };
+    reloadLog: {
       ok: boolean;
       reason: string;
       target: string;
@@ -289,7 +355,7 @@ interface LiveIntegrationResult {
 }
 
 describe('runtime preview refresh live integration on a temporary fixture', () => {
-  it('refreshes changed JSON resource and TypeScript script on root reload and serves latest HTTP outputs', async () => {
+  it('refreshes changed JSON resource and TypeScript script through endpoint and root reload and serves latest HTTP outputs', async () => {
     const engineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT;
     expect(engineRoot && existsSync(engineRoot)).toBe(true);
 
@@ -316,9 +382,17 @@ describe('runtime preview refresh live integration on a temporary fixture', () =
     expect(result.levelBoundary).toContain('not full browser Cocos runtime resource API');
     expect(result.resource).toMatchObject({
       beforeContainsOld: true,
-      afterContainsNew: true,
-      afterContainsOld: false,
-      refreshLog: {
+      endpointContainsNew: true,
+      endpointContainsOld: false,
+      reloadContainsNew: true,
+      reloadContainsEndpoint: false,
+      endpointRefresh: {
+        ok: true,
+        reason: 'endpoint',
+        target: 'db://assets',
+        scriptCompile: { status: 'done' },
+      },
+      reloadLog: {
         ok: true,
         reason: 'reload',
         target: 'db://assets',
@@ -327,9 +401,17 @@ describe('runtime preview refresh live integration on a temporary fixture', () =
     });
     expect(result.script).toMatchObject({
       beforeContainsOld: true,
-      afterContainsNew: true,
-      afterContainsOld: false,
-      refreshLog: {
+      endpointContainsNew: true,
+      endpointContainsOld: false,
+      reloadContainsNew: true,
+      reloadContainsEndpoint: false,
+      endpointRefresh: {
+        ok: true,
+        reason: 'endpoint',
+        target: 'db://assets',
+        scriptCompile: { status: 'done' },
+      },
+      reloadLog: {
         ok: true,
         reason: 'reload',
         target: 'db://assets',

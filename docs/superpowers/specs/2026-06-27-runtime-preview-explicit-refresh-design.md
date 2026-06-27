@@ -46,7 +46,7 @@ POST /__runtime-preview/refresh
 }
 ```
 
-无 `target` 时刷新项目 `assets` 数据库根。`target` 支持 AssetDB URL 或位于已注册 AssetDB root 内的绝对路径；超出 AssetDB root 的路径返回失败 JSON，不执行扫描。
+无 `target` 时只刷新项目 `db://assets` 数据库根，不刷新其它已注册 DB。`target` 支持 `db://assets/...` URL 或位于项目 `assets` root 内的绝对路径；超出项目 `assets` root 的路径返回失败 JSON，不执行扫描。本轮不开放跨 DB refresh，避免把 internal / extension DB 纳入用户触发范围。
 
 成功响应：
 
@@ -55,7 +55,7 @@ POST /__runtime-preview/refresh
   "ok": true,
   "refreshId": "...",
   "target": "db://assets",
-  "changedAssetCount": 0,
+  "changedAssetCount": null,
   "scriptCompile": {
     "status": "done",
     "durationMs": 0
@@ -63,6 +63,8 @@ POST /__runtime-preview/refresh
   "durationMs": 0
 }
 ```
+
+`changedAssetCount` 只有在底层 API 能可靠返回变更数量时才填数字；如果 AssetDB refresh API 不提供稳定计数，必须返回 `null`，不能用 `0` 伪装“无变化”。无 `target` 的实现优先调用项目 `assets` DB root refresh；目录或文件 target 优先使用 AssetDB operation 层可验证的单目标 refresh API。实现前必须在源码或真实 API 调用中确认目录、文件、DB root 三种 target 的行为，并把确认结果写入计划或 facts。
 
 refresh 操作失败返回 `200`，并用 `ok: false` 表示失败，避免浏览器把一次手动刷新失败归类为 preview route 失败。只有 malformed JSON、非 POST method 或 target schema 明显非法这类协议级错误才返回 `4xx`。操作失败 body 必须包含：
 
@@ -76,6 +78,14 @@ refresh 操作失败返回 `200`，并用 `ok: false` 表示失败，避免浏�
 
 按钮和 browser 逻辑只根据 `ok` 判断是否 reload。
 
+endpoint 必须在 runtime preview generic handler 之前注册，使用限定大小的 JSON parser。协议行为：
+
+- `POST /__runtime-preview/refresh` 可接受空 body，等价 `{}`。
+- `Content-Type: application/json` 的 malformed JSON 返回 `400`。
+- 非 object JSON body 返回 `400`。
+- `GET` / `PUT` / 其它 method 返回 `405`。
+- body 大小超出限制返回 `413`。
+
 ### Preview App 按钮
 
 默认 toolbar 新增 `Refresh` 按钮。点击后：
@@ -85,7 +95,16 @@ refresh 操作失败返回 `200`，并用 `ok: false` 表示失败，避免浏�
 3. 成功时记录 `window.__RUNTIME_PREVIEW_LAST_REFRESH__`，然后 `window.location.reload()`。
 4. 失败时恢复按钮状态，并弹出可见错误提示；不 reload，不暂停游戏，不清当前 scene。
 
-自定义 `preview-template/index.ejs` 可能不 include `cocosToolBar`。因此 preview app 启动后需要兜底检查：如果页面不存在 `#btn-runtime-refresh`，就在现有 `.toolbar` 内追加按钮；如果 `.toolbar` 也不存在，则注入一个轻量固定位置按钮。若项目模板完全绕开 CLI `cocosTemplate` / `/preview-app/index.js`，则不保证按钮存在。
+自定义 `preview-template/index.ejs` 可能不 include `cocosToolBar`，也可能让 `Ui` 在缺少 `.toolbar` 时无法构造。因此 refresh 按钮安装不能依赖 `Ui` 构造成功，也不能只放在 preview app bootstrap 之后。
+
+实现要求：
+
+- server 在 root HTML 渲染后注入 refresh installer，或在 `static/runtime-preview/script.ejs` 的最早阶段安装。
+- installer 检查是否已存在 `#btn-runtime-refresh`，避免重复注入。
+- 有 `.toolbar` 时把按钮挂到 toolbar。
+- 没有 `.toolbar` 时注入轻量固定位置按钮。
+- 项目模板不 include `cocosToolBar` 时，按钮仍必须存在。
+- 项目模板完全绕开 CLI `script.ejs` / `cocosTemplate` 时，server 应对 root HTML 做 best-effort post-process 注入；只有返回内容不是可注入 HTML 或项目完全不经过 CLI root HTML 渲染时，才允许记录为不可保证边界。
 
 ### Reload Check CLI 参数
 
@@ -95,7 +114,9 @@ refresh 操作失败返回 `200`，并用 `ok: false` 表示失败，避免浏�
 --refresh-on-reload
 ```
 
-默认关闭。开启后，仅 root `/` 页面导航在返回 HTML 前执行一次 refresh check。该逻辑不挂到 `/settings.js`、script、library、scene 或 static route，避免一次页面加载触发多次扫描。
+默认关闭。开启后，仅 root `/` 页面导航在返回 HTML 前执行一次 refresh check。该 refresh check 必须发生在 `renderRuntimePreviewEntry()`、`settingsProvider.getPreviewSettings()`、scene resolution cache read 和 root HTML template render 之前，避免 refresh 成功但本轮 HTML / settings 仍读取旧 cache。
+
+该逻辑不挂到 `/settings.js`、script、library、scene 或 static route，避免一次页面加载触发多次扫描。
 
 refresh-on-reload 失败时：
 
@@ -117,6 +138,16 @@ refresh-on-reload 失败时：
 - 清理 runtime preview server cache。
 - 记录指标和错误。
 
+coordinator 对外暴露等价于 `refresh({ target, reason }) -> result` 的单一入口。result 至少包含：
+
+- `refreshId`
+- normalized `target`
+- `reason`: `endpoint` 或 `reload`
+- AssetDB refresh duration
+- script compile status / duration / error
+- cache invalidation duration
+- total duration
+
 refresh 后必须清理：
 
 - `PreviewSettingsProvider.invalidate()`。
@@ -128,7 +159,14 @@ refresh 后必须清理：
 
 - 脚本 importer 会在 AssetDB refresh 中调用 `scripting.compileScripts(...)`。
 - `scripting.compileScripts(...)` 内部等待 `PackerDriver.build(...)` 完成后返回。
-- 对 refresh-on-reload 或 endpoint 返回前，还需要确认 `scripting.isCompiling()` 为 false，避免延迟编译或并发 build 残留。
+- 对 refresh-on-reload 或 endpoint 返回前，必须通过 `waitForScriptingIdle()` 或等价封装确认本轮 refresh 触发的脚本编译已结束。
+
+`waitForScriptingIdle()` 契约：
+
+- 等待本轮 refresh 触发的 `compileScripts` promise 完成。
+- 确认 packer-driver 当前不在 build。
+- 确认不存在本轮 refresh 引入的 pending compile timer / queue；如果源码事实证明 refresh path 只会同步调用 `compileScripts` 且没有 delayed queue，必须在实现计划中写明依据。
+- 带 timeout；timeout 返回 `ok: false` JSON，不 reload。
 
 并发语义：
 
@@ -143,7 +181,8 @@ refresh 后必须清理：
 - 不 reload。
 - 不影响当前游戏运行。
 - 使用现有 error overlay 能力或轻量弹窗提示 refresh failure。
-- `console.error` 和 runtime preview log 记录 refreshId、target、duration 和 error。
+- runtime preview log 记录 refreshId、target、duration 和 error。
+- browser 侧写入 `window.__RUNTIME_PREVIEW_LAST_REFRESH__` 或等价结构化状态。预期 refresh failure 不应使用 `console.error`，避免和 browser/runtime strict diagnostics 的全局 `console.error` fail gate 冲突；如必须写 console，仅使用 `console.warn`，并在测试中显式 whitelist。
 
 reload check 失败：
 
@@ -170,12 +209,15 @@ HTTP endpoint 失败：
 覆盖：
 
 - `POST /__runtime-preview/refresh` 成功响应。
+- malformed JSON / 非 object JSON / 非 POST method 的协议错误。
 - target 越界失败。
 - refresh 失败返回结构化 JSON。
+- 脚本编译失败或 idle timeout 返回 `ok: false`，按钮不 reload。
 - 并发请求串行或复用。
 - refresh 后 `settingsProvider.invalidate()` 和 import replacement extension cache clear 被调用。
 - `--refresh-on-reload` 关闭时 root `/` 不触发 refresh。
 - `--refresh-on-reload` 开启时 root `/` 只触发一次 refresh。
+- endpoint 成功后的紧邻 root reload 不重复触发同一轮 refresh。
 - reload check 失败仍返回 root HTML，并携带可提示的失败状态。
 
 ### Browser / Runtime Integration
@@ -186,6 +228,7 @@ HTTP endpoint 失败：
 - 脚本更新：修改 TS/JS 脚本，调用 refresh，reload 后 browser 执行新脚本产物。
 - 按钮路径：点击 `Refresh` 按钮能调用 endpoint，成功后 reload。
 - 自定义模板不 include toolbar 时，兜底按钮仍存在。
+- 自定义模板完全不含 `.toolbar` 时，固定位置按钮仍存在。
 - refresh 失败时，页面显示提示且当前 preview 不被中断。
 
 资源和脚本验收可使用临时复制项目或专项 fixture，不能直接改真实主测试项目源文件。结论必须说明项目/fixture 类型、环境变量、是否构建 `dist`，以及测试不能证明的边界。
@@ -200,7 +243,9 @@ HTTP endpoint 失败：
 2. 开启且无变更：无变更扫描成本。
 3. 开启且有资源或脚本变更：真实刷新成本。
 
-每组记录：
+每组至少运行 5 次 reload，记录 `min` / `median` / `max`，并写明使用主测试项目、临时复制项目还是真实项目。记录必须说明是否构建 `dist`、是否清理或禁用 `COCOS_CLI_TEST_*` 环境变量，以及是否命中 server warm cache。
+
+每次记录：
 
 - root `/` request 到 HTML 返回耗时。
 - AssetDB refresh duration。
