@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { captureJsonAssetHttpRuntimeUrls, captureRepresentativeHttpRuntimeUrls } from '@shared/http-url-capture';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
@@ -13,7 +13,162 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const diagnosticSceneUuid = '5d1de01c-5229-4d34-bde3-2c90372f88d9';
 
+async function writeMinimalProgrammingArtifacts(projectRoot: string): Promise<void> {
+  const previewRoot = join(projectRoot, 'temp', 'cli', 'programming', 'packer-driver', 'targets', 'preview');
+  await mkdir(join(previewRoot, 'chunks', 'runtime'), { recursive: true });
+  await writeFile(join(previewRoot, 'import-map.json'), JSON.stringify({
+    imports: {
+      'cce:/internal/x/prerequisite-imports': './chunks/runtime/prerequisite.js',
+    },
+    scopes: {
+      './chunks/runtime/prerequisite.js': {},
+    },
+  }), 'utf8');
+  await writeFile(join(previewRoot, 'main-record.json'), JSON.stringify({ modules: {} }), 'utf8');
+  await writeFile(
+    join(previewRoot, 'chunks', 'runtime', 'prerequisite.js'),
+    'System.register([], function(){ return { execute: function(){} }; });',
+    'utf8',
+  );
+}
+
 describe('runtime preview production asset routes', () => {
+  it('passes refresh-on-reload and prepares settings with the final runtime server URL', async () => {
+    vi.resetModules();
+    const isolatedEnvKeys = [
+      'COCOS_CLI_TEST_PROJECT_ROOT',
+      'COCOS_CLI_TEST_EDITOR_LIBRARY_REF',
+      'COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF',
+    ] as const;
+    const previousEnv = new Map<string, string | undefined>();
+    for (const key of isolatedEnvKeys) {
+      previousEnv.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-launcher-refresh-wiring-'));
+    try {
+      await writeMinimalProgrammingArtifacts(projectRoot);
+      const finalServerUrl = 'http://127.0.0.1:19999';
+      const getPreviewSettings = vi.fn(async (buildOptions?: Record<string, unknown>) => ({
+        settings: {
+          assets: {
+            server: buildOptions?.server,
+          },
+          launch: {
+            launchScene: buildOptions?.startScene,
+          },
+        },
+        script2library: {},
+        bundleConfigs: [],
+      }));
+      const initBuilder = vi.fn(async () => undefined);
+      const capturedServerOptions: any[] = [];
+
+      vi.doMock('../../../src/core/base/console', () => ({
+        newConsole: {
+          init: vi.fn(),
+          record: vi.fn(),
+        },
+      }));
+      vi.doMock('../../../src/server', () => ({
+        startServer: vi.fn(),
+        getServerUrl: vi.fn(() => finalServerUrl),
+      }));
+      vi.doMock('../../../src/core/scripting', () => ({
+        default: {
+          close: vi.fn(),
+        },
+      }));
+      vi.doMock('../../../src/core/scene', () => ({
+        startupScene: vi.fn(),
+      }));
+      vi.doMock('../../../src/core/assets/extension-asset-db-mounts', () => ({
+        resolveProjectExtensionAssetDbMounts: vi.fn(() => []),
+      }));
+      vi.doMock('../../../src/core/launcher-engine-root', () => ({
+        resolveLauncherEngineRoot: vi.fn(async () => ({
+          engineRoot: 'D:/workspace/engines/cocos/3.8.6',
+          source: 'test-env',
+        })),
+      }));
+      vi.doMock('../../../src/core/builder', () => ({
+        init: initBuilder,
+        getPreviewSettings,
+      }));
+      vi.doMock('../../../src/runtime-preview', async () => {
+        const settings = await vi.importActual<typeof import('../../../src/runtime-preview/settings/preview-settings-provider')>(
+          '../../../src/runtime-preview/settings/preview-settings-provider',
+        );
+        return {
+          getDefaultProjectProgrammingRoot: (root: string) => join(root, 'temp', 'cli', 'programming'),
+          PreviewSettingsProvider: settings.PreviewSettingsProvider,
+          startRuntimePreviewServer: vi.fn(async (options) => {
+            capturedServerOptions.push(options);
+            await options.prepareRuntimePreview(finalServerUrl);
+            await options.settingsProvider.getPreviewSettings({ startScene: diagnosticSceneUuid });
+            return {
+              server: {} as never,
+              host: '127.0.0.1',
+              port: 19999,
+              url: finalServerUrl,
+              context: {} as never,
+              settingsProvider: options.settingsProvider,
+              startupLogLines: [`server:listening ${finalServerUrl}`],
+              logFilePath: join(projectRoot, 'temp', 'preview.log'),
+              logger: { logFilePath: join(projectRoot, 'temp', 'preview.log'), write: async () => undefined },
+              close: async () => undefined,
+            };
+          }),
+        };
+      });
+
+      const { default: Launcher } = await import('../../../src/core/launcher');
+      const importSpy = vi.spyOn(Launcher.prototype, 'import').mockResolvedValue(undefined);
+      const launcher = new Launcher(projectRoot);
+      const server = await launcher.startRuntimePreview({
+        host: '127.0.0.1',
+        port: 0,
+        scene: diagnosticSceneUuid,
+        refreshOnReload: true,
+      });
+      await server.close();
+
+      expect(capturedServerOptions).toHaveLength(1);
+      expect(capturedServerOptions[0].refreshOnReload).toBe(true);
+      expect(capturedServerOptions[0].prepareRuntimePreview).toEqual(expect.any(Function));
+      expect(importSpy).toHaveBeenCalledWith(expect.objectContaining({
+        serverURL: `${finalServerUrl}/`,
+      }));
+      expect(getPreviewSettings).toHaveBeenCalledWith(expect.objectContaining({
+        server: finalServerUrl,
+        startScene: diagnosticSceneUuid,
+      }));
+      expect(() => capturedServerOptions[0].prepareRuntimePreview('http://127.0.0.1:20000')).toThrow(
+        `Runtime preview was prepared for ${finalServerUrl}, not http://127.0.0.1:20000`,
+      );
+    } finally {
+      vi.restoreAllMocks();
+      vi.doUnmock('../../../src/core/base/console');
+      vi.doUnmock('../../../src/server');
+      vi.doUnmock('../../../src/core/scripting');
+      vi.doUnmock('../../../src/core/scene');
+      vi.doUnmock('../../../src/core/assets/extension-asset-db-mounts');
+      vi.doUnmock('../../../src/core/launcher-engine-root');
+      vi.doUnmock('../../../src/core/builder');
+      vi.doUnmock('../../../src/runtime-preview');
+      vi.resetModules();
+      for (const key of isolatedEnvKeys) {
+        const value = previousEnv.get(key);
+        if (typeof value === 'string') {
+          process.env[key] = value;
+        } else {
+          delete process.env[key];
+        }
+      }
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('resolves project package enginePath through Launcher without test env overrides', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-launcher-project-config-'));
     const configuredEngineRoot = 'D:/workspace/engines/cocos/3.8.6';
@@ -497,7 +652,7 @@ describe('runtime preview production asset routes', () => {
     const repoRoot = join(process.cwd(), '..');
     const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
     const code = `
-      import { mkdtemp } from 'node:fs/promises';
+      import { mkdtemp, rm } from 'node:fs/promises';
       import { tmpdir } from 'node:os';
       import { join } from 'node:path';
       import Launcher from './src/core/launcher.ts';
@@ -505,6 +660,12 @@ describe('runtime preview production asset routes', () => {
       const originalImport = Launcher.prototype.import;
       Launcher.prototype.import = async function patchedRuntimePreviewImport(options) {
         await originalImport.call(this, options);
+        if (options?.programmingRoot) {
+          await rm(join(options.programmingRoot, 'packer-driver', 'targets', 'preview'), {
+            recursive: true,
+            force: true,
+          });
+        }
         globalThis.__cocosCliRuntimePreviewDiagnostics?.event(
           'asset-db:script-compile:error durationMs=1 count=1 synthetic-error',
         );

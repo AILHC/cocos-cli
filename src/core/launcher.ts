@@ -295,6 +295,7 @@ export default class Launcher {
         settingsTimeoutMs?: number;
         scriptLoadConcurrency?: number;
         clearProgrammingCache?: boolean;
+        refreshOnReload?: boolean;
     } = {}) {
         const {
             getDefaultProjectProgrammingRoot,
@@ -319,6 +320,7 @@ export default class Launcher {
         const engineRootSource = engineRootResolution.source;
         const internalLibraryRoot = resolveRuntimePreviewInternalLibraryRoot(this.projectPath, engineRoot);
         let serverUrl = '';
+        let preparedServerUrl = '';
         let writeRuntimePreviewLog: ((line: string) => void) | null = null;
         const previewStartedAt = Date.now();
         const stageStartedAt = new Map<string, number>();
@@ -362,10 +364,23 @@ export default class Launcher {
             },
         };
         let preparePreviewSettings: Promise<void> | null = null;
-        const ensurePreviewSettingsReady = () => {
+        const ensurePreviewSettingsReady = (runtimeServerUrl: string) => {
+            if (!runtimeServerUrl) {
+                throw new Error('Runtime preview settings requested before server URL was assigned.');
+            }
+            if (preparedServerUrl && preparedServerUrl !== runtimeServerUrl) {
+                throw new Error(`Runtime preview was prepared for ${preparedServerUrl}, not ${runtimeServerUrl}`);
+            }
+            if (!preparedServerUrl) {
+                preparedServerUrl = runtimeServerUrl;
+            }
             if (!preparePreviewSettings) {
                 preparePreviewSettings = (async () => {
-                    const engineServerUrl = serverUrl.endsWith('/') ? serverUrl : `${serverUrl}/`;
+                    const activeServerUrl = preparedServerUrl;
+                    if (!activeServerUrl) {
+                        throw new Error('Runtime preview settings requested before server URL was assigned.');
+                    }
+                    const engineServerUrl = activeServerUrl.endsWith('/') ? activeServerUrl : `${activeServerUrl}/`;
                     await this.import({
                         serverURL: engineServerUrl,
                         diagnostics,
@@ -388,10 +403,11 @@ export default class Launcher {
         const settingsProvider = new PreviewSettingsProvider({
             timeoutMs: options.settingsTimeoutMs,
             loadPreviewSettings: async (buildOptions) => {
-                if (!serverUrl) {
+                const activeServerUrl = serverUrl || preparedServerUrl;
+                if (!activeServerUrl) {
                     throw new Error('Runtime preview settings requested before server URL was assigned.');
                 }
-                await ensurePreviewSettingsReady();
+                await ensurePreviewSettingsReady(activeServerUrl);
                 const { getPreviewSettings } = await import('./builder');
                 const startScene = typeof buildOptions?.startScene === 'string'
                     ? buildOptions.startScene
@@ -401,7 +417,7 @@ export default class Launcher {
                 try {
                     const result = await getPreviewSettings({
                         ...(buildOptions ?? {}),
-                        server: serverUrl,
+                        server: activeServerUrl,
                         startScene,
                     } as never);
                     const scriptCount = Object.keys(result.script2library ?? {}).length;
@@ -440,6 +456,8 @@ export default class Launcher {
             port: options.port,
             scene: options.scene,
             scriptLoadConcurrency: options.scriptLoadConcurrency,
+            refreshOnReload: options.refreshOnReload === true,
+            prepareRuntimePreview: ensurePreviewSettingsReady,
             settingsProvider,
         });
         serverUrl = server.url;

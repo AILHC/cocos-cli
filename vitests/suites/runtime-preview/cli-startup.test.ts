@@ -1,11 +1,24 @@
 import { createServer } from 'node:net';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { Command } from 'commander';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
+import { PreviewCommand } from '../../../src/commands/preview';
+
+const launcherMockState = vi.hoisted(() => ({
+  startRuntimePreview: vi.fn(),
+  startPreview: vi.fn(),
+  Launcher: vi.fn(),
+}));
+
+vi.mock('../../../src/core/launcher', () => ({
+  default: launcherMockState.Launcher,
+}));
 
 function canListen(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -18,6 +31,85 @@ function canListen(port: number): Promise<boolean> {
 }
 
 describe('runtime preview server startup', () => {
+  it('passes refresh-on-reload from the preview CLI action to Launcher', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-cli-refresh-project-'));
+    const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
+    launcherMockState.startRuntimePreview.mockResolvedValue(undefined);
+    launcherMockState.Launcher.mockImplementation(() => ({
+      startRuntimePreview: launcherMockState.startRuntimePreview,
+      startPreview: launcherMockState.startPreview,
+    }));
+
+    try {
+      await writeFile(join(projectRoot, 'package.json'), '{"name":"runtime-preview-cli-refresh-project"}', 'utf8');
+
+      const program = new Command();
+      program.exitOverride();
+      new PreviewCommand(program).register();
+
+      await program.parseAsync([
+        'preview',
+        '--project',
+        projectRoot,
+        '--runtime',
+        '--refresh-on-reload',
+      ], { from: 'user' });
+
+      expect(launcherMockState.startRuntimePreview).toHaveBeenCalledWith(expect.objectContaining({
+        refreshOnReload: true,
+      }));
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+      resume.mockRestore();
+      launcherMockState.startRuntimePreview.mockReset();
+      launcherMockState.startPreview.mockReset();
+      launcherMockState.Launcher.mockReset();
+    }
+  });
+
+  it('does not enable refresh-on-reload by default', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-cli-refresh-default-'));
+    const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
+    launcherMockState.startRuntimePreview.mockResolvedValue(undefined);
+    launcherMockState.Launcher.mockImplementation(() => ({
+      startRuntimePreview: launcherMockState.startRuntimePreview,
+      startPreview: launcherMockState.startPreview,
+    }));
+
+    try {
+      await writeFile(join(projectRoot, 'package.json'), '{"name":"runtime-preview-cli-refresh-default"}', 'utf8');
+
+      const program = new Command();
+      program.exitOverride();
+      new PreviewCommand(program).register();
+
+      await program.parseAsync([
+        'preview',
+        '--project',
+        projectRoot,
+        '--runtime',
+      ], { from: 'user' });
+
+      const runtimeOptions = launcherMockState.startRuntimePreview.mock.calls[0]?.[0];
+      expect(runtimeOptions?.refreshOnReload).not.toBe(true);
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+      resume.mockRestore();
+      launcherMockState.startRuntimePreview.mockReset();
+      launcherMockState.startPreview.mockReset();
+      launcherMockState.Launcher.mockReset();
+    }
+  });
+
+  it('lists refresh-on-reload in preview command help', () => {
+    const program = new Command();
+    new PreviewCommand(program).register();
+    const previewCommand = program.commands.find((command) => command.name() === 'preview');
+
+    expect(previewCommand).toBeTruthy();
+    expect(previewCommand!.helpInformation()).toContain('--refresh-on-reload');
+  });
+
   it('starts, reports health and roots, serves settings, and releases the port', async () => {
     const paths = getFixturePaths();
     const extensionLibraryRoot = join(paths.projectRoot, 'library', 'cli-extensions', 'view-state-group');

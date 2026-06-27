@@ -18,6 +18,7 @@ export class PreviewCommand extends BaseCommand {
             .option('--settings-timeout-ms <number>', 'Runtime preview settings generation timeout in milliseconds')
             .option('--script-load-concurrency <number>', 'Runtime preview project script load concurrency')
             .option('--clear-programming-cache', 'Clear runtime preview programming cache before startup script sync')
+            .option('--refresh-on-reload', 'Refresh AssetDB before serving the runtime preview root page')
             .action(async (options: any) => {
                 try {
                     const resolvedPath = this.validateProjectPath(options.project);
@@ -56,6 +57,7 @@ export class PreviewCommand extends BaseCommand {
                             settingsTimeoutMs,
                             scriptLoadConcurrency,
                             clearProgrammingCache: options.clearProgrammingCache === true,
+                            refreshOnReload: options.refreshOnReload === true,
                         });
                     } else {
                         await launcher.startPreview(port);

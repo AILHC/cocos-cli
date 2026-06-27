@@ -331,6 +331,52 @@ describe('runtime preview preview-app required route contract', () => {
     expect(await responseBodyText(response)).toContain(`"launchScene":"${sceneUuid}"`);
   });
 
+  it('injects runtime refresh installer into custom templates without the builtin toolbar', async () => {
+    const paths = getFixturePaths();
+    const tempRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-refresh-custom-template-'));
+    const templateRoot = join(tempRoot, 'preview-template');
+    try {
+      await mkdir(templateRoot, { recursive: true });
+      await writeFile(
+        join(templateRoot, 'index.ejs'),
+        [
+          '<html>',
+          '<body>',
+          '<main id="custom-preview-root">custom template without toolbar</main>',
+          '</body>',
+          '</html>',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const routeContext = {
+        ...createRouteContext(),
+        runtimeContext: createRuntimePreviewContext({
+          projectRoot: tempRoot,
+          engineRoot: paths.engineRoot,
+          projectLibraryRoot: join(tempRoot, 'library'),
+          internalLibraryRoot: join(tempRoot, 'internal-library'),
+          projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+          cliProgrammingRoot: join(tempRoot, 'temp', 'cli', 'programming'),
+        }),
+      };
+
+      const response = await handleRuntimePreviewRequest(routeContext, '/');
+      const html = await responseBodyText(response);
+
+      expect(response.statusCode).toBe(200);
+      expect(html).toContain('id="custom-preview-root"');
+      expect(html).not.toContain('class="toolbar');
+      expect(html).toContain('window.__RUNTIME_PREVIEW_REFRESH_STATE__');
+      expect(html).toContain('function installRuntimeRefresh');
+      expect(html).toContain('btn-runtime-refresh');
+      expect(html).toContain('runtime-preview-refresh-fixed');
+      expect(html).toContain('runtime-preview-refresh-toast');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('serves preview-app browser support and diagnostic routes', async () => {
     const routeContext = createRouteContext();
     const requiredRoutes = [

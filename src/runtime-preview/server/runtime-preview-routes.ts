@@ -3,7 +3,6 @@ import { stat } from 'node:fs/promises';
 import type { RuntimePreviewContext } from '../context/runtime-preview-context';
 import { resolveLibraryRequest } from '../library/resolve-library-request';
 import type { RuntimePreviewLogger } from '../logging/runtime-preview-logger';
-import type { RuntimeRefreshResult } from '../refresh/runtime-refresh-coordinator';
 import {
     createRuntimePreviewGlobalImportMap,
     resolveProgrammingRequest,
@@ -28,11 +27,12 @@ import {
     createImportReplacementExtensionResolver,
     type ImportReplacementExtensionResolver,
 } from './import-replacement-extension-cache';
+import {
+    injectRuntimeRefreshEntry,
+    type RuntimeRefreshClientState,
+} from './runtime-refresh-entry-injection';
 
-export interface RuntimeRefreshClientState {
-    lastRefresh?: RuntimeRefreshResult;
-    refreshOnReloadFailure?: RuntimeRefreshResult;
-}
+export type { RuntimeRefreshClientState };
 
 export interface RuntimePreviewRouteContext {
     runtimeContext: RuntimePreviewContext;
@@ -69,17 +69,6 @@ function getQueryExtnameUuid(pathname: string): string | null {
 }
 
 const prerequisiteImportsModURL = 'cce:/internal/x/prerequisite-imports';
-
-function injectRuntimeRefreshState(html: string, state?: RuntimeRefreshClientState | null): string {
-    if (!state) {
-        return html;
-    }
-
-    const stateScript = `<script>window.__RUNTIME_PREVIEW_REFRESH_STATE__ = ${JSON.stringify(state)};</script>`;
-    return html.includes('</body>')
-        ? html.replace('</body>', `${stateScript}\n</body>`)
-        : `${html}\n${stateScript}`;
-}
 
 function createBundlePrerequisiteIndexScript(bundleName: string): string {
     const virtualModuleId = `virtual:///prerequisite-imports/${bundleName}`;
@@ -211,7 +200,7 @@ export async function handleRuntimePreviewRequest(
         try {
             return textResponse(
                 200,
-                injectRuntimeRefreshState(
+                injectRuntimeRefreshEntry(
                     await renderRuntimePreviewEntry(
                         context.runtimeContext,
                         context.settingsProvider,
