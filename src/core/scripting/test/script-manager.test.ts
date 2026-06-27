@@ -467,6 +467,7 @@ describe('ScriptManager', () => {
             
             // Wait for timer to complete (add some buffer time)
             await waitFor(() => (scriptManager as any)._pendingCompileTimer === null, delay + 200);
+            await scriptManager.waitForIdle({ timeoutMs: 10000, pollMs: 10 });
             
             // Timer should be cleared after execution
             expect((scriptManager as any)._pendingCompileTimer).toBeNull();
@@ -486,6 +487,7 @@ describe('ScriptManager', () => {
             
             // Wait for the second timer to complete (which should cancel the first)
             await waitFor(() => (scriptManager as any)._pendingCompileTimer === null, delay2 + 200);
+            await scriptManager.waitForIdle({ timeoutMs: 10000, pollMs: 10 });
             
             // Timer should be cleared
             expect((scriptManager as any)._pendingCompileTimer).toBeNull();
@@ -499,11 +501,67 @@ describe('ScriptManager', () => {
             
             // Wait for timer to complete
             await waitFor(() => (scriptManager as any)._pendingCompileTimer === null, delay + 100);
-            await waitFor(() => scriptManager.isCompiling() === false, delay + 1000);
+            await scriptManager.waitForIdle({ timeoutMs: 10000, pollMs: 10 });
             
             expect((scriptManager as any)._pendingCompileTimer).toBeNull();
             expect((scriptManager as any)._pendingCompileTaskId).toBeNull();
         }, 10000); // Increase timeout for real timer
+
+        it('should report delayed compile work as pending and wait until idle', async () => {
+            jest.useFakeTimers();
+            const packerDriver = PackerDriver.getInstance();
+            const buildSpy = jest.spyOn(packerDriver, 'build').mockResolvedValue(undefined);
+            const busySpy = jest.spyOn(packerDriver, 'busy').mockReturnValue(false);
+
+            try {
+                scriptManager.postCompileScripts(10);
+
+                expect(scriptManager.hasPendingCompileTask()).toBe(true);
+
+                await jest.advanceTimersByTimeAsync(10);
+                await expect(scriptManager.waitForIdle({ timeoutMs: 1000, pollMs: 1 })).resolves.toBeUndefined();
+                expect(scriptManager.hasPendingCompileTask()).toBe(false);
+            } finally {
+                buildSpy.mockRestore();
+                busySpy.mockRestore();
+                jest.useRealTimers();
+            }
+        });
+
+        it('should keep waitForIdle pending until the delayed compile promise settles', async () => {
+            jest.useFakeTimers();
+            const packerDriver = PackerDriver.getInstance();
+            let resolveBuild!: () => void;
+            const buildPromise = new Promise<void>((resolve) => {
+                resolveBuild = resolve;
+            });
+            const buildSpy = jest.spyOn(packerDriver, 'build').mockReturnValue(buildPromise);
+            const busySpy = jest.spyOn(packerDriver, 'busy').mockReturnValue(false);
+            let idleResolved = false;
+
+            try {
+                scriptManager.postCompileScripts(10);
+                await jest.advanceTimersByTimeAsync(10);
+
+                const idlePromise = scriptManager.waitForIdle({ timeoutMs: 1000, pollMs: 1 }).then(() => {
+                    idleResolved = true;
+                });
+                await Promise.resolve();
+
+                expect(idleResolved).toBe(false);
+                expect(scriptManager.hasPendingCompileTask()).toBe(true);
+
+                resolveBuild();
+                await idlePromise;
+
+                expect(idleResolved).toBe(true);
+                expect(scriptManager.hasPendingCompileTask()).toBe(false);
+            } finally {
+                buildSpy.mockRestore();
+                busySpy.mockRestore();
+                jest.useRealTimers();
+            }
+        });
     });
 
     describe('isCompiling', () => {

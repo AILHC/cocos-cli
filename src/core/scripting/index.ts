@@ -25,6 +25,7 @@ class ScriptManager {
     private _initialized = false;
     private _pendingCompileTimer: NodeJS.Timeout | null = null;
     private _pendingCompileTaskId: string | null = null;
+    private _pendingCompilePromise: Promise<void> | null = null;
     private _projectPath: string = '';
 
     /**
@@ -128,10 +129,47 @@ class ScriptManager {
             this._pendingCompileTimer = null;
             const currentTaskId = this._pendingCompileTaskId;
             this._pendingCompileTaskId = null;
-            PackerDriver.getInstance().build(undefined, currentTaskId || undefined);
+            const pendingCompilePromise = PackerDriver.getInstance().build(undefined, currentTaskId || undefined);
+            this._pendingCompilePromise = pendingCompilePromise;
+            try {
+                await pendingCompilePromise;
+            } finally {
+                if (this._pendingCompilePromise === pendingCompilePromise) {
+                    this._pendingCompilePromise = null;
+                }
+            }
         }, delay);
         
         return taskId;
+    }
+
+    hasPendingCompileTask(): boolean {
+        return Boolean(
+            this._pendingCompileTimer
+            || this._pendingCompileTaskId
+            || this._pendingCompilePromise
+            || PackerDriver.getInstance().busy()
+        );
+    }
+
+    async waitForIdle(options: { timeoutMs?: number; pollMs?: number } = {}): Promise<void> {
+        const timeoutMs = options.timeoutMs ?? 30_000;
+        const pollMs = options.pollMs ?? 50;
+        const startedAt = Date.now();
+
+        while (this.hasPendingCompileTask()) {
+            const pendingCompilePromise = this._pendingCompilePromise;
+            if (pendingCompilePromise) {
+                await pendingCompilePromise;
+                continue;
+            }
+
+            if (Date.now() - startedAt >= timeoutMs) {
+                throw new Error(`Timed out waiting for scripting compile idle after ${timeoutMs}ms.`);
+            }
+
+            await new Promise<void>((resolve) => setTimeout(resolve, pollMs));
+        }
     }
 
     /**

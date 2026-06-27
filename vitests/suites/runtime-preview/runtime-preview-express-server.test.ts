@@ -3,11 +3,31 @@ import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IncomingHttpHeaders } from 'node:http';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
-import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
+import {
+  startRuntimePreviewServer,
+  type RuntimePreviewServerOptions,
+} from '@runtime-preview/server/runtime-preview-server';
+import type { RuntimeRefreshResult } from '@runtime-preview/refresh/runtime-refresh-coordinator';
 
-async function createServerFixture() {
+function createRefreshResult(overrides: Partial<RuntimeRefreshResult> = {}): RuntimeRefreshResult {
+  return {
+    ok: true,
+    refreshId: 'runtime-refresh-test',
+    target: 'db://assets',
+    reason: 'endpoint',
+    changedAssetCount: 1,
+    scriptCompile: {
+      status: 'done',
+      durationMs: 0,
+    },
+    durationMs: 0,
+    ...overrides,
+  };
+}
+
+async function createServerFixture(overrides: Partial<RuntimePreviewServerOptions> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'runtime-preview-express-server-'));
   const projectRoot = join(root, 'project');
   const engineRoot = join(root, 'engine');
@@ -20,6 +40,20 @@ async function createServerFixture() {
   await writeFile(join(projectLibraryRoot, 'ab', 'abcdef.json'), '{"ok":true}', 'utf8');
   await writeFile(join(engineRoot, 'bin', '.cache', 'dev-cli', 'web', 'import-map.json'), '{"imports":{}}', 'utf8');
 
+  const settingsProvider = overrides.settingsProvider ?? new PreviewSettingsProvider({
+    loadPreviewSettings: async () => ({
+      settings: {
+        assets: {
+          server: '',
+          importBase: '',
+          nativeBase: '',
+        },
+      },
+      script2library: {},
+      bundleConfigs: [],
+    }),
+  });
+
   const server = await startRuntimePreviewServer({
     projectRoot,
     engineRoot,
@@ -27,22 +61,11 @@ async function createServerFixture() {
     projectProgrammingRoot,
     host: '127.0.0.1',
     port: 0,
-    settingsProvider: new PreviewSettingsProvider({
-      loadPreviewSettings: async () => ({
-        settings: {
-          assets: {
-            server: '',
-            importBase: '',
-            nativeBase: '',
-          },
-        },
-        script2library: {},
-        bundleConfigs: [],
-      }),
-    }),
+    ...overrides,
+    settingsProvider,
   });
 
-  return { server };
+  return { server, settingsProvider };
 }
 
 interface HttpGetResult {
@@ -200,6 +223,256 @@ describe('runtime preview express server adapter', () => {
         projectProgrammingRoot: expect.any(String),
         logFilePath: expect.any(String),
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('handles runtime refresh endpoint before generic routing', async () => {
+    const refresh = vi.fn(async () => createRefreshResult());
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ target: 'db://assets/resources' }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        target: 'db://assets',
+      });
+      expect(refresh).toHaveBeenCalledWith({ reason: 'endpoint', target: 'db://assets/resources' });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects malformed runtime refresh JSON bodies', async () => {
+    const refresh = vi.fn(async () => createRefreshResult());
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{"target"',
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('Invalid runtime refresh JSON body.');
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns 405 for non-POST runtime refresh requests', async () => {
+    const refresh = vi.fn(async () => createRefreshResult());
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/__runtime-preview/refresh`);
+
+      expect(response.status).toBe(405);
+      expect(await response.text()).toBe('Runtime refresh endpoint only supports POST.');
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns 405 for non-POST runtime refresh requests before parsing malformed JSON bodies', async () => {
+    const refresh = vi.fn(async () => createRefreshResult());
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await getText(
+        `${server.url}/__runtime-preview/refresh`,
+        {
+          'Content-Type': 'application/json',
+          'Content-Length': String('{"target"'.length),
+        },
+        { method: 'GET', body: '{"target"' },
+      );
+
+      expect(response.statusCode).toBe(405);
+      expect(response.body).toBe('Runtime refresh endpoint only supports POST.');
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects non-object runtime refresh JSON bodies', async () => {
+    const refresh = vi.fn(async () => createRefreshResult());
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '[]',
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('Runtime refresh JSON body must be an object.');
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns 413 for oversized runtime refresh JSON bodies', async () => {
+    const refresh = vi.fn(async () => createRefreshResult());
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ target: 'x'.repeat(64 * 1024) }),
+      });
+
+      expect(response.status).toBe(413);
+      expect(await response.text()).toContain('Runtime preview request body is too large.');
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns operation failures as HTTP 200 JSON ok false', async () => {
+    const refresh = vi.fn(async () => createRefreshResult({
+      ok: false,
+      error: 'refresh failed',
+      changedAssetCount: null,
+      scriptCompile: { status: 'skipped', durationMs: 0 },
+    }));
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        error: 'refresh failed',
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('runs prepare and refresh before root settings/render when refresh-on-reload is enabled', async () => {
+    const order: string[] = [];
+    const refresh = vi.fn(async () => {
+      order.push('refresh');
+      return createRefreshResult({ reason: 'reload' });
+    });
+    const prepareRuntimePreview = vi.fn(async () => {
+      order.push('prepare');
+    });
+    const settingsProvider = new PreviewSettingsProvider({
+      loadPreviewSettings: async () => {
+        order.push('settings');
+        return {
+          settings: { assets: { server: '', importBase: '', nativeBase: '' } },
+          script2library: {},
+          bundleConfigs: [],
+        };
+      },
+    });
+    const { server } = await createServerFixture({
+      refreshOnReload: true,
+      prepareRuntimePreview,
+      refreshCoordinator: { refresh },
+      settingsProvider,
+    });
+    try {
+      const response = await fetch(`${server.url}/`);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(order).toEqual(['prepare', 'refresh', 'settings']);
+      expect(refresh).toHaveBeenCalledWith({ reason: 'reload' });
+      expect(html).toContain('lastRefresh');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('does not refresh root by default when refresh-on-reload is disabled', async () => {
+    const refresh = vi.fn(async () => createRefreshResult({ reason: 'reload' }));
+    const prepareRuntimePreview = vi.fn(async () => undefined);
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+      prepareRuntimePreview,
+    });
+    try {
+      const response = await fetch(`${server.url}/`);
+
+      expect(response.status).toBe(200);
+      expect(refresh).not.toHaveBeenCalled();
+      expect(prepareRuntimePreview).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps root HTML 200 and exposes reload refresh failure state', async () => {
+    const refresh = vi.fn(async () => createRefreshResult({
+      ok: false,
+      reason: 'reload',
+      error: 'reload failed',
+      changedAssetCount: null,
+      scriptCompile: { status: 'skipped', durationMs: 0 },
+    }));
+    const { server } = await createServerFixture({
+      refreshOnReload: true,
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/`);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(html).toContain('refreshOnReloadFailure');
+      expect(html).toContain('reload failed');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('passes the final server URL to prepareRuntimePreview for endpoint refreshes', async () => {
+    const refresh = vi.fn(async () => createRefreshResult());
+    const prepareRuntimePreview = vi.fn(async () => undefined);
+    const { server } = await createServerFixture({
+      prepareRuntimePreview,
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+
+      expect(response.status).toBe(200);
+      expect(prepareRuntimePreview).toHaveBeenCalledWith(server.url);
     } finally {
       await server.close();
     }

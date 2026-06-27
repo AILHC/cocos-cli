@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises';
 import type { RuntimePreviewContext } from '../context/runtime-preview-context';
 import { resolveLibraryRequest } from '../library/resolve-library-request';
 import type { RuntimePreviewLogger } from '../logging/runtime-preview-logger';
+import type { RuntimeRefreshResult } from '../refresh/runtime-refresh-coordinator';
 import {
     createRuntimePreviewGlobalImportMap,
     resolveProgrammingRequest,
@@ -28,6 +29,11 @@ import {
     type ImportReplacementExtensionResolver,
 } from './import-replacement-extension-cache';
 
+export interface RuntimeRefreshClientState {
+    lastRefresh?: RuntimeRefreshResult;
+    refreshOnReloadFailure?: RuntimeRefreshResult;
+}
+
 export interface RuntimePreviewRouteContext {
     runtimeContext: RuntimePreviewContext;
     settingsProvider: PreviewSettingsProvider;
@@ -36,6 +42,7 @@ export interface RuntimePreviewRouteContext {
     method?: string;
     body?: string;
     importReplacementExtensionResolver?: ImportReplacementExtensionResolver;
+    runtimeRefreshState?: RuntimeRefreshClientState | null;
 }
 
 function decodePathname(requestPath: string): string | null {
@@ -62,6 +69,17 @@ function getQueryExtnameUuid(pathname: string): string | null {
 }
 
 const prerequisiteImportsModURL = 'cce:/internal/x/prerequisite-imports';
+
+function injectRuntimeRefreshState(html: string, state?: RuntimeRefreshClientState | null): string {
+    if (!state) {
+        return html;
+    }
+
+    const stateScript = `<script>window.__RUNTIME_PREVIEW_REFRESH_STATE__ = ${JSON.stringify(state)};</script>`;
+    return html.includes('</body>')
+        ? html.replace('</body>', `${stateScript}\n</body>`)
+        : `${html}\n${stateScript}`;
+}
 
 function createBundlePrerequisiteIndexScript(bundleName: string): string {
     const virtualModuleId = `virtual:///prerequisite-imports/${bundleName}`;
@@ -193,7 +211,14 @@ export async function handleRuntimePreviewRequest(
         try {
             return textResponse(
                 200,
-                await renderRuntimePreviewEntry(context.runtimeContext, context.settingsProvider, requestPath),
+                injectRuntimeRefreshState(
+                    await renderRuntimePreviewEntry(
+                        context.runtimeContext,
+                        context.settingsProvider,
+                        requestPath,
+                    ),
+                    context.runtimeRefreshState,
+                ),
                 'text/html; charset=utf-8',
             );
         } catch (error) {

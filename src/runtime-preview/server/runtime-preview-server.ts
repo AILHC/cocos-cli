@@ -7,9 +7,17 @@ import {
     type RuntimePreviewExtensionLibraryRoot,
 } from '../context/runtime-preview-context';
 import { createRuntimePreviewLogger, type RuntimePreviewLogger } from '../logging/runtime-preview-logger';
+import {
+    createRuntimeRefreshCoordinator,
+    type RuntimeRefreshCoordinator,
+    type RuntimeRefreshResult,
+} from '../refresh/runtime-refresh-coordinator';
 import { PreviewSettingsProvider } from '../settings/preview-settings-provider';
 import { createImportReplacementExtensionResolver } from './import-replacement-extension-cache';
-import { handleRuntimePreviewRequest } from './runtime-preview-routes';
+import {
+    handleRuntimePreviewRequest,
+    type RuntimeRefreshClientState,
+} from './runtime-preview-routes';
 import type { RuntimePreviewHttpResponse } from './serve-on-demand-file';
 
 export interface RuntimePreviewServerOptions {
@@ -28,6 +36,9 @@ export interface RuntimePreviewServerOptions {
     settingsProvider?: PreviewSettingsProvider;
     capturedRuntimeUrls?: Array<{ url: string }>;
     scriptLoadConcurrency?: number;
+    refreshOnReload?: boolean;
+    refreshCoordinator?: Pick<RuntimeRefreshCoordinator, 'refresh'>;
+    prepareRuntimePreview?: (serverUrl: string) => Promise<void>;
 }
 
 export interface StartedRuntimePreviewServer {
@@ -85,6 +96,7 @@ async function listenOnFetchReachablePort(server: Server, port: number, host: st
 }
 
 const maxPreviewErrorBodyBytes = 64 * 1024;
+const maxRuntimeRefreshBodyBytes = 64 * 1024;
 
 function sendRuntimePreviewResponse(
     response: Response,
@@ -121,6 +133,36 @@ function isBodyTooLargeError(error: unknown): boolean {
         && (error as { type?: string }).type === 'entity.too.large';
 }
 
+function isMalformedJsonError(error: unknown): boolean {
+    return !!error
+        && typeof error === 'object'
+        && (error as { type?: string }).type === 'entity.parse.failed';
+}
+
+function createRuntimeRefreshFailureResult(
+    reason: 'endpoint' | 'reload',
+    error: unknown,
+): RuntimeRefreshResult {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+        ok: false,
+        refreshId: 'runtime-refresh-error',
+        target: 'db://assets',
+        reason,
+        changedAssetCount: null,
+        scriptCompile: {
+            status: 'skipped',
+            durationMs: 0,
+        },
+        durationMs: 0,
+        error: message,
+    };
+}
+
+function isRuntimeRefreshJsonObject(body: unknown): body is { target?: unknown } {
+    return !!body && typeof body === 'object' && !Array.isArray(body);
+}
+
 export async function startRuntimePreviewServer(options: RuntimePreviewServerOptions): Promise<StartedRuntimePreviewServer> {
     const host = options.host ?? '127.0.0.1';
     const requestedPort = options.port ?? 19530;
@@ -155,6 +197,26 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         }
         return settingsProvider;
     };
+    let refreshCoordinator = options.refreshCoordinator;
+    const getRefreshCoordinator = (): Pick<RuntimeRefreshCoordinator, 'refresh'> => {
+        if (!refreshCoordinator) {
+            refreshCoordinator = createRuntimeRefreshCoordinator({
+                projectRoot: context.projectRoot,
+                refreshTarget: async (target) => {
+                    const { assetOperation } = await import('../../core/assets/manager/operation');
+                    return assetOperation.refreshAsset(target);
+                },
+                waitForIdle: async () => {
+                    const { default: scripting } = await import('../../core/scripting');
+                    await scripting.waitForIdle({ timeoutMs: 30_000 });
+                },
+                invalidateSettings: () => getSettingsProvider().invalidate(),
+                clearImportReplacement: () => importReplacementExtensionResolver.clear(),
+                logger,
+            });
+        }
+        return refreshCoordinator;
+    };
     const extensionRootSummary = context.extensionLibraryRoots
         .map((entry) => `${entry.name}:${entry.root}`)
         .join(';');
@@ -181,6 +243,44 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         limit: maxPreviewErrorBodyBytes,
     }));
 
+    app.all(
+        '/__runtime-preview/refresh',
+        async (request: Request, response: Response, next: NextFunction) => {
+            if (request.method !== 'POST') {
+                response.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' });
+                response.end('Runtime refresh endpoint only supports POST.');
+                return;
+            }
+
+            next();
+        },
+        express.json({
+            type: () => true,
+            limit: maxRuntimeRefreshBodyBytes,
+        }),
+        async (request: Request, response: Response) => {
+            try {
+                if (!isRuntimeRefreshJsonObject(request.body)) {
+                    response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+                    response.end('Runtime refresh JSON body must be an object.');
+                    return;
+                }
+
+                await options.prepareRuntimePreview?.(serverUrl);
+                const result = await getRefreshCoordinator().refresh({
+                    reason: 'endpoint',
+                    target: request.body.target,
+                });
+                response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+                response.end(JSON.stringify(result));
+            } catch (error) {
+                const result = createRuntimeRefreshFailureResult('endpoint', error);
+                response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+                response.end(JSON.stringify(result));
+            }
+        },
+    );
+
     app.use(async (request: Request, response: Response, next: NextFunction) => {
         let pathname = '';
         try {
@@ -202,6 +302,21 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 return;
             }
 
+            let runtimeRefreshState: RuntimeRefreshClientState | null = null;
+            if (pathname === '/' && options.refreshOnReload === true) {
+                try {
+                    await options.prepareRuntimePreview?.(serverUrl);
+                    const result = await getRefreshCoordinator().refresh({ reason: 'reload' });
+                    runtimeRefreshState = result.ok
+                        ? { lastRefresh: result }
+                        : { refreshOnReloadFailure: result };
+                } catch (error) {
+                    runtimeRefreshState = {
+                        refreshOnReloadFailure: createRuntimeRefreshFailureResult('reload', error),
+                    };
+                }
+            }
+
             const routeResponse = await handleRuntimePreviewRequest({
                 runtimeContext: context,
                 settingsProvider: getSettingsProvider(),
@@ -210,6 +325,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 method: request.method,
                 body: typeof request.body === 'string' ? request.body : undefined,
                 importReplacementExtensionResolver,
+                runtimeRefreshState,
             }, request.originalUrl || request.url || '/');
             sendRuntimePreviewResponse(response, routeResponse, next);
         } catch (error) {
@@ -230,6 +346,12 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         if (isBodyTooLargeError(error)) {
             response.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' });
             response.end('Runtime preview request body is too large.');
+            return;
+        }
+
+        if (isMalformedJsonError(error) && _request.path === '/__runtime-preview/refresh') {
+            response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+            response.end('Invalid runtime refresh JSON body.');
             return;
         }
 
