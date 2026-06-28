@@ -13,6 +13,14 @@ import {
     type RuntimeRefreshResult,
 } from '../refresh/runtime-refresh-coordinator';
 import { PreviewSettingsProvider } from '../settings/preview-settings-provider';
+import {
+    createRuntimeAssetChangeWatcher,
+    type RuntimeAssetChangeWatcher,
+} from '../watch/runtime-asset-change-watcher';
+import {
+    createRuntimeAssetDirtyStore,
+    type RuntimeAssetDirtyStore,
+} from '../watch/runtime-asset-dirty-store';
 import { createImportReplacementExtensionResolver } from './import-replacement-extension-cache';
 import {
     handleRuntimePreviewRequest,
@@ -37,6 +45,14 @@ export interface RuntimePreviewServerOptions {
     capturedRuntimeUrls?: Array<{ url: string }>;
     scriptLoadConcurrency?: number;
     refreshOnReload?: boolean;
+    watchAssets?: boolean;
+    assetDirtyStoreFactory?: (input: { projectRoot: string }) => RuntimeAssetDirtyStore;
+    assetChangeWatcherFactory?: (input: {
+        projectRoot: string;
+        dirtyStore: RuntimeAssetDirtyStore;
+        logger: RuntimePreviewLogger;
+    }) => RuntimeAssetChangeWatcher;
+    refreshTarget?: (target: string) => Promise<number | null | undefined>;
     refreshCoordinator?: Pick<RuntimeRefreshCoordinator, 'refresh'>;
     prepareRuntimePreview?: (serverUrl: string) => Promise<void>;
 }
@@ -180,6 +196,14 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         scriptLoadConcurrency: options.scriptLoadConcurrency,
     });
     const importReplacementExtensionResolver = createImportReplacementExtensionResolver(context);
+    const dirtyStore = options.watchAssets === true
+        ? (options.assetDirtyStoreFactory?.({ projectRoot: context.projectRoot })
+            ?? createRuntimeAssetDirtyStore({ projectRoot: context.projectRoot }))
+        : undefined;
+    const assetWatcher = dirtyStore
+        ? (options.assetChangeWatcherFactory?.({ projectRoot: context.projectRoot, dirtyStore, logger })
+            ?? createRuntimeAssetChangeWatcher({ projectRoot: context.projectRoot, dirtyStore, logger, failSoft: true }))
+        : undefined;
     let serverUrl = '';
     let settingsProvider = options.settingsProvider;
     const getSettingsProvider = (): PreviewSettingsProvider => {
@@ -202,16 +226,23 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         if (!refreshCoordinator) {
             refreshCoordinator = createRuntimeRefreshCoordinator({
                 projectRoot: context.projectRoot,
-                refreshTarget: async (target) => {
+                refreshTarget: options.refreshTarget ?? (async (target) => {
                     const { assetOperation } = await import('../../core/assets/manager/operation');
                     return assetOperation.refreshAsset(target);
-                },
+                }),
                 waitForIdle: async () => {
                     const { default: scripting } = await import('../../core/scripting');
                     await scripting.waitForIdle({ timeoutMs: 30_000 });
                 },
                 invalidateSettings: () => getSettingsProvider().invalidate(),
                 clearImportReplacement: () => importReplacementExtensionResolver.clear(),
+                dirtyProvider: dirtyStore && assetWatcher
+                    ? {
+                        drainDirtyTargets: () => dirtyStore.drainDirtyTargets(),
+                        requeueTargets: (targets) => dirtyStore.requeueTargets(targets),
+                        getStatus: () => assetWatcher.getStatus(),
+                    }
+                    : undefined,
                 logger,
             });
         }
@@ -234,6 +265,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
     for (const line of startupLogLines) {
         await logger.write(line);
     }
+    await assetWatcher?.start();
 
     const app = express();
     app.disable('x-powered-by');
@@ -316,6 +348,12 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                     };
                 }
             }
+            if (pathname === '/' && assetWatcher) {
+                runtimeRefreshState = {
+                    ...(runtimeRefreshState ?? {}),
+                    watcher: assetWatcher.getStatus(),
+                };
+            }
 
             const routeResponse = await handleRuntimePreviewRequest({
                 runtimeContext: context,
@@ -378,7 +416,13 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         startupLogLines,
         logFilePath: logger.logFilePath,
         logger,
-        close: () => close(server),
+        close: async () => {
+            try {
+                await assetWatcher?.stop();
+            } finally {
+                await close(server);
+            }
+        },
     };
 }
 

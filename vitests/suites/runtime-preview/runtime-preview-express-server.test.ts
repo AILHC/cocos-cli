@@ -477,4 +477,97 @@ describe('runtime preview express server adapter', () => {
       await server.close();
     }
   });
+
+  it('starts asset watcher when watchAssets is enabled and closes it with the server', async () => {
+    const start = vi.fn(async () => undefined);
+    const stop = vi.fn(async () => undefined);
+    const { server } = await createServerFixture({
+      watchAssets: true,
+      assetChangeWatcherFactory: () => ({
+        start,
+        stop,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      }),
+    });
+
+    expect(start).toHaveBeenCalledTimes(1);
+    await server.close();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not root-refresh on reload when watcher dirty-set is empty', async () => {
+    const refreshTarget = vi.fn(async () => 1);
+    const { server } = await createServerFixture({
+      refreshOnReload: true,
+      watchAssets: true,
+      refreshTarget,
+      assetDirtyStoreFactory: () => ({
+        recordFileEvent: vi.fn(),
+        drainDirtyTargets: () => ({ targets: [], entries: [], eventCount: 0, drainedAt: Date.now() }),
+        requeueTargets: vi.fn(),
+        peekDirtyTargets: () => [],
+        getDirtyTargetCount: () => 0,
+        getEventCount: () => 0,
+      }),
+      assetChangeWatcherFactory: () => ({
+        start: async () => undefined,
+        stop: async () => undefined,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      }),
+    });
+
+    try {
+      const response = await fetch(server.url);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(html).toContain('dirty-set');
+      expect(refreshTarget).not.toHaveBeenCalledWith('db://assets');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('injects watcher start failure into root html without failing root', async () => {
+    const { server } = await createServerFixture({
+      watchAssets: true,
+      assetChangeWatcherFactory: () => ({
+        start: async () => undefined,
+        stop: async () => undefined,
+        getStatus: () => ({
+          enabled: true,
+          running: false,
+          assetsRoot: 'E:/project/assets',
+          error: 'native watcher unavailable',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      }),
+    });
+
+    try {
+      const response = await fetch(server.url);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(html).toContain('native watcher unavailable');
+    } finally {
+      await server.close();
+    }
+  });
 });

@@ -1,8 +1,9 @@
-import type { RuntimeRefreshResult } from '../refresh/runtime-refresh-coordinator';
+import type { RuntimeRefreshResult, RuntimeRefreshWatcherStatus } from '../refresh/runtime-refresh-coordinator';
 
 export interface RuntimeRefreshClientState {
     lastRefresh?: RuntimeRefreshResult;
     refreshOnReloadFailure?: RuntimeRefreshResult;
+    watcher?: RuntimeRefreshWatcherStatus;
 }
 
 function serializeForInlineScript(value: unknown): string {
