@@ -135,6 +135,26 @@ async function readLastRefreshLog(logFilePath) {
   return JSON.parse(line.slice('runtime-refresh '.length));
 }
 
+async function waitForAssetWatchTarget(logFilePath, target, timeoutMs = 15_000) {
+  const startedAt = Date.now();
+  let lastWatchLine = '';
+  while (Date.now() - startedAt < timeoutMs) {
+    if (existsSync(logFilePath)) {
+      const logText = await readFile(logFilePath, 'utf8');
+      const lines = logText
+        .split(/\r?\n/)
+        .filter((entry) => entry.startsWith('runtime-asset-watch '));
+      lastWatchLine = lines.at(-1) || lastWatchLine;
+      const matched = lines.find((entry) => entry.includes(target));
+      if (matched) {
+        return matched;
+      }
+    }
+    await wait(250);
+  }
+  throw new Error('Timed out waiting for runtime asset watcher target ' + target + '. Last watcher log: ' + lastWatchLine);
+}
+
 async function findPreviewScriptChunk(programmingRoot, marker) {
   const previewRoot = path.join(programmingRoot, 'packer-driver', 'targets', 'preview');
   const matches = [];
@@ -167,6 +187,89 @@ function toProgrammingRequestPath(programmingRoot, scriptChunkPath) {
   return '/scripting/x/' + tail;
 }
 
+async function runWatchAssetsScenario({ engineRoot, Launcher, assetQuery, stopAssetDB, scripting }) {
+  const prepared = await prepareProject(engineRoot);
+  const launcher = new Launcher(prepared.projectRoot);
+  const scriptUrl = 'db://assets/rp-live-refresh-script.ts';
+  let server = null;
+  const result = {
+    projectKind: 'temporary-runtime-preview-fixture',
+    fixtureSource: toPosixPath(fixtureRoot),
+    projectRoot: toPosixPath(prepared.projectRoot),
+    levelBoundary: 'HTTP reads of library/programming outputs after real watch-assets reload refresh; not full browser Cocos runtime resource API.',
+    watchAssets: true,
+    refreshOnReload: true,
+    resource: {},
+    script: {},
+  };
+
+  try {
+    server = await launcher.startRuntimePreview({
+      host: '127.0.0.1',
+      port: 0,
+      refreshOnReload: true,
+      watchAssets: true,
+    });
+    result.serverUrl = server.url;
+    result.logFilePath = toPosixPath(server.logFilePath);
+    result.projectLibraryRoot = toPosixPath(server.context.projectLibraryRoot);
+    result.projectProgrammingRoot = toPosixPath(server.context.projectProgrammingRoot);
+
+    const beforeResourcePath = toLibraryRequestPath(server.context.projectLibraryRoot, getJsonLibraryFile(assetQuery));
+    const beforeResourceText = await fetchText(server.url + beforeResourcePath);
+    await writeJson(path.join(prepared.projectRoot, resourceRelativePath), {
+      marker: 'RP_LIVE_WATCH_RESOURCE_AFTER_RELOAD_20260627',
+    });
+    const resourceWatchLog = await waitForAssetWatchTarget(server.logFilePath, resourceUrl);
+    await requestRootReload(server);
+    const resourceReloadLog = await readLastRefreshLog(server.logFilePath);
+    const reloadResourcePath = toLibraryRequestPath(server.context.projectLibraryRoot, getJsonLibraryFile(assetQuery));
+    const reloadResourceText = await fetchText(server.url + reloadResourcePath);
+    result.resource = {
+      beforeRequestPath: beforeResourcePath,
+      reloadRequestPath: reloadResourcePath,
+      beforeContainsOld: beforeResourceText.includes('RP_LIVE_RESOURCE_BEFORE_20260627'),
+      reloadContainsNew: reloadResourceText.includes('RP_LIVE_WATCH_RESOURCE_AFTER_RELOAD_20260627'),
+      reloadContainsOld: reloadResourceText.includes('RP_LIVE_RESOURCE_BEFORE_20260627'),
+      watcherLog: resourceWatchLog,
+      reloadLog: resourceReloadLog,
+    };
+
+    const beforeChunk = await findPreviewScriptChunk(server.context.projectProgrammingRoot, 'RP_LIVE_SCRIPT_BEFORE_20260627');
+    const beforeChunkPath = toProgrammingRequestPath(server.context.projectProgrammingRoot, beforeChunk);
+    const beforeChunkText = await fetchText(server.url + beforeChunkPath);
+    await writeFile(
+      path.join(prepared.projectRoot, scriptRelativePath),
+      'export const RP_LIVE_SCRIPT_MARKER = "RP_LIVE_WATCH_SCRIPT_AFTER_RELOAD_20260627";\n',
+      'utf8',
+    );
+    const scriptWatchLog = await waitForAssetWatchTarget(server.logFilePath, scriptUrl);
+    await requestRootReload(server);
+    const scriptReloadLog = await readLastRefreshLog(server.logFilePath);
+    const reloadChunk = await findPreviewScriptChunk(server.context.projectProgrammingRoot, 'RP_LIVE_WATCH_SCRIPT_AFTER_RELOAD_20260627');
+    const reloadChunkPath = toProgrammingRequestPath(server.context.projectProgrammingRoot, reloadChunk);
+    const reloadChunkText = await fetchText(server.url + reloadChunkPath);
+    result.script = {
+      beforeRequestPath: beforeChunkPath,
+      reloadRequestPath: reloadChunkPath,
+      beforeContainsOld: beforeChunkText.includes('RP_LIVE_SCRIPT_BEFORE_20260627'),
+      reloadContainsNew: reloadChunkText.includes('RP_LIVE_WATCH_SCRIPT_AFTER_RELOAD_20260627'),
+      reloadContainsOld: reloadChunkText.includes('RP_LIVE_SCRIPT_BEFORE_20260627'),
+      watcherLog: scriptWatchLog,
+      reloadLog: scriptReloadLog,
+    };
+  } finally {
+    await server?.close().catch(() => {});
+    await stopAssetDB?.().catch(() => {});
+    await scripting?.close?.().catch(() => {});
+    if (process.env.COCOS_CLI_REFRESH_LIVE_KEEP_TEMP !== '1') {
+      await rm(prepared.root, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
+  return result;
+}
+
 async function main() {
   const originalConsole = {
     log: console.log,
@@ -192,6 +295,18 @@ async function main() {
   const assetQuery = require(path.join(repoRoot, 'src/core/assets/manager/query.ts')).default;
   const { stopAssetDB } = require(path.join(repoRoot, 'src/core/assets/index.ts'));
   const scripting = require(path.join(repoRoot, 'src/core/scripting/index.ts')).default;
+
+  if (process.env.RUNTIME_REFRESH_LIVE_MODE === 'watch-assets') {
+    const watchResult = await runWatchAssetsScenario({
+      engineRoot,
+      Launcher,
+      assetQuery,
+      stopAssetDB,
+      scripting,
+    });
+    writeSync(1, JSON.stringify(watchResult, null, 2) + '\n');
+    return;
+  }
 
   const prepared = await prepareProject(engineRoot);
   const launcher = new Launcher(prepared.projectRoot);
@@ -354,6 +469,39 @@ interface LiveIntegrationResult {
   };
 }
 
+interface WatchAssetsLiveIntegrationResult {
+  projectKind: string;
+  levelBoundary: string;
+  watchAssets: boolean;
+  refreshOnReload: boolean;
+  resource: {
+    beforeContainsOld: boolean;
+    reloadContainsNew: boolean;
+    reloadContainsOld: boolean;
+    watcherLog: string;
+    reloadLog: {
+      ok: boolean;
+      reason: string;
+      target: string;
+      targets: string[];
+      scriptCompile: { status: string };
+    };
+  };
+  script: {
+    beforeContainsOld: boolean;
+    reloadContainsNew: boolean;
+    reloadContainsOld: boolean;
+    watcherLog: string;
+    reloadLog: {
+      ok: boolean;
+      reason: string;
+      target: string;
+      targets: string[];
+      scriptCompile: { status: string };
+    };
+  };
+}
+
 describe('runtime preview refresh live integration on a temporary fixture', () => {
   it('refreshes changed JSON resource and TypeScript script through endpoint and root reload and serves latest HTTP outputs', async () => {
     const engineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT;
@@ -418,5 +566,64 @@ describe('runtime preview refresh live integration on a temporary fixture', () =
         scriptCompile: { status: 'done' },
       },
     });
+  }, 260_000);
+
+  it('watch-assets refreshes changed JSON resource and TypeScript script on reload without root refresh', async () => {
+    const engineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT;
+    expect(engineRoot && existsSync(engineRoot)).toBe(true);
+
+    const repoRoot = join(process.cwd(), '..');
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ['-e', childSource],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          COCOS_CLI_TEST_ENGINE_ROOT: engineRoot,
+          RUNTIME_REFRESH_LIVE_REPO_ROOT: repoRoot,
+          RUNTIME_REFRESH_LIVE_MODE: 'watch-assets',
+        },
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: 240_000,
+      },
+    );
+    const jsonStart = stdout.lastIndexOf('{\n  "projectKind"');
+    expect(jsonStart).toBeGreaterThanOrEqual(0);
+    const result = JSON.parse(stdout.slice(jsonStart)) as WatchAssetsLiveIntegrationResult;
+
+    expect(result.projectKind).toBe('temporary-runtime-preview-fixture');
+    expect(result.levelBoundary).toContain('watch-assets reload refresh');
+    expect(result.watchAssets).toBe(true);
+    expect(result.refreshOnReload).toBe(true);
+    expect(result.resource.watcherLog).toContain('db://assets/resources/rp-live-refresh.json');
+    expect(result.resource).toMatchObject({
+      beforeContainsOld: true,
+      reloadContainsNew: true,
+      reloadContainsOld: false,
+      reloadLog: {
+        ok: true,
+        reason: 'reload',
+        target: 'dirty-set',
+        scriptCompile: { status: 'done' },
+      },
+    });
+    expect(result.resource.reloadLog.targets).toContain('db://assets/resources/rp-live-refresh.json');
+    expect(result.resource.reloadLog.targets).not.toContain('db://assets');
+
+    expect(result.script.watcherLog).toContain('db://assets/rp-live-refresh-script.ts');
+    expect(result.script).toMatchObject({
+      beforeContainsOld: true,
+      reloadContainsNew: true,
+      reloadContainsOld: false,
+      reloadLog: {
+        ok: true,
+        reason: 'reload',
+        target: 'dirty-set',
+        scriptCompile: { status: 'done' },
+      },
+    });
+    expect(result.script.reloadLog.targets).toContain('db://assets/rp-live-refresh-script.ts');
+    expect(result.script.reloadLog.targets).not.toContain('db://assets');
   }, 260_000);
 });
