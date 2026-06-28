@@ -46,6 +46,7 @@ export interface RuntimePreviewServerOptions {
     scriptLoadConcurrency?: number;
     refreshOnReload?: boolean;
     watchAssets?: boolean;
+    deferAssetWatcherStart?: boolean;
     assetDirtyStoreFactory?: (input: { projectRoot: string }) => RuntimeAssetDirtyStore;
     assetChangeWatcherFactory?: (input: {
         projectRoot: string;
@@ -67,6 +68,7 @@ export interface StartedRuntimePreviewServer {
     startupLogLines: string[];
     logFilePath: string;
     logger: RuntimePreviewLogger;
+    startAssetWatcher: () => Promise<void>;
     close: () => Promise<void>;
 }
 
@@ -204,6 +206,20 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         ? (options.assetChangeWatcherFactory?.({ projectRoot: context.projectRoot, dirtyStore, logger })
             ?? createRuntimeAssetChangeWatcher({ projectRoot: context.projectRoot, dirtyStore, logger, failSoft: true }))
         : undefined;
+    let assetWatcherStarted = false;
+    const startAssetWatcher = async (): Promise<void> => {
+        if (!assetWatcher || assetWatcherStarted) {
+            return;
+        }
+
+        assetWatcherStarted = true;
+        try {
+            await assetWatcher.start();
+        } catch (error) {
+            assetWatcherStarted = false;
+            throw error;
+        }
+    };
     let serverUrl = '';
     let settingsProvider = options.settingsProvider;
     const getSettingsProvider = (): PreviewSettingsProvider => {
@@ -265,7 +281,9 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
     for (const line of startupLogLines) {
         await logger.write(line);
     }
-    await assetWatcher?.start();
+    if (options.deferAssetWatcherStart !== true) {
+        await startAssetWatcher();
+    }
 
     const app = express();
     app.disable('x-powered-by');
@@ -416,6 +434,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         startupLogLines,
         logFilePath: logger.logFilePath,
         logger,
+        startAssetWatcher,
         close: async () => {
             try {
                 await assetWatcher?.stop();

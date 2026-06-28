@@ -459,6 +459,7 @@ export default class Launcher {
             scriptLoadConcurrency: options.scriptLoadConcurrency,
             refreshOnReload: options.refreshOnReload === true,
             watchAssets: options.watchAssets === true,
+            deferAssetWatcherStart: options.watchAssets === true,
             prepareRuntimePreview: ensurePreviewSettingsReady,
             settingsProvider,
         });
@@ -492,6 +493,7 @@ export default class Launcher {
             if (!assetDbScriptCompileDoneLine) {
                 emitRuntimePreviewEvent('asset-db:script-compile:missing');
             }
+            await server.startAssetWatcher();
             try {
                 await inspectRuntimePreviewProgrammingArtifacts({
                     projectRoot: this.projectPath,

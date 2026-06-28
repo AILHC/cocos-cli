@@ -502,6 +502,37 @@ describe('runtime preview express server adapter', () => {
     expect(stop).toHaveBeenCalledTimes(1);
   });
 
+  it('can defer asset watcher start until preview preparation is complete', async () => {
+    const start = vi.fn(async () => undefined);
+    const stop = vi.fn(async () => undefined);
+    const { server } = await createServerFixture({
+      watchAssets: true,
+      deferAssetWatcherStart: true,
+      assetChangeWatcherFactory: () => ({
+        start,
+        stop,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      }),
+    });
+
+    try {
+      expect(start).not.toHaveBeenCalled();
+      await server.startAssetWatcher();
+      await server.startAssetWatcher();
+      expect(start).toHaveBeenCalledTimes(1);
+    } finally {
+      await server.close();
+    }
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
   it('does not root-refresh on reload when watcher dirty-set is empty', async () => {
     const refreshTarget = vi.fn(async () => 1);
     const { server } = await createServerFixture({

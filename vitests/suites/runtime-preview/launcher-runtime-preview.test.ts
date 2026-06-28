@@ -62,6 +62,7 @@ describe('runtime preview production asset routes', () => {
         bundleConfigs: [],
       }));
       const initBuilder = vi.fn(async () => undefined);
+      const startAssetWatcher = vi.fn(async () => undefined);
       const capturedServerOptions: any[] = [];
 
       vi.doMock('../../../src/core/base/console', () => ({
@@ -116,6 +117,7 @@ describe('runtime preview production asset routes', () => {
               startupLogLines: [`server:listening ${finalServerUrl}`],
               logFilePath: join(projectRoot, 'temp', 'preview.log'),
               logger: { logFilePath: join(projectRoot, 'temp', 'preview.log'), write: async () => undefined },
+              startAssetWatcher,
               close: async () => undefined,
             };
           }),
@@ -137,7 +139,9 @@ describe('runtime preview production asset routes', () => {
       expect(capturedServerOptions).toHaveLength(1);
       expect(capturedServerOptions[0].refreshOnReload).toBe(true);
       expect(capturedServerOptions[0].watchAssets).toBe(true);
+      expect(capturedServerOptions[0].deferAssetWatcherStart).toBe(true);
       expect(capturedServerOptions[0].prepareRuntimePreview).toEqual(expect.any(Function));
+      expect(startAssetWatcher).toHaveBeenCalledTimes(1);
       expect(importSpy).toHaveBeenCalledWith(expect.objectContaining({
         serverURL: `${finalServerUrl}/`,
       }));

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 const execFileAsync = promisify(execFile);
 
 const childSource = String.raw`
-const { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } = require('fs/promises');
+const { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } = require('fs/promises');
 const { existsSync, writeSync } = require('fs');
 const os = require('os');
 const path = require('path');
@@ -135,12 +135,20 @@ async function readLastRefreshLog(logFilePath) {
   return JSON.parse(line.slice('runtime-refresh '.length));
 }
 
-async function waitForAssetWatchTarget(logFilePath, target, timeoutMs = 15_000) {
+async function getLogOffset(logFilePath) {
+  try {
+    return (await stat(logFilePath)).size;
+  } catch {
+    return 0;
+  }
+}
+
+async function waitForAssetWatchTarget(logFilePath, target, timeoutMs = 15_000, afterOffset = 0) {
   const startedAt = Date.now();
   let lastWatchLine = '';
   while (Date.now() - startedAt < timeoutMs) {
     if (existsSync(logFilePath)) {
-      const logText = await readFile(logFilePath, 'utf8');
+      const logText = (await readFile(logFilePath, 'utf8')).slice(afterOffset);
       const lines = logText
         .split(/\r?\n/)
         .filter((entry) => entry.startsWith('runtime-asset-watch '));
@@ -217,10 +225,11 @@ async function runWatchAssetsScenario({ engineRoot, Launcher, assetQuery, stopAs
 
     const beforeResourcePath = toLibraryRequestPath(server.context.projectLibraryRoot, getJsonLibraryFile(assetQuery));
     const beforeResourceText = await fetchText(server.url + beforeResourcePath);
+    const resourceLogOffset = await getLogOffset(server.logFilePath);
     await writeJson(path.join(prepared.projectRoot, resourceRelativePath), {
       marker: 'RP_LIVE_WATCH_RESOURCE_AFTER_RELOAD_20260627',
     });
-    const resourceWatchLog = await waitForAssetWatchTarget(server.logFilePath, resourceUrl);
+    const resourceWatchLog = await waitForAssetWatchTarget(server.logFilePath, resourceUrl, 15_000, resourceLogOffset);
     await requestRootReload(server);
     const resourceReloadLog = await readLastRefreshLog(server.logFilePath);
     const reloadResourcePath = toLibraryRequestPath(server.context.projectLibraryRoot, getJsonLibraryFile(assetQuery));
@@ -238,12 +247,13 @@ async function runWatchAssetsScenario({ engineRoot, Launcher, assetQuery, stopAs
     const beforeChunk = await findPreviewScriptChunk(server.context.projectProgrammingRoot, 'RP_LIVE_SCRIPT_BEFORE_20260627');
     const beforeChunkPath = toProgrammingRequestPath(server.context.projectProgrammingRoot, beforeChunk);
     const beforeChunkText = await fetchText(server.url + beforeChunkPath);
+    const scriptLogOffset = await getLogOffset(server.logFilePath);
     await writeFile(
       path.join(prepared.projectRoot, scriptRelativePath),
       'export const RP_LIVE_SCRIPT_MARKER = "RP_LIVE_WATCH_SCRIPT_AFTER_RELOAD_20260627";\n',
       'utf8',
     );
-    const scriptWatchLog = await waitForAssetWatchTarget(server.logFilePath, scriptUrl);
+    const scriptWatchLog = await waitForAssetWatchTarget(server.logFilePath, scriptUrl, 15_000, scriptLogOffset);
     await requestRootReload(server);
     const scriptReloadLog = await readLastRefreshLog(server.logFilePath);
     const reloadChunk = await findPreviewScriptChunk(server.context.projectProgrammingRoot, 'RP_LIVE_WATCH_SCRIPT_AFTER_RELOAD_20260627');
