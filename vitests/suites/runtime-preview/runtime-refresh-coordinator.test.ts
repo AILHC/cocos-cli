@@ -255,4 +255,334 @@ describe('runtime refresh coordinator', () => {
     });
     expect(invalidateSettings).toHaveBeenCalledTimes(1);
   });
+
+  it('refreshes dirty targets instead of root when a dirty provider is available', async () => {
+    const refreshTarget = vi.fn(async () => 1);
+    let dirtyTargetCount = 2;
+    let drained = false;
+    const dirtyProvider = {
+      drainDirtyTargets: vi.fn(() => {
+        if (drained) {
+          return { targets: [], entries: [], eventCount: 0, drainedAt: 1001 };
+        }
+        drained = true;
+        dirtyTargetCount = 0;
+        return {
+          targets: ['db://assets/a.json', 'db://assets/b.json'],
+          entries: [
+            { target: 'db://assets/a.json', eventTypes: ['update'] },
+            { target: 'db://assets/b.json', eventTypes: ['update'] },
+          ],
+          eventCount: 3,
+          drainedAt: 1000,
+        };
+      }),
+      requeueTargets: vi.fn(),
+      getStatus: vi.fn(() => ({
+        enabled: true,
+        running: true,
+        assetsRoot: 'E:/project/assets',
+        eventCount: 3,
+        dirtyTargetCount,
+        sampleTargets: dirtyTargetCount > 0 ? ['db://assets/a.json'] : [],
+      })),
+    };
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider,
+    });
+
+    const result = await coordinator.refresh({ reason: 'endpoint' });
+
+    expect(result.ok).toBe(true);
+    expect(result.target).toBe('dirty-set');
+    expect(result.targets).toEqual(['db://assets/a.json', 'db://assets/b.json']);
+    expect(refreshTarget).toHaveBeenCalledTimes(2);
+    expect(refreshTarget).not.toHaveBeenCalledWith('db://assets');
+  });
+
+  it('skips refresh when watcher is running and dirty-set is empty', async () => {
+    const refreshTarget = vi.fn(async () => 1);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets: () => ({ targets: [], entries: [], eventCount: 0, drainedAt: 1000 }),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.scriptCompile.status).toBe('skipped');
+    expect(result.target).toBe('dirty-set');
+    expect(result.targets).toEqual([]);
+    expect(refreshTarget).not.toHaveBeenCalled();
+  });
+
+  it('requeues dirty targets that fail to refresh', async () => {
+    const requeueTargets = vi.fn();
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget: vi.fn(async (target: string) => {
+        if (target.endsWith('bad.json')) {
+          throw new Error('refresh failed');
+        }
+        return 1;
+      }),
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets: () => ({
+          targets: ['db://assets/good.json', 'db://assets/bad.json'],
+          entries: [
+            { target: 'db://assets/good.json', eventTypes: ['update'] },
+            { target: 'db://assets/bad.json', eventTypes: ['update'] },
+          ],
+          eventCount: 2,
+          drainedAt: 1000,
+        }),
+        requeueTargets,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 2,
+          dirtyTargetCount: 2,
+          sampleTargets: ['db://assets/good.json', 'db://assets/bad.json'],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'endpoint' });
+
+    expect(result.ok).toBe(false);
+    expect(result.failedTargets).toEqual([{ target: 'db://assets/bad.json', error: 'refresh failed' }]);
+    expect(requeueTargets).toHaveBeenCalledWith(['db://assets/bad.json']);
+  });
+
+  it('settles missing dirty targets without requeueing poison entries', async () => {
+    const requeueTargets = vi.fn();
+    const waitForIdle = vi.fn(async () => undefined);
+    const invalidateSettings = vi.fn();
+    const clearImportReplacement = vi.fn();
+    let dirtyTargetCount = 1;
+    let drained = false;
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget: vi.fn(async () => {
+        throw new Error('can not find asset db://assets/temp.json');
+      }),
+      waitForIdle,
+      invalidateSettings,
+      clearImportReplacement,
+      dirtyProvider: {
+        drainDirtyTargets: () => {
+          if (drained) {
+            return { targets: [], entries: [], eventCount: 0, drainedAt: 1001 };
+          }
+          drained = true;
+          dirtyTargetCount = 0;
+          return {
+            targets: ['db://assets/temp.json'],
+            entries: [{ target: 'db://assets/temp.json', eventTypes: ['create', 'delete'] }],
+            eventCount: 2,
+            drainedAt: 1000,
+          };
+        },
+        requeueTargets,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 2,
+          dirtyTargetCount,
+          sampleTargets: dirtyTargetCount > 0 ? ['db://assets/temp.json'] : [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.scriptCompile.status).toBe('skipped');
+    expect(result.settledTargets).toEqual([{
+      target: 'db://assets/temp.json',
+      error: 'can not find asset db://assets/temp.json',
+    }]);
+    expect(requeueTargets).not.toHaveBeenCalled();
+    expect(waitForIdle).not.toHaveBeenCalled();
+    expect(invalidateSettings).not.toHaveBeenCalled();
+    expect(clearImportReplacement).not.toHaveBeenCalled();
+  });
+
+  it('returns watcher failure for no-target refresh when watcher is enabled but not running', async () => {
+    const refreshTarget = vi.fn(async () => 1);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn(),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: false,
+          assetsRoot: 'E:/project/assets',
+          error: 'native watcher unavailable',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'endpoint' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('native watcher unavailable');
+    expect(refreshTarget).not.toHaveBeenCalled();
+  });
+
+  it('dedupes concurrent dirty-set refresh requests with one shared multi-pass run', async () => {
+    const deferredRefresh = createDeferred<number>();
+    const refreshTarget = vi.fn(async () => deferredRefresh.promise);
+    const batches = [
+      {
+        targets: ['db://assets/a.json'],
+        entries: [{ target: 'db://assets/a.json', eventTypes: ['update'] }],
+        eventCount: 1,
+        drainedAt: 1000,
+      },
+      { targets: [], entries: [], eventCount: 0, drainedAt: 1001 },
+    ];
+    const drainDirtyTargets = vi.fn(() => batches.shift()!);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets,
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 1,
+          dirtyTargetCount: batches[0]?.targets.length ?? 0,
+          sampleTargets: batches[0]?.targets.slice(0, 5) ?? [],
+        }),
+      },
+    });
+
+    const first = coordinator.refresh({ reason: 'reload' });
+    const second = coordinator.refresh({ reason: 'endpoint' });
+    deferredRefresh.resolve(1);
+    await Promise.all([first, second]);
+
+    expect(drainDirtyTargets).toHaveBeenCalledTimes(2);
+    expect(refreshTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes dirty targets recorded while a pass is running before returning', async () => {
+    const batches = [
+      {
+        targets: ['db://assets/a.json'],
+        entries: [{ target: 'db://assets/a.json', eventTypes: ['update'] }],
+        eventCount: 1,
+        drainedAt: 1000,
+      },
+      {
+        targets: ['db://assets/b.json'],
+        entries: [{ target: 'db://assets/b.json', eventTypes: ['update'] }],
+        eventCount: 1,
+        drainedAt: 1001,
+      },
+      { targets: [], entries: [], eventCount: 0, drainedAt: 1002 },
+    ];
+    const drainDirtyTargets = vi.fn(() => batches.shift()!);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget: vi.fn(async () => 1),
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets,
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 1,
+          dirtyTargetCount: batches[0]?.targets.length ?? 0,
+          sampleTargets: batches[0]?.targets.slice(0, 5) ?? [],
+        }),
+      },
+      maxDirtyRefreshPasses: 3,
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.targets).toEqual(['db://assets/a.json', 'db://assets/b.json']);
+    expect(result.passes).toHaveLength(2);
+    expect(drainDirtyTargets).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails with pending dirty targets when pass limit is reached', async () => {
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget: vi.fn(async () => 1),
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn(() => ({
+          targets: ['db://assets/churn.json'],
+          entries: [{ target: 'db://assets/churn.json', eventTypes: ['update'] }],
+          eventCount: 1,
+          drainedAt: Date.now(),
+        })),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 1,
+          dirtyTargetCount: 1,
+          sampleTargets: ['db://assets/churn.json'],
+        }),
+      },
+      maxDirtyRefreshPasses: 2,
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('dirty-set did not become stable');
+    expect(result.pendingDirtyTargetCount).toBe(1);
+    expect(result.pendingSampleTargets).toEqual(['db://assets/churn.json']);
+  });
 });

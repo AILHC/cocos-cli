@@ -9,12 +9,40 @@ export interface RuntimeRefreshScriptCompileResult {
     error?: string;
 }
 
+export interface RuntimeRefreshFailedTarget {
+    target: string;
+    error: string;
+}
+
+export interface RuntimeRefreshSettledTarget {
+    target: string;
+    error: string;
+}
+
+export interface RuntimeRefreshPassResult {
+    index: number;
+    targets: string[];
+    successfulTargets: string[];
+    failedTargets: RuntimeRefreshFailedTarget[];
+    settledTargets: RuntimeRefreshSettledTarget[];
+    dirtyEventCount: number;
+    durationMs: number;
+}
+
 export interface RuntimeRefreshResult {
     ok: boolean;
     refreshId: string;
     target: string;
+    targets?: string[];
+    passes?: RuntimeRefreshPassResult[];
+    failedTargets?: RuntimeRefreshFailedTarget[];
+    settledTargets?: RuntimeRefreshSettledTarget[];
+    pendingDirtyTargetCount?: number;
+    pendingSampleTargets?: string[];
     reason: RuntimeRefreshReason;
     changedAssetCount: number | null;
+    dirtyEventCount?: number;
+    watcher?: RuntimeRefreshWatcherStatus;
     scriptCompile: RuntimeRefreshScriptCompileResult;
     durationMs: number;
     error?: string;
@@ -30,9 +58,32 @@ export interface RuntimeRefreshCoordinatorOptions {
     waitForIdle: () => Promise<void>;
     invalidateSettings: () => void | Promise<void>;
     clearImportReplacement: () => void | Promise<void>;
+    dirtyProvider?: RuntimeRefreshDirtyProvider;
+    maxDirtyRefreshPasses?: number;
     logger?: { write: (line: string) => Promise<void> | void };
     now?: () => number;
     reloadDedupeMs?: number;
+}
+
+export interface RuntimeRefreshWatcherStatus {
+    enabled: boolean;
+    running: boolean;
+    assetsRoot: string;
+    error?: string;
+    eventCount: number;
+    dirtyTargetCount: number;
+    sampleTargets: string[];
+}
+
+export interface RuntimeRefreshDirtyProvider {
+    drainDirtyTargets(): {
+        targets: string[];
+        entries?: Array<{ target: string; eventTypes: string[] }>;
+        eventCount: number;
+        drainedAt: number;
+    };
+    requeueTargets(targets: string[]): void;
+    getStatus(): RuntimeRefreshWatcherStatus;
 }
 
 interface NormalizedRefreshTarget {
@@ -50,6 +101,7 @@ type TargetNormalizationResult = NormalizedRefreshTarget | InvalidRefreshTarget;
 
 const defaultReloadDedupeMs = 500;
 const defaultRefreshTarget = 'db://assets';
+const dirtySetRefreshTarget = 'dirty-set';
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -119,6 +171,42 @@ function normalizeRefreshTarget(projectRoot: string, target: unknown): TargetNor
     };
 }
 
+function dedupeTargets(targets: string[]): string[] {
+    return Array.from(new Set(targets));
+}
+
+function isMissingDirtyTargetError(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return normalized.includes('can not find asset')
+        || normalized.includes('not exists')
+        || normalized.includes('not in asset-db');
+}
+
+function shouldSettleMissingDirtyTarget(
+    entries: Array<{ target: string; eventTypes: string[] }> | undefined,
+    target: string,
+    errorMessage: string,
+): boolean {
+    if (!isMissingDirtyTargetError(errorMessage)) {
+        return false;
+    }
+
+    const eventTypes = entries?.find((entry) => entry.target === target)?.eventTypes ?? [];
+    return eventTypes.includes('delete') || (eventTypes.includes('create') && eventTypes.includes('delete'));
+}
+
+type RuntimeRefreshResultPatch = Partial<Pick<
+    RuntimeRefreshResult,
+    'targets'
+    | 'passes'
+    | 'failedTargets'
+    | 'settledTargets'
+    | 'pendingDirtyTargetCount'
+    | 'pendingSampleTargets'
+    | 'dirtyEventCount'
+    | 'watcher'
+>>;
+
 export function createRuntimeRefreshCoordinator(
     options: RuntimeRefreshCoordinatorOptions,
 ): RuntimeRefreshCoordinator {
@@ -136,6 +224,7 @@ export function createRuntimeRefreshCoordinator(
         reason: RuntimeRefreshReason,
         startedAt: number,
         error?: string,
+        patch: RuntimeRefreshResultPatch = {},
     ): RuntimeRefreshResult => ({
         ok: !error,
         refreshId,
@@ -148,6 +237,7 @@ export function createRuntimeRefreshCoordinator(
         },
         durationMs: now() - startedAt,
         ...(error ? { error } : {}),
+        ...patch,
     });
 
     const createFailedResult = (
@@ -158,6 +248,7 @@ export function createRuntimeRefreshCoordinator(
         changedAssetCount: number | null,
         scriptCompile: RuntimeRefreshScriptCompileResult,
         error: string,
+        patch: RuntimeRefreshResultPatch = {},
     ): RuntimeRefreshResult => ({
         ok: false,
         refreshId,
@@ -167,6 +258,7 @@ export function createRuntimeRefreshCoordinator(
         scriptCompile,
         durationMs: now() - startedAt,
         error,
+        ...patch,
     });
 
     const writeResult = async (result: RuntimeRefreshResult): Promise<void> => {
@@ -251,10 +343,269 @@ export function createRuntimeRefreshCoordinator(
         return result;
     };
 
+    const runPostRefreshWork = async (
+        refreshId: string,
+        target: string,
+        reason: RuntimeRefreshReason,
+        startedAt: number,
+        changedAssetCount: number | null,
+        patch: RuntimeRefreshResultPatch,
+    ): Promise<{ ok: true; scriptCompile: RuntimeRefreshScriptCompileResult } | { ok: false; result: RuntimeRefreshResult }> => {
+        const scriptStartedAt = now();
+        let scriptCompile: RuntimeRefreshScriptCompileResult;
+        try {
+            await options.waitForIdle();
+            scriptCompile = {
+                status: 'done',
+                durationMs: now() - scriptStartedAt,
+            };
+        } catch (error) {
+            const errorMessage = getErrorMessage(error);
+            scriptCompile = {
+                status: 'failed',
+                durationMs: now() - scriptStartedAt,
+                error: errorMessage,
+            };
+            const result = createFailedResult(
+                refreshId,
+                target,
+                reason,
+                startedAt,
+                changedAssetCount,
+                scriptCompile,
+                errorMessage,
+                patch,
+            );
+            await writeResult(result);
+            return { ok: false, result };
+        }
+
+        try {
+            await options.invalidateSettings();
+            await options.clearImportReplacement();
+        } catch (error) {
+            const result = createFailedResult(
+                refreshId,
+                target,
+                reason,
+                startedAt,
+                changedAssetCount,
+                scriptCompile,
+                getErrorMessage(error),
+                patch,
+            );
+            await writeResult(result);
+            return { ok: false, result };
+        }
+
+        return { ok: true, scriptCompile };
+    };
+
+    const refreshDirtySet = async (
+        refreshId: string,
+        reason: RuntimeRefreshReason,
+        startedAt: number,
+    ): Promise<RuntimeRefreshResult> => {
+        const dirtyProvider = options.dirtyProvider;
+        if (!dirtyProvider) {
+            throw new Error('Runtime dirty refresh requested without dirty provider.');
+        }
+
+        const maxPasses = options.maxDirtyRefreshPasses ?? 3;
+        const allTargets: string[] = [];
+        const allPasses: RuntimeRefreshPassResult[] = [];
+        const allFailedTargets: RuntimeRefreshFailedTarget[] = [];
+        const allSettledTargets: RuntimeRefreshSettledTarget[] = [];
+        let changedAssetCount = 0;
+        let dirtyEventCount = 0;
+
+        for (let passIndex = 1; passIndex <= maxPasses; passIndex += 1) {
+            const passStartedAt = now();
+            const batch = dirtyProvider.drainDirtyTargets();
+            dirtyEventCount += batch.eventCount;
+
+            if (batch.targets.length === 0) {
+                if (allPasses.length === 0) {
+                    const watcher = dirtyProvider.getStatus();
+                    const result = createSkippedResult(refreshId, dirtySetRefreshTarget, reason, startedAt, undefined, {
+                        targets: [],
+                        passes: [],
+                        dirtyEventCount: batch.eventCount,
+                        watcher,
+                    });
+                    await writeResult(result);
+                    return result;
+                }
+                break;
+            }
+
+            const successfulTargets: string[] = [];
+            const failedTargets: RuntimeRefreshFailedTarget[] = [];
+            const settledTargets: RuntimeRefreshSettledTarget[] = [];
+
+            for (const target of batch.targets) {
+                allTargets.push(target);
+                try {
+                    const changed = await options.refreshTarget(target);
+                    successfulTargets.push(target);
+                    if (typeof changed === 'number') {
+                        changedAssetCount += changed;
+                    }
+                } catch (error) {
+                    const errorMessage = getErrorMessage(error);
+                    if (shouldSettleMissingDirtyTarget(batch.entries, target, errorMessage)) {
+                        settledTargets.push({ target, error: errorMessage });
+                    } else {
+                        failedTargets.push({ target, error: errorMessage });
+                    }
+                }
+            }
+
+            allFailedTargets.push(...failedTargets);
+            allSettledTargets.push(...settledTargets);
+            allPasses.push({
+                index: passIndex,
+                targets: batch.targets,
+                successfulTargets,
+                failedTargets,
+                settledTargets,
+                dirtyEventCount: batch.eventCount,
+                durationMs: now() - passStartedAt,
+            });
+
+            if (failedTargets.length > 0) {
+                dirtyProvider.requeueTargets(failedTargets.map((item) => item.target));
+                break;
+            }
+        }
+
+        const finalWatcher = dirtyProvider.getStatus();
+        const targets = dedupeTargets(allTargets);
+        const hasSuccessfulTargets = allPasses.some((pass) => pass.successfulTargets.length > 0);
+        const basePatch: RuntimeRefreshResultPatch = {
+            targets,
+            passes: allPasses,
+            dirtyEventCount,
+            watcher: finalWatcher,
+            ...(allFailedTargets.length > 0 ? { failedTargets: allFailedTargets } : {}),
+            ...(allSettledTargets.length > 0 ? { settledTargets: allSettledTargets } : {}),
+        };
+
+        let scriptCompile: RuntimeRefreshScriptCompileResult = { status: 'skipped', durationMs: 0 };
+        if (hasSuccessfulTargets) {
+            const postRefresh = await runPostRefreshWork(
+                refreshId,
+                dirtySetRefreshTarget,
+                reason,
+                startedAt,
+                changedAssetCount || null,
+                basePatch,
+            );
+            if (!postRefresh.ok) {
+                return postRefresh.result;
+            }
+            scriptCompile = postRefresh.scriptCompile;
+        }
+
+        if (allFailedTargets.length > 0) {
+            const result = createFailedResult(
+                refreshId,
+                dirtySetRefreshTarget,
+                reason,
+                startedAt,
+                changedAssetCount || null,
+                scriptCompile,
+                `Runtime refresh failed for ${allFailedTargets.length} dirty target(s).`,
+                basePatch,
+            );
+            await writeResult(result);
+            return result;
+        }
+
+        if (finalWatcher.dirtyTargetCount > 0) {
+            const result = createFailedResult(
+                refreshId,
+                dirtySetRefreshTarget,
+                reason,
+                startedAt,
+                changedAssetCount || null,
+                scriptCompile,
+                `Runtime asset dirty-set did not become stable within ${maxPasses} pass(es).`,
+                {
+                    ...basePatch,
+                    pendingDirtyTargetCount: finalWatcher.dirtyTargetCount,
+                    pendingSampleTargets: finalWatcher.sampleTargets,
+                },
+            );
+            await writeResult(result);
+            return result;
+        }
+
+        const result: RuntimeRefreshResult = {
+            ok: true,
+            refreshId,
+            target: dirtySetRefreshTarget,
+            targets,
+            passes: allPasses,
+            reason,
+            changedAssetCount: hasSuccessfulTargets ? changedAssetCount : null,
+            dirtyEventCount,
+            watcher: finalWatcher,
+            ...(allSettledTargets.length > 0 ? { settledTargets: allSettledTargets } : {}),
+            scriptCompile,
+            durationMs: now() - startedAt,
+        };
+        await writeResult(result);
+        if (reason === 'endpoint') {
+            lastEndpointSuccess = { target: dirtySetRefreshTarget, completedAt: now() };
+        }
+        return result;
+    };
+
     return {
         async refresh(input: { reason: RuntimeRefreshReason; target?: unknown }): Promise<RuntimeRefreshResult> {
             const startedAt = now();
             const refreshId = createRefreshId();
+            const shouldUseDirtyProvider = (input.target === undefined || input.target === '') && !!options.dirtyProvider;
+
+            if (shouldUseDirtyProvider) {
+                const watcher = options.dirtyProvider!.getStatus();
+                if (watcher.enabled && !watcher.running) {
+                    const result = createFailedResult(
+                        refreshId,
+                        dirtySetRefreshTarget,
+                        input.reason,
+                        startedAt,
+                        null,
+                        { status: 'skipped', durationMs: 0 },
+                        watcher.error ? `Runtime asset watcher unavailable: ${watcher.error}` : 'Runtime asset watcher is not running.',
+                        { watcher, targets: [] },
+                    );
+                    await writeResult(result);
+                    return result;
+                }
+
+                const pending = inFlight.get(dirtySetRefreshTarget);
+                if (pending) {
+                    const result = await pending;
+                    return {
+                        ...result,
+                        refreshId,
+                        reason: input.reason,
+                        durationMs: now() - startedAt,
+                    };
+                }
+
+                const refreshPromise = refreshDirtySet(refreshId, input.reason, startedAt)
+                    .finally(() => {
+                        if (inFlight.get(dirtySetRefreshTarget) === refreshPromise) {
+                            inFlight.delete(dirtySetRefreshTarget);
+                        }
+                    });
+                inFlight.set(dirtySetRefreshTarget, refreshPromise);
+                return refreshPromise;
+            }
+
             const normalized = normalizeRefreshTarget(options.projectRoot, input.target);
 
             if (!normalized.ok) {
