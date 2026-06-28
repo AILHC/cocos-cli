@@ -569,6 +569,17 @@ export function createRuntimeRefreshCoordinator(
             const shouldUseDirtyProvider = (input.target === undefined || input.target === '') && !!options.dirtyProvider;
 
             if (shouldUseDirtyProvider) {
+                const pending = inFlight.get(dirtySetRefreshTarget);
+                if (pending) {
+                    const result = await pending;
+                    return {
+                        ...result,
+                        refreshId,
+                        reason: input.reason,
+                        durationMs: now() - startedAt,
+                    };
+                }
+
                 const watcher = options.dirtyProvider!.getStatus();
                 if (watcher.enabled && !watcher.running) {
                     const result = createFailedResult(
@@ -583,17 +594,6 @@ export function createRuntimeRefreshCoordinator(
                     );
                     await writeResult(result);
                     return result;
-                }
-
-                const pending = inFlight.get(dirtySetRefreshTarget);
-                if (pending) {
-                    const result = await pending;
-                    return {
-                        ...result,
-                        refreshId,
-                        reason: input.reason,
-                        durationMs: now() - startedAt,
-                    };
                 }
 
                 const refreshPromise = refreshDirtySet(refreshId, input.reason, startedAt)

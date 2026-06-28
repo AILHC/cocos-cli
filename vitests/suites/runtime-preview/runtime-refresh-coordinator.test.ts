@@ -505,6 +505,67 @@ describe('runtime refresh coordinator', () => {
     expect(refreshTarget).toHaveBeenCalledTimes(1);
   });
 
+  it('awaits an in-flight dirty-set refresh even when watcher fails during the first run', async () => {
+    const deferredRefresh = createDeferred<number>();
+    let statusCallCount = 0;
+    const refreshTarget = vi.fn(async () => deferredRefresh.promise);
+    const batches = [
+      {
+        targets: ['db://assets/a.json'],
+        entries: [{ target: 'db://assets/a.json', eventTypes: ['update'] }],
+        eventCount: 1,
+        drainedAt: 1000,
+      },
+      { targets: [], entries: [], eventCount: 0, drainedAt: 1001 },
+    ];
+    const drainDirtyTargets = vi.fn(() => batches.shift()!);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets,
+        requeueTargets: vi.fn(),
+        getStatus: () => {
+          statusCallCount += 1;
+          const running = statusCallCount === 1 || batches.length === 0;
+          return {
+            enabled: true,
+            running,
+            assetsRoot: 'E:/project/assets',
+            ...(running ? {} : { error: 'native watcher failed mid-refresh' }),
+            eventCount: 1,
+            dirtyTargetCount: batches[0]?.targets.length ?? 0,
+            sampleTargets: batches[0]?.targets.slice(0, 5) ?? [],
+          };
+        },
+      },
+    });
+
+    const first = coordinator.refresh({ reason: 'reload' });
+    await Promise.resolve();
+    const second = coordinator.refresh({ reason: 'endpoint' });
+    deferredRefresh.resolve(1);
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult).toMatchObject({
+      ok: true,
+      reason: 'reload',
+      target: 'dirty-set',
+    });
+    expect(secondResult).toMatchObject({
+      ok: true,
+      reason: 'endpoint',
+      target: 'dirty-set',
+      targets: ['db://assets/a.json'],
+    });
+    expect(secondResult.refreshId).not.toBe(firstResult.refreshId);
+    expect(refreshTarget).toHaveBeenCalledTimes(1);
+    expect(drainDirtyTargets).toHaveBeenCalledTimes(2);
+  });
+
   it('refreshes dirty targets recorded while a pass is running before returning', async () => {
     const batches = [
       {
