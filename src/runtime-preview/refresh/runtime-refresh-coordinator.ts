@@ -78,12 +78,19 @@ export interface RuntimeRefreshWatcherStatus {
 export interface RuntimeRefreshDirtyProvider {
     drainDirtyTargets(): {
         targets: string[];
-        entries?: Array<{ target: string; eventTypes: string[] }>;
+        entries?: RuntimeRefreshDirtyEntry[];
         eventCount: number;
         drainedAt: number;
     };
     requeueTargets(targets: string[]): void;
     getStatus(): RuntimeRefreshWatcherStatus;
+}
+
+export interface RuntimeRefreshDirtyEntry {
+    target: string;
+    eventTypes: string[];
+    assetEventCount?: number;
+    metaEventCount?: number;
 }
 
 interface NormalizedRefreshTarget {
@@ -183,7 +190,7 @@ function isMissingDirtyTargetError(message: string): boolean {
 }
 
 function shouldSettleMissingDirtyTarget(
-    entries: Array<{ target: string; eventTypes: string[] }> | undefined,
+    entries: RuntimeRefreshDirtyEntry[] | undefined,
     target: string,
     errorMessage: string,
 ): boolean {
@@ -193,6 +200,41 @@ function shouldSettleMissingDirtyTarget(
 
     const eventTypes = entries?.find((entry) => entry.target === target)?.eventTypes ?? [];
     return eventTypes.includes('delete') || (eventTypes.includes('create') && eventTypes.includes('delete'));
+}
+
+function hasChildTarget(parentTarget: string, targets: string[]): boolean {
+    const prefix = `${parentTarget}/`;
+    return targets.some((target) => target.startsWith(prefix));
+}
+
+function optimizeDirtyBatchTargets(
+    targets: string[],
+    entries: RuntimeRefreshDirtyEntry[] | undefined,
+    successfulTargets: Set<string>,
+): string[] {
+    return targets.filter((target) => {
+        const entry = entries?.find((item) => item.target === target);
+        const eventTypes = entry?.eventTypes ?? [];
+        const isDelete = eventTypes.includes('delete');
+        const isPureDelete = isDelete && eventTypes.length === 1;
+
+        if (!isPureDelete && hasChildTarget(target, targets)) {
+            return false;
+        }
+
+        const assetEventCount = entry?.assetEventCount ?? 1;
+        const metaEventCount = entry?.metaEventCount ?? 0;
+        if (
+            successfulTargets.has(target)
+            && assetEventCount === 0
+            && metaEventCount > 0
+            && !isPureDelete
+        ) {
+            return false;
+        }
+
+        return true;
+    });
 }
 
 type RuntimeRefreshResultPatch = Partial<Pick<
@@ -418,6 +460,7 @@ export function createRuntimeRefreshCoordinator(
         const allSettledTargets: RuntimeRefreshSettledTarget[] = [];
         let changedAssetCount = 0;
         let dirtyEventCount = 0;
+        const successfulTargetSet = new Set<string>();
 
         for (let passIndex = 1; passIndex <= maxPasses; passIndex += 1) {
             const passStartedAt = now();
@@ -439,15 +482,21 @@ export function createRuntimeRefreshCoordinator(
                 break;
             }
 
+            const passTargets = optimizeDirtyBatchTargets(batch.targets, batch.entries, successfulTargetSet);
+            if (passTargets.length === 0) {
+                break;
+            }
+
             const successfulTargets: string[] = [];
             const failedTargets: RuntimeRefreshFailedTarget[] = [];
             const settledTargets: RuntimeRefreshSettledTarget[] = [];
 
-            for (const target of batch.targets) {
+            for (const target of passTargets) {
                 allTargets.push(target);
                 try {
                     const changed = await options.refreshTarget(target);
                     successfulTargets.push(target);
+                    successfulTargetSet.add(target);
                     if (typeof changed === 'number') {
                         changedAssetCount += changed;
                     }
@@ -465,7 +514,7 @@ export function createRuntimeRefreshCoordinator(
             allSettledTargets.push(...settledTargets);
             allPasses.push({
                 index: passIndex,
-                targets: batch.targets,
+                targets: passTargets,
                 successfulTargets,
                 failedTargets,
                 settledTargets,

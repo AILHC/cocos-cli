@@ -29,7 +29,12 @@ describe('runtime asset dirty store', () => {
     const store = createRuntimeAssetDirtyStore({ projectRoot });
     store.recordFileEvent({ type: 'delete', path: join(assetsRoot, 'resources', 'gone.prefab.meta') });
     expect(store.drainDirtyTargets().entries).toEqual([
-      { target: 'db://assets/resources/gone.prefab', eventTypes: ['delete'] },
+      {
+        target: 'db://assets/resources/gone.prefab',
+        eventTypes: ['delete'],
+        assetEventCount: 0,
+        metaEventCount: 1,
+      },
     ]);
   });
 
@@ -38,8 +43,18 @@ describe('runtime asset dirty store', () => {
     store.recordFileEvent({ type: 'delete', path: join(assetsRoot, 'old-name.json') });
     store.recordFileEvent({ type: 'create', path: join(assetsRoot, 'new-name.json') });
     expect(store.drainDirtyTargets().entries).toEqual([
-      { target: 'db://assets/new-name.json', eventTypes: ['create'] },
-      { target: 'db://assets/old-name.json', eventTypes: ['delete'] },
+      {
+        target: 'db://assets/new-name.json',
+        eventTypes: ['create'],
+        assetEventCount: 1,
+        metaEventCount: 0,
+      },
+      {
+        target: 'db://assets/old-name.json',
+        eventTypes: ['delete'],
+        assetEventCount: 1,
+        metaEventCount: 0,
+      },
     ]);
   });
 
@@ -48,7 +63,26 @@ describe('runtime asset dirty store', () => {
     store.recordFileEvent({ type: 'create', path: join(assetsRoot, 'temp.json') });
     store.recordFileEvent({ type: 'delete', path: join(assetsRoot, 'temp.json') });
     expect(store.drainDirtyTargets().entries).toEqual([
-      { target: 'db://assets/temp.json', eventTypes: ['create', 'delete'] },
+      {
+        target: 'db://assets/temp.json',
+        eventTypes: ['create', 'delete'],
+        assetEventCount: 2,
+        metaEventCount: 0,
+      },
+    ]);
+  });
+
+  it('tracks source and meta event counts per target', () => {
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    store.recordFileEvent({ type: 'update', path: join(assetsRoot, 'resources', 'data.json') });
+    store.recordFileEvent({ type: 'update', path: join(assetsRoot, 'resources', 'data.json.meta') });
+    expect(store.drainDirtyTargets().entries).toEqual([
+      {
+        target: 'db://assets/resources/data.json',
+        eventTypes: ['update'],
+        assetEventCount: 1,
+        metaEventCount: 1,
+      },
     ]);
   });
 

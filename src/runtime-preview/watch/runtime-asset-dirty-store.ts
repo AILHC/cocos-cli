@@ -9,9 +9,16 @@ export interface RuntimeAssetWatchEvent {
 
 export interface RuntimeAssetDirtyBatch {
     targets: string[];
-    entries: Array<{ target: string; eventTypes: RuntimeAssetWatchEventType[] }>;
+    entries: RuntimeAssetDirtyEntry[];
     eventCount: number;
     drainedAt: number;
+}
+
+export interface RuntimeAssetDirtyEntry {
+    target: string;
+    eventTypes: RuntimeAssetWatchEventType[];
+    assetEventCount: number;
+    metaEventCount: number;
 }
 
 export interface RuntimeAssetDirtyStore {
@@ -46,7 +53,11 @@ export function createRuntimeAssetDirtyStore(options: {
 }): RuntimeAssetDirtyStore {
     const now = options.now ?? Date.now;
     const assetsRoot = resolve(options.projectRoot, 'assets');
-    const targets = new Map<string, Set<RuntimeAssetWatchEventType>>();
+    const targets = new Map<string, {
+        eventTypes: Set<RuntimeAssetWatchEventType>;
+        assetEventCount: number;
+        metaEventCount: number;
+    }>();
     let eventCount = 0;
 
     const normalizeTarget = (filePath: string): string | null => {
@@ -67,15 +78,26 @@ export function createRuntimeAssetDirtyStore(options: {
             }
 
             eventCount += 1;
-            const eventTypes = targets.get(target) ?? new Set<RuntimeAssetWatchEventType>();
-            eventTypes.add(event.type);
-            targets.set(target, eventTypes);
+            const entry = targets.get(target) ?? {
+                eventTypes: new Set<RuntimeAssetWatchEventType>(),
+                assetEventCount: 0,
+                metaEventCount: 0,
+            };
+            entry.eventTypes.add(event.type);
+            if (event.path.endsWith('.meta')) {
+                entry.metaEventCount += 1;
+            } else {
+                entry.assetEventCount += 1;
+            }
+            targets.set(target, entry);
         },
         drainDirtyTargets(): RuntimeAssetDirtyBatch {
             const entries = Array.from(targets.entries())
-                .map(([target, eventTypes]) => ({
+                .map(([target, entry]) => ({
                     target,
-                    eventTypes: Array.from(eventTypes).sort() as RuntimeAssetWatchEventType[],
+                    eventTypes: Array.from(entry.eventTypes).sort() as RuntimeAssetWatchEventType[],
+                    assetEventCount: entry.assetEventCount,
+                    metaEventCount: entry.metaEventCount,
                 }))
                 .sort((left, right) => compareTargets(left.target, right.target));
             const drainedEventCount = eventCount;
@@ -96,9 +118,14 @@ export function createRuntimeAssetDirtyStore(options: {
                     continue;
                 }
 
-                const eventTypes = targets.get(target) ?? new Set<RuntimeAssetWatchEventType>();
-                eventTypes.add('update');
-                targets.set(target, eventTypes);
+                const entry = targets.get(target) ?? {
+                    eventTypes: new Set<RuntimeAssetWatchEventType>(),
+                    assetEventCount: 0,
+                    metaEventCount: 0,
+                };
+                entry.eventTypes.add('update');
+                entry.assetEventCount += 1;
+                targets.set(target, entry);
             }
         },
         peekDirtyTargets(limit = 5): string[] {

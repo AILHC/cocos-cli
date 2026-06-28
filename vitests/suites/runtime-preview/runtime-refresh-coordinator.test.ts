@@ -612,6 +612,115 @@ describe('runtime refresh coordinator', () => {
     expect(drainDirtyTargets).toHaveBeenCalledTimes(3);
   });
 
+  it('skips parent directory targets with child targets unless the parent is a pure delete', async () => {
+    const refreshTarget = vi.fn(async () => 1);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn()
+          .mockReturnValueOnce({
+            targets: [
+              'db://assets/__probe__',
+              'db://assets/__probe__/runtime-watch-refresh.json',
+            ],
+            entries: [
+              {
+                target: 'db://assets/__probe__',
+                eventTypes: ['create', 'delete'],
+                assetEventCount: 2,
+                metaEventCount: 0,
+              },
+              {
+                target: 'db://assets/__probe__/runtime-watch-refresh.json',
+                eventTypes: ['create'],
+                assetEventCount: 1,
+                metaEventCount: 0,
+              },
+            ],
+            eventCount: 2,
+            drainedAt: 1000,
+          })
+          .mockReturnValueOnce({ targets: [], entries: [], eventCount: 0, drainedAt: 1001 }),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.targets).toEqual(['db://assets/__probe__/runtime-watch-refresh.json']);
+    expect(result.passes?.[0]?.targets).toEqual(['db://assets/__probe__/runtime-watch-refresh.json']);
+    expect(refreshTarget).toHaveBeenCalledTimes(1);
+    expect(refreshTarget).toHaveBeenCalledWith('db://assets/__probe__/runtime-watch-refresh.json');
+  });
+
+  it('does not immediately re-refresh successful targets for meta-only follow-up events', async () => {
+    const refreshTarget = vi.fn(async () => 1);
+    const drainDirtyTargets = vi.fn()
+      .mockReturnValueOnce({
+        targets: ['db://assets/runtime-watch-refresh.json'],
+        entries: [{
+          target: 'db://assets/runtime-watch-refresh.json',
+          eventTypes: ['create'],
+          assetEventCount: 1,
+          metaEventCount: 0,
+        }],
+        eventCount: 1,
+        drainedAt: 1000,
+      })
+      .mockReturnValueOnce({
+        targets: ['db://assets/runtime-watch-refresh.json'],
+        entries: [{
+          target: 'db://assets/runtime-watch-refresh.json',
+          eventTypes: ['create'],
+          assetEventCount: 0,
+          metaEventCount: 1,
+        }],
+        eventCount: 1,
+        drainedAt: 1001,
+      });
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets,
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+      maxDirtyRefreshPasses: 3,
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.targets).toEqual(['db://assets/runtime-watch-refresh.json']);
+    expect(result.passes).toHaveLength(1);
+    expect(result.dirtyEventCount).toBe(2);
+    expect(refreshTarget).toHaveBeenCalledTimes(1);
+  });
+
   it('fails with pending dirty targets when pass limit is reached', async () => {
     const coordinator = createRuntimeRefreshCoordinator({
       projectRoot: 'E:/project',

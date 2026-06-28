@@ -7,10 +7,11 @@
 - 项目：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c`
 - scene：`4c721bfe-0b6e-46c2-97f0-644adfdcba31`
 - 脚本：`vitests/scripts/runtime-preview-feature-c-watch-refresh-performance.mjs`
-- 是否构建 dist：运行前必须先执行 `npm run compile`，脚本使用 `dist/cli.js`。
+- 是否构建 dist：已执行 `npm run compile`，exit code `0`，脚本使用本 worktree 的 `dist/cli.js`。
 - 清理的环境变量：`COCOS_CLI_TEST_PROJECT_ROOT`、`COCOS_CLI_TEST_ENGINE_ROOT`、`COCOS_CLI_TEST_EDITOR_LIBRARY_REF`、`COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF`、`COCOS_CLI_SHARED_LIBRARY_OUTPUT`。
 - 源资源变更策略：只允许创建并清理 `assets/__cocos_cli_watch_probe__` 和 sibling `assets/__cocos_cli_watch_probe__.meta`；不得修改其他 feature-c source 文件或 `.meta`。
-- 不能证明的边界：未启动完整 browser / Cocos runtime；不证明真实 gameplay resource API；不把 fixture 结论外推到 feature-c。
+- JSON 输出：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-watch-refresh-performance-20260628-163223.json`
+- 不能证明的边界：本脚本验证 production CLI、AssetDB refresh、watcher dirty-set、HTTP root reload 和 source cleanup；不证明真实 gameplay resource API。
 
 ## 命令
 
@@ -18,14 +19,8 @@
 
 ```powershell
 rtk pwsh -NoProfile -Command 'npm run compile'
-rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_ENGINE_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_SHARED_LIBRARY_OUTPUT -ErrorAction SilentlyContinue; node vitests/scripts/runtime-preview-feature-c-watch-refresh-performance.mjs --rounds 5'
+rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_ENGINE_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_SHARED_LIBRARY_OUTPUT -ErrorAction SilentlyContinue; node vitests/scripts/runtime-preview-feature-c-watch-refresh-performance.mjs --rounds 5 --port-start 20010'
 ```
-
-## 当前状态
-
-- 脚本已新增，`node --check vitests/scripts/runtime-preview-feature-c-watch-refresh-performance.mjs` 通过。
-- 尚未记录 feature-c 实跑结果；`npm run compile` 在当前 worktree 失败，未生成可用于 production CLI 验收的 `dist/cli.js`。
-- compile 失败原因集中在本 worktree engine/cc 开发依赖不完整：`packages/engine/bin/.declarations/cc.d.ts` 和 `cc.editor.d.ts` 不存在，`tsc -b` 报大量 `cc` 导出缺失；compile 清理后 launcher child-process 还缺少 `dist/cocos.config.schema.json` 与 `node_modules/cc/preload`。
 
 ## 验收断言
 
@@ -37,24 +32,35 @@ rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -Error
 
 ## 结果
 
-未运行 feature-c production CLI 性能脚本。原因：`npm run compile` 未通过，不能按测试规范使用不存在或旧的 `dist/cli.js` 作为验收对象。
+| 模式 | rounds | root `/` p50 | refresh / endpoint p50 | dirty targets | root refresh |
+| --- | ---: | ---: | ---: | --- | --- |
+| default off | 5 | `271.092ms` | n/a | n/a | no |
+| watch no reload | 5 | n/a | endpoint `4.394ms` / refresh `0ms` | `[]` | no |
+| watch reload no change | 5 | `277.347ms` | refresh `0ms` | `[]` | no |
+| watch reload changed | 5 | `2086.375ms` | refresh `353ms` | `db://assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json` | no |
 
-已运行的前置验证：
+补充验证：
 
 - `node --check vitests/scripts/runtime-preview-feature-c-watch-refresh-performance.mjs`：exit code `0`。
-- `node dist/cli.js preview --help`：exit code `0`，help 输出包含 `--watch-assets`。
-- `node vitests/scripts/runtime-preview-feature-c-watch-refresh-performance.mjs --rounds 1`：命令超时，手动结束本次启动的脚本/preview 子进程；未形成完整 feature-c JSON 性能结果。
-- runtime preview focused Vitest 组合带主测试项目/frozen reference env：exit code `1`；dirty store、watcher、coordinator、server、browser、live integration、CLI startup 均通过，launcher child-process 子项因当前 worktree 缺少 `dist/cocos.config.schema.json` 和 `node_modules/cc/preload` 失败。
+- `npm run compile`：exit code `0`，生成本轮 `dist/cli.js` 和 `dist/cocos.config.schema.json`。
+- `node dist/cli.js preview --help`：exit code `0`，help 输出包含 `--watch-assets` 和 `--refresh-on-reload`。
+- focused Vitest：`runtime-asset-dirty-store.test.ts`、`runtime-asset-change-watcher.test.ts`、`runtime-refresh-coordinator.test.ts`、`runtime-preview-express-server.test.ts`、`runtime-refresh-browser.test.ts`、`runtime-refresh-live-integration.test.ts`、`cli-startup.test.ts`、`launcher-runtime-preview.test.ts`，8 个文件、81 tests，exit code `0`。
+
+性能观察：
+
+- 空 dirty-set reload 不触发 `db://assets` root refresh，refresh p50 为 `0ms`。
+- changed reload 每轮只刷新 probe file target，不包含 `db://assets` root，也不包含 probe parent directory target；refresh p50 为 `353ms`。
+- 早期候选实现中 changed reload 因 probe parent directory target 和 AssetDB 自生成 `.meta` follow-up 触发重复 refresh，单轮约 `55s-62s`；本轮通过跳过非 pure-delete 父目录 target 和已成功 target 的 meta-only follow-up 修正。
 
 ## 清理检查
 
 - `assets/__cocos_cli_watch_probe__` 是否删除：是，`Test-Path` 为 `False`。
 - `assets/__cocos_cli_watch_probe__.meta` 是否删除：是，`Test-Path` 为 `False`。
-- mutation 前 `git status --short -- assets/__cocos_cli_watch_probe__ assets/__cocos_cli_watch_probe__.meta`：待运行后记录。
-- mutation 后 cleanup 前 `git status --short -- assets/__cocos_cli_watch_probe__ assets/__cocos_cli_watch_probe__.meta`：待运行后记录。
+- mutation 前 `git status --short -- assets/__cocos_cli_watch_probe__ assets/__cocos_cli_watch_probe__.meta`：每轮为空。
+- mutation 后 cleanup 前 `git status --short -- assets/__cocos_cli_watch_probe__ assets/__cocos_cli_watch_probe__.meta`：每轮只出现受控 probe 目录，例如 `?? assets/__cocos_cli_watch_probe__/`。
 - cleanup 后 `git status --short -- assets/__cocos_cli_watch_probe__ assets/__cocos_cli_watch_probe__.meta`：空。
 - cleanup 后 file `.meta` 是否存在：`assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json.meta` 的 `Test-Path` 为 `False`。
 
 ## 结论
 
-当前只有脚本语法验证，不能把 `RP-ISSUE-028` 标为 `fixed`。必须等 feature-c performance gate、compile、CLI help smoke 和完整测试通过后再回填 fixed 结论。
+`RP-ISSUE-028` 本轮 watch-assets dirty-set refresh 的 production CLI / feature-c 性能 gate 已通过。默认关闭；开启 `--watch-assets` 后无 target refresh 不 fallback 到 `db://assets` root；`--watch-assets --refresh-on-reload` 空 dirty-set reload 只做一次 dirty-set check；资源变更时只刷新 dirty file target，并保持 source probe cleanup clean。
