@@ -22,6 +22,16 @@ window.__RUNTIME_PREVIEW_REFRESH_STATE__ = ${serializedState};
         return fallback;
     }
 
+    function getSuccessMessage(result) {
+        if (result && result.target === 'dirty-set' && Array.isArray(result.targets) && result.targets.length === 0) {
+            return 'No asset changes detected.';
+        }
+        if (result && result.target === 'dirty-set') {
+            return 'Refreshed ' + (Array.isArray(result.targets) ? result.targets.length : 0) + ' changed asset target(s).';
+        }
+        return 'Runtime refresh completed.';
+    }
+
     function showRuntimeRefreshToast(message) {
         var toast = document.querySelector('#runtime-preview-refresh-toast');
         if (!toast) {
@@ -69,6 +79,11 @@ window.__RUNTIME_PREVIEW_REFRESH_STATE__ = ${serializedState};
             }).then(function(result) {
                 window.__RUNTIME_PREVIEW_LAST_REFRESH__ = result;
                 if (result && result.ok === true) {
+                    if (result.target === 'dirty-set' && result.scriptCompile && result.scriptCompile.status === 'skipped') {
+                        button.disabled = false;
+                        showRuntimeRefreshToast(getSuccessMessage(result));
+                        return;
+                    }
                     window.location.reload();
                     return;
                 }
@@ -92,6 +107,9 @@ window.__RUNTIME_PREVIEW_REFRESH_STATE__ = ${serializedState};
         if (state.refreshOnReloadFailure) {
             window.__RUNTIME_PREVIEW_REFRESH_ON_RELOAD__ = state.refreshOnReloadFailure;
             showRuntimeRefreshToast(getFailureMessage(state.refreshOnReloadFailure, 'Runtime refresh on reload failed.'));
+        }
+        if (state.watcher && state.watcher.error) {
+            showRuntimeRefreshToast('Runtime asset watcher unavailable: ' + state.watcher.error);
         }
     }
 

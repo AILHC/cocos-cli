@@ -49,6 +49,15 @@ async function openRuntimePreviewPage(options: {
   refresh: (input: { reason: 'endpoint' | 'reload'; target?: unknown }) => Promise<RuntimeRefreshResult>;
   templateHtml?: string;
   refreshOnReload?: boolean;
+  watcherStatus?: {
+    enabled: boolean;
+    running: boolean;
+    assetsRoot: string;
+    error?: string;
+    eventCount: number;
+    dirtyTargetCount: number;
+    sampleTargets: string[];
+  };
   onConsole?: (message: ConsoleMessage) => void;
 }) {
   const root = await mkdtemp(join(tmpdir(), 'runtime-refresh-browser-'));
@@ -102,6 +111,14 @@ async function openRuntimePreviewPage(options: {
         refresh: options.refresh,
       },
       refreshOnReload: options.refreshOnReload,
+      watchAssets: options.watcherStatus?.enabled,
+      assetChangeWatcherFactory: options.watcherStatus
+        ? () => ({
+          start: async () => undefined,
+          stop: async () => undefined,
+          getStatus: () => options.watcherStatus!,
+        })
+        : undefined,
     });
     browser = await chromium.launch({
       executablePath: findBrowserExecutable(),
@@ -265,6 +282,61 @@ describe('runtime refresh browser integration', () => {
         error: 'reload failed',
       });
       expect(consoleErrors).toEqual([]);
+    } finally {
+      await closeRuntimePreviewPage(resources);
+    }
+  }, 60_000);
+
+  it('shows no-change message and does not reload when watcher dirty-set is empty', async () => {
+    const refresh = vi.fn(async () => createRefreshResult({
+      ok: true,
+      refreshId: 'watch-empty',
+      target: 'dirty-set',
+      targets: [],
+      reason: 'endpoint',
+      changedAssetCount: null,
+      dirtyEventCount: 0,
+      watcher: {
+        enabled: true,
+        running: true,
+        assetsRoot: 'E:/project/assets',
+        eventCount: 0,
+        dirtyTargetCount: 0,
+        sampleTargets: [],
+      },
+      scriptCompile: { status: 'skipped', durationMs: 0 },
+      durationMs: 0,
+    }));
+    const resources = await openRuntimePreviewPage({ refresh });
+    try {
+      await resources.page.waitForSelector('#btn-runtime-refresh');
+      await resources.page.click('#btn-runtime-refresh');
+      await resources.page.waitForSelector('#runtime-preview-refresh-toast');
+
+      expect(await resources.page.locator('#runtime-preview-refresh-toast').textContent()).toContain('No asset changes');
+      expect(await resources.page.evaluate(() => localStorage.getItem('runtime-refresh-beforeunload-count'))).toBeNull();
+      expect(await resources.page.locator('#btn-runtime-refresh').isEnabled()).toBe(true);
+    } finally {
+      await closeRuntimePreviewPage(resources);
+    }
+  }, 60_000);
+
+  it('shows watcher unavailable toast from injected root state', async () => {
+    const resources = await openRuntimePreviewPage({
+      refresh: async () => createRefreshResult(),
+      watcherStatus: {
+        enabled: true,
+        running: false,
+        assetsRoot: 'E:/project/assets',
+        error: 'native watcher unavailable',
+        eventCount: 0,
+        dirtyTargetCount: 0,
+        sampleTargets: [],
+      },
+    });
+    try {
+      await resources.page.waitForSelector('#runtime-preview-refresh-toast');
+      expect(await resources.page.locator('#runtime-preview-refresh-toast').textContent()).toContain('native watcher unavailable');
     } finally {
       await closeRuntimePreviewPage(resources);
     }
