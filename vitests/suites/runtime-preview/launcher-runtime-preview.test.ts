@@ -130,11 +130,13 @@ describe('runtime preview production asset routes', () => {
         port: 0,
         scene: diagnosticSceneUuid,
         refreshOnReload: true,
+        watchAssets: true,
       });
       await server.close();
 
       expect(capturedServerOptions).toHaveLength(1);
       expect(capturedServerOptions[0].refreshOnReload).toBe(true);
+      expect(capturedServerOptions[0].watchAssets).toBe(true);
       expect(capturedServerOptions[0].prepareRuntimePreview).toEqual(expect.any(Function));
       expect(importSpy).toHaveBeenCalledWith(expect.objectContaining({
         serverURL: `${finalServerUrl}/`,

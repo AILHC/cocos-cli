@@ -19,6 +19,7 @@ export class PreviewCommand extends BaseCommand {
             .option('--script-load-concurrency <number>', 'Runtime preview project script load concurrency')
             .option('--clear-programming-cache', 'Clear runtime preview programming cache before startup script sync')
             .option('--refresh-on-reload', 'Refresh AssetDB before serving the runtime preview root page')
+            .option('--watch-assets', 'Watch project assets and refresh only changed files during runtime preview refresh')
             .action(async (options: any) => {
                 try {
                     const resolvedPath = this.validateProjectPath(options.project);
@@ -58,6 +59,7 @@ export class PreviewCommand extends BaseCommand {
                             scriptLoadConcurrency,
                             clearProgrammingCache: options.clearProgrammingCache === true,
                             refreshOnReload: options.refreshOnReload === true,
+                            watchAssets: options.watchAssets === true,
                         });
                     } else {
                         await launcher.startPreview(port);

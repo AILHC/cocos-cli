@@ -296,6 +296,7 @@ export default class Launcher {
         scriptLoadConcurrency?: number;
         clearProgrammingCache?: boolean;
         refreshOnReload?: boolean;
+        watchAssets?: boolean;
     } = {}) {
         const {
             getDefaultProjectProgrammingRoot,
@@ -457,6 +458,7 @@ export default class Launcher {
             scene: options.scene,
             scriptLoadConcurrency: options.scriptLoadConcurrency,
             refreshOnReload: options.refreshOnReload === true,
+            watchAssets: options.watchAssets === true,
             prepareRuntimePreview: ensurePreviewSettingsReady,
             settingsProvider,
         });

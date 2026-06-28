@@ -101,6 +101,76 @@ describe('runtime preview server startup', () => {
     }
   });
 
+  it('passes watch-assets from the preview CLI action to Launcher', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-cli-watch-assets-'));
+    const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
+    launcherMockState.startRuntimePreview.mockResolvedValue(undefined);
+    launcherMockState.Launcher.mockImplementation(() => ({
+      startRuntimePreview: launcherMockState.startRuntimePreview,
+      startPreview: launcherMockState.startPreview,
+    }));
+
+    try {
+      await writeFile(join(projectRoot, 'package.json'), '{"name":"runtime-preview-cli-watch-assets"}', 'utf8');
+
+      const program = new Command();
+      program.exitOverride();
+      new PreviewCommand(program).register();
+
+      await program.parseAsync([
+        'preview',
+        '--project',
+        projectRoot,
+        '--runtime',
+        '--watch-assets',
+      ], { from: 'user' });
+
+      expect(launcherMockState.startRuntimePreview).toHaveBeenCalledWith(expect.objectContaining({
+        watchAssets: true,
+      }));
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+      resume.mockRestore();
+      launcherMockState.startRuntimePreview.mockReset();
+      launcherMockState.startPreview.mockReset();
+      launcherMockState.Launcher.mockReset();
+    }
+  });
+
+  it('does not enable watch-assets by default', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-cli-watch-assets-default-'));
+    const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
+    launcherMockState.startRuntimePreview.mockResolvedValue(undefined);
+    launcherMockState.Launcher.mockImplementation(() => ({
+      startRuntimePreview: launcherMockState.startRuntimePreview,
+      startPreview: launcherMockState.startPreview,
+    }));
+
+    try {
+      await writeFile(join(projectRoot, 'package.json'), '{"name":"runtime-preview-cli-watch-assets-default"}', 'utf8');
+
+      const program = new Command();
+      program.exitOverride();
+      new PreviewCommand(program).register();
+
+      await program.parseAsync([
+        'preview',
+        '--project',
+        projectRoot,
+        '--runtime',
+      ], { from: 'user' });
+
+      const runtimeOptions = launcherMockState.startRuntimePreview.mock.calls[0]?.[0];
+      expect(runtimeOptions?.watchAssets).not.toBe(true);
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+      resume.mockRestore();
+      launcherMockState.startRuntimePreview.mockReset();
+      launcherMockState.startPreview.mockReset();
+      launcherMockState.Launcher.mockReset();
+    }
+  });
+
   it('lists refresh-on-reload in preview command help', () => {
     const program = new Command();
     new PreviewCommand(program).register();
@@ -108,6 +178,7 @@ describe('runtime preview server startup', () => {
 
     expect(previewCommand).toBeTruthy();
     expect(previewCommand!.helpInformation()).toContain('--refresh-on-reload');
+    expect(previewCommand!.helpInformation()).toContain('--watch-assets');
   });
 
   it('starts, reports health and roots, serves settings, and releases the port', async () => {
