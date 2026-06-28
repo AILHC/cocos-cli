@@ -519,6 +519,21 @@ function assertWatchNoChange(rounds) {
   }
 }
 
+function assertWatchNoReload(rounds) {
+  for (const round of rounds) {
+    const refresh = round.refreshResult;
+    if (round.endpointStatus !== 200 || !refresh || refresh.ok !== true || refresh.target !== 'dirty-set') {
+      throw new Error(`watchNoReload round ${round.round} did not return ok dirty-set refresh.`);
+    }
+    if (!Array.isArray(refresh.targets) || refresh.targets.length !== 0) {
+      throw new Error(`watchNoReload round ${round.round} targets were not empty.`);
+    }
+    if (refresh.rootRefresh) {
+      throw new Error(`watchNoReload round ${round.round} fell back to db://assets root refresh.`);
+    }
+  }
+}
+
 function assertWatchChanged(rounds) {
   for (const round of rounds) {
     const refresh = round.refreshResult;
@@ -587,6 +602,7 @@ async function main() {
       nextPort = port + 1;
       result.modes[mode.name] = await runMode({ options, mode, port });
     }
+    assertWatchNoReload(result.modes.watchNoReload.rounds);
     assertWatchNoChange(result.modes.watchReloadNoChange.rounds);
     assertWatchChanged(result.modes.watchReloadChanged.rounds);
   } finally {

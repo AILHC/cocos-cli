@@ -10,7 +10,7 @@
 - 是否构建 dist：已执行 `npm run compile`，exit code `0`，脚本使用本 worktree 的 `dist/cli.js`。
 - 清理的环境变量：`COCOS_CLI_TEST_PROJECT_ROOT`、`COCOS_CLI_TEST_ENGINE_ROOT`、`COCOS_CLI_TEST_EDITOR_LIBRARY_REF`、`COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF`、`COCOS_CLI_SHARED_LIBRARY_OUTPUT`。
 - 源资源变更策略：只允许创建并清理 `assets/__cocos_cli_watch_probe__` 和 sibling `assets/__cocos_cli_watch_probe__.meta`；不得修改其他 feature-c source 文件或 `.meta`。
-- JSON 输出：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-watch-refresh-performance-20260628-163223.json`
+- JSON 输出：`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-watch-refresh-performance-20260628-165424.json`
 - 不能证明的边界：本脚本验证 production CLI、AssetDB refresh、watcher dirty-set、HTTP root reload 和 source cleanup；不证明真实 gameplay resource API。
 
 ## 命令
@@ -19,13 +19,13 @@
 
 ```powershell
 rtk pwsh -NoProfile -Command 'npm run compile'
-rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_ENGINE_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_SHARED_LIBRARY_OUTPUT -ErrorAction SilentlyContinue; node vitests/scripts/runtime-preview-feature-c-watch-refresh-performance.mjs --rounds 5 --port-start 20010'
+rtk pwsh -NoProfile -Command 'node vitests/scripts/runtime-preview-feature-c-watch-refresh-performance.mjs --rounds 5 --port-start 20100'
 ```
 
 ## 验收断言
 
 - `defaultOff`：不启用 `--watch-assets`，root `/` 不应触发 dirty-set refresh。
-- `watchNoReload`：只启用 `--watch-assets`，endpoint 无 target 时走 dirty-set，不 fallback 到 `db://assets` root。
+- `watchNoReload`：只启用 `--watch-assets`，endpoint 无 target 时走 dirty-set，不 fallback 到 `db://assets` root；脚本通过 `assertWatchNoReload()` 硬断言 `endpointStatus === 200`、`target === "dirty-set"`、`targets === []`、`rootRefresh === false`。
 - `watchReloadNoChange`：每轮 root reload 的 `refreshResult.target === "dirty-set"`，`targets === []`，`scriptCompileStatus === "skipped"`，`changedAssetCount === null`，`rootRefresh === false`。
 - `watchReloadChanged`：每轮只创建 `assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json`，等待 watcher log 包含 `db://assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json`，root reload 后 `targets` 包含该 target 且不包含 `db://assets` root。
 - 清理检查必须满足：mutation 前 probe `git status` 为空；cleanup 后 probe `git status` 为空；`assets/__cocos_cli_watch_probe__`、`assets/__cocos_cli_watch_probe__.meta`、`assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json.meta` 均不存在。
@@ -34,10 +34,10 @@ rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -Error
 
 | 模式 | rounds | root `/` p50 | refresh / endpoint p50 | dirty targets | root refresh |
 | --- | ---: | ---: | ---: | --- | --- |
-| default off | 5 | `271.092ms` | n/a | n/a | no |
-| watch no reload | 5 | n/a | endpoint `4.394ms` / refresh `0ms` | `[]` | no |
-| watch reload no change | 5 | `277.347ms` | refresh `0ms` | `[]` | no |
-| watch reload changed | 5 | `2086.375ms` | refresh `353ms` | `db://assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json` | no |
+| default off | 5 | `474.227ms` | n/a | n/a | no |
+| watch no reload | 5 | n/a | endpoint `3.498ms` / refresh `0ms` | `[]` | no |
+| watch reload no change | 5 | `297.799ms` | refresh `0ms` | `[]` | no |
+| watch reload changed | 5 | `2969.905ms` | refresh `431ms` | `db://assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json` | no |
 
 补充验证：
 
@@ -49,7 +49,7 @@ rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -Error
 性能观察：
 
 - 空 dirty-set reload 不触发 `db://assets` root refresh，refresh p50 为 `0ms`。
-- changed reload 每轮只刷新 probe file target，不包含 `db://assets` root，也不包含 probe parent directory target；refresh p50 为 `353ms`。
+- changed reload 每轮只刷新 probe file target，不包含 `db://assets` root，也不包含 probe parent directory target；refresh p50 为 `431ms`，p95 为 `1135ms`。
 - 早期候选实现中 changed reload 因 probe parent directory target 和 AssetDB 自生成 `.meta` follow-up 触发重复 refresh，单轮约 `55s-62s`；本轮通过跳过非 pure-delete 父目录 target 和已成功 target 的 meta-only follow-up 修正。
 
 ## 清理检查
