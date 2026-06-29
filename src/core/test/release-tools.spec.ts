@@ -61,6 +61,8 @@ function createReleaseSourceFixture(repoRoot: string): void {
     writeText(join(repoRoot, 'docs', 'usage.md'), '# usage\n');
     writeText(join(repoRoot, 'dist', 'cli.js'), 'console.log("cli");\n');
     writeText(join(repoRoot, 'static', 'keep.txt'), 'static\n');
+    writeText(join(repoRoot, 'workflow', 'tools-runtime-scripts', 'install-cocos-cli.cmd'), '@echo off\r\necho install\r\n');
+    writeText(join(repoRoot, 'workflow', 'tools-runtime-scripts', 'preview-runtime.cmd'), '@echo off\r\necho preview\r\n');
     writeText(join(repoRoot, 'static', 'node_modules', 'stale.txt'), 'skip\n');
     writeText(join(repoRoot, 'packages', 'cc-module', 'index.js'), 'module.exports = {};\n');
     writeText(join(repoRoot, 'packages', 'cc-module', 'node_modules', 'skip.txt'), 'skip\n');
@@ -240,7 +242,11 @@ describe('release tools workflow helpers', () => {
         expect(readme).toContain('Node.js: v22.17.0');
         expect(readme).toContain('npm: 10.9.2');
         expect(readme).toContain('npm install');
-        expect(readme).toContain('node .\\dist\\cli.js --help');
+        expect(readme).toContain('install-cocos-cli.cmd');
+        expect(readme).toContain('preview-runtime.cmd');
+        expect(readme).toContain('cocos --help');
+        expect(readme).toContain('--watch-assets');
+        expect(readme).toContain('--refresh-on-reload');
         expect(readme).toContain('docs/usage.md');
         expect(readme).toContain('preview --runtime');
         expect(readme).toContain('cocos-cli.enginePath');
@@ -323,6 +329,8 @@ describe('release tools workflow helpers', () => {
         createDir(join(targetRoot, 'packages', 'asset-db'));
         createDir(join(targetRoot, 'packages', 'cc-module'));
         writeText(join(targetRoot, 'docs', 'usage.md'), '# usage\n');
+        writeText(join(targetRoot, 'install-cocos-cli.cmd'), '@echo off\r\necho install\r\n');
+        writeText(join(targetRoot, 'preview-runtime.cmd'), '@echo off\r\necho preview\r\n');
         for (const toolDir of [
             'static/tools/creator-3.8.6/PVRTexTool_win32',
             'static/tools/PVRTexTool_win32',
@@ -348,6 +356,49 @@ describe('release tools workflow helpers', () => {
         expect(() => assertReleaseDirectory(targetRoot)).toThrow('Release directory must not include packages/engine');
     });
 
+    it('requires helper scripts in the release directory', () => {
+        const targetRoot = createDir(join(fixtureRoot, 'tools', 'cocos-cli'));
+        writeText(join(targetRoot, '.gitignore'), 'node_modules/\n');
+        writeJson(join(targetRoot, 'package.json'), {
+            name: 'cocos-cli',
+            version: '1.2.3',
+            dependencies: {
+                cc: 'file:./packages/cc-module',
+                '@cocos/asset-db': 'file:./packages/asset-db',
+            },
+        });
+        writeJson(join(targetRoot, 'package-lock.json'), {
+            packages: {
+                '': {},
+            },
+        });
+        createDir(join(targetRoot, 'packages', 'asset-db'));
+        createDir(join(targetRoot, 'packages', 'cc-module'));
+        writeText(join(targetRoot, 'docs', 'usage.md'), '# usage\n');
+        for (const toolDir of [
+            'static/tools/creator-3.8.6/PVRTexTool_win32',
+            'static/tools/PVRTexTool_win32',
+            'static/tools/libwebp_win32',
+            'static/tools/mali_win32',
+            'static/tools/astc-encoder',
+            'static/tools/cmft',
+            'static/tools/LightFX',
+            'static/tools/lightmap-tools',
+            'static/tools/cmake',
+            'static/tools/keystore',
+        ]) {
+            createDir(join(targetRoot, toolDir));
+        }
+
+        expect(() => assertReleaseDirectory(targetRoot)).toThrow('Release directory is missing install-cocos-cli.cmd');
+
+        writeText(join(targetRoot, 'install-cocos-cli.cmd'), '@echo off\r\necho install\r\n');
+        expect(() => assertReleaseDirectory(targetRoot)).toThrow('Release directory is missing preview-runtime.cmd');
+
+        writeText(join(targetRoot, 'preview-runtime.cmd'), '@echo off\r\necho preview\r\n');
+        expect(() => assertReleaseDirectory(targetRoot)).not.toThrow();
+    });
+
     it('clears stale target content before writing release output', () => {
         const repoRoot = createDir(join(fixtureRoot, 'repo'));
         const targetRoot = createDir(join(fixtureRoot, 'target'));
@@ -363,6 +414,8 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(targetRoot, 'node_modules'))).toBe(false);
         expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
         expect(existsSync(join(targetRoot, 'dist', 'cli.js'))).toBe(true);
+        expect(readFileSync(join(targetRoot, 'install-cocos-cli.cmd'), 'utf8')).toBe('@echo off\r\necho install\r\n');
+        expect(readFileSync(join(targetRoot, 'preview-runtime.cmd'), 'utf8')).toBe('@echo off\r\necho preview\r\n');
         expect(readFileSync(join(targetRoot, 'docs', 'usage.md'), 'utf8')).toBe('# usage\n');
     });
 
@@ -430,5 +483,7 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(targetRoot, 'static', 'node_modules'))).toBe(false);
         expect(existsSync(join(targetRoot, 'packages', 'cc-module', 'node_modules'))).toBe(false);
         expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
+        expect(existsSync(join(targetRoot, 'install-cocos-cli.cmd'))).toBe(true);
+        expect(existsSync(join(targetRoot, 'preview-runtime.cmd'))).toBe(true);
     });
 });

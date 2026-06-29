@@ -11,6 +11,16 @@ const COPY_ENTRIES = [
     ['packages', 'cc-module'],
     ['packages', 'asset-db'],
 ];
+const HELPER_SCRIPT_ENTRIES = [
+    {
+        source: ['workflow', 'tools-runtime-scripts', 'install-cocos-cli.cmd'],
+        destination: ['install-cocos-cli.cmd'],
+    },
+    {
+        source: ['workflow', 'tools-runtime-scripts', 'preview-runtime.cmd'],
+        destination: ['preview-runtime.cmd'],
+    },
+];
 const REQUIRED_TOOL_DIRS = [
     'static/tools/creator-3.8.6/PVRTexTool_win32',
     'static/tools/PVRTexTool_win32',
@@ -191,6 +201,8 @@ function assertReleaseDirectory(targetRoot) {
     assertPathExists(resolvedTargetRoot, 'docs/usage.md', 'file');
     assertPathExists(resolvedTargetRoot, 'package.json', 'file');
     assertPathExists(resolvedTargetRoot, 'package-lock.json', 'file');
+    assertPathExists(resolvedTargetRoot, 'install-cocos-cli.cmd', 'file');
+    assertPathExists(resolvedTargetRoot, 'preview-runtime.cmd', 'file');
     assertPathExists(resolvedTargetRoot, 'packages/asset-db', 'directory');
     assertPathExists(resolvedTargetRoot, 'packages/cc-module', 'directory');
 
@@ -224,22 +236,29 @@ function renderReadme(metadata) {
 
 ## 首次安装
 
-在 \`<p6Root>/tools/cocos-cli\` 目录执行：
+在 \`<p6Root>/tools/cocos-cli\` 目录双击：
 
-\`\`\`powershell
-npm install
+\`\`\`text
+install-cocos-cli.cmd
 \`\`\`
+
+该脚本会先执行 \`npm install\` 安装运行依赖，再执行 \`npm link\` 将全局 \`cocos\` 命令指向当前发布目录。
 
 查看 CLI 帮助：
 
 \`\`\`powershell
-node .\\dist\\cli.js --help
+cocos --help
 \`\`\`
 
-runtime preview 示例：
+runtime preview 常用启动：
+
+1. 将 \`<p6Root>/tools/cocos-cli/preview-runtime.cmd\` 复制到 Cocos 项目根目录。
+2. 双击项目根目录下的 \`preview-runtime.cmd\`。
+
+脚本默认执行：
 
 \`\`\`powershell
-node .\\dist\\cli.js preview --runtime --project <projectRoot> --port <port>
+cocos preview --runtime --project <projectRoot> --watch-assets --refresh-on-reload
 \`\`\`
 
 ## Engine 解析优先级
@@ -283,6 +302,16 @@ function copyReleaseEntry(targetRoot, relativeParts, repoRoot = REPO_ROOT) {
             return relative !== 'packages/engine' && !relative.startsWith('packages/engine/');
         },
     });
+}
+
+function copyHelperScript(targetRoot, helperEntry, repoRoot = REPO_ROOT) {
+    const source = path.join(repoRoot, ...helperEntry.source);
+    const destination = path.join(targetRoot, ...helperEntry.destination);
+    if (!fs.existsSync(source)) {
+        throw new Error(`Release helper script is missing: ${helperEntry.source.join('/')}`);
+    }
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(source, destination);
 }
 
 function quoteWindowsCmdArg(arg) {
@@ -376,6 +405,9 @@ function releaseToolsWithOptions(targetRoot, options = {}) {
     for (const entry of copyEntries) {
         copyReleaseEntry(resolvedTargetRoot, entry, resolvedRepoRoot);
     }
+    for (const helperEntry of HELPER_SCRIPT_ENTRIES) {
+        copyHelperScript(resolvedTargetRoot, helperEntry, resolvedRepoRoot);
+    }
 
     const sourcePackage = readJson(path.join(resolvedRepoRoot, 'package.json'));
     const sourceLockfile = readJsonIfExists(path.join(resolvedRepoRoot, 'package-lock.json'));
@@ -429,6 +461,7 @@ module.exports = {
         assertSafeReleaseTarget,
         addRuntimePeerResolutionDependencies,
         copyReleaseEntry,
+        copyHelperScript,
         createNpmInvocation,
         getNpmVersionWithOptions,
         isPathInside,
