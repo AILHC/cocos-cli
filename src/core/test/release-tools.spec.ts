@@ -99,10 +99,16 @@ function releaseToolsFixture(targetRoot: string, repoRoot: string): void {
     });
 }
 
-function runCmdScript(scriptPath: string, cwd: string, pathPrefix: string): { status: number | null; output: string } {
+function runCmdScript(
+    scriptPath: string,
+    cwd: string,
+    pathPrefix: string,
+    extraEnv: Record<string, string> = {},
+): { status: number | null; output: string } {
     const env = { ...process.env };
     const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') || 'PATH';
     env[pathKey] = `${pathPrefix};${env[pathKey] || ''}`;
+    Object.assign(env, extraEnv);
     const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `echo. | call ${basename(scriptPath)}`], {
         cwd,
         env,
@@ -512,7 +518,7 @@ describe('release tools workflow helpers', () => {
     });
 
     it('runs install-cocos-cli.cmd from a directory containing cmd metacharacters', () => {
-        const scriptRoot = createDir(join(fixtureRoot, 'install & split'));
+        const scriptRoot = createDir(join(fixtureRoot, 'install %FOO% & split'));
         const binRoot = createDir(join(fixtureRoot, 'install-bin'));
         const npmLog = join(binRoot, 'npm-args.txt');
         copyFileSync(
@@ -522,14 +528,16 @@ describe('release tools workflow helpers', () => {
         writeText(join(binRoot, 'node.cmd'), '@echo off\r\nexit /b 0\r\n');
         writeText(join(binRoot, 'npm.cmd'), `@echo off\r\necho %*>>"${npmLog}"\r\nexit /b 0\r\n`);
 
-        const result = runCmdScript(join(scriptRoot, 'install-cocos-cli.cmd'), scriptRoot, binRoot);
+        const result = runCmdScript(join(scriptRoot, 'install-cocos-cli.cmd'), scriptRoot, binRoot, {
+            FOO: 'EXPANDED',
+        });
 
         expectCmdScriptSuccess(result);
         expect(readFileSync(npmLog, 'utf8').replace(/\r/g, '')).toBe('install\nlink\n');
     });
 
     it('runs preview-runtime.cmd from a directory containing cmd metacharacters', () => {
-        const scriptRoot = createDir(join(fixtureRoot, 'preview & split'));
+        const scriptRoot = createDir(join(fixtureRoot, 'preview %FOO% & split'));
         const binRoot = createDir(join(fixtureRoot, 'preview-bin'));
         const cocosLog = join(binRoot, 'cocos-args.txt');
         copyFileSync(
@@ -543,13 +551,16 @@ describe('release tools workflow helpers', () => {
         });
         writeText(join(binRoot, 'cocos.cmd'), `@echo off\r\necho %*>>"${cocosLog}"\r\necho cocos %*\r\nexit /b 0\r\n`);
 
-        const result = runCmdScript(join(scriptRoot, 'preview-runtime.cmd'), scriptRoot, binRoot);
+        const result = runCmdScript(join(scriptRoot, 'preview-runtime.cmd'), scriptRoot, binRoot, {
+            FOO: 'EXPANDED',
+        });
 
         expectCmdScriptSuccess(result);
         const cocosArgs = readFileSync(cocosLog, 'utf8');
         expect(result.output).toContain('preview --runtime');
         expect(cocosArgs).toContain('preview --runtime');
         expect(cocosArgs).toContain(`--project "${scriptRoot}"`);
+        expect(cocosArgs).not.toContain('EXPANDED');
         expect(cocosArgs).toContain('--watch-assets');
         expect(cocosArgs).toContain('--refresh-on-reload');
     });
