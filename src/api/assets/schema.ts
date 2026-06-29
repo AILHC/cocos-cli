@@ -171,7 +171,7 @@ export const SchemaSerializedAssetProperty: z.ZodType<any> = z.lazy(() => z.obje
     readonly: z.boolean().optional().describe('Whether property is read-only'), // 是否只读
     visible: z.boolean().optional().describe('Whether property is visible'), // 是否可见
     isArray: z.boolean().optional().describe('Whether property value is an array'), // 是否数组
-    enumList: z.array(z.any()).optional().describe('Enum option list'), // 枚举选项列表
+    enumList: z.array(z.unknown()).optional().describe('Enum option list'), // 枚举选项列表
     optionalTypes: z.array(z.string()).optional().describe('Optional concrete types for variable type properties'), // 可变类型的可选类型列表
     elementTypeData: z.lazy(() => SchemaSerializedAssetProperty).optional().describe('Default dump data for array elements'), // 数组元素默认 dump
 }).passthrough().describe('Creator-compatible serialized asset IProperty dump'));
