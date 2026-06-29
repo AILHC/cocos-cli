@@ -17,6 +17,19 @@ node .\dist\cli.js <command> --help
 - 发布包不包含 `packages/engine`，也不允许运行时回退到 `<cliRoot>/packages/engine`。
 - 发布包包含 `static/`，其中 `static/tools/` 在发布所在 Git 仓库中应走 Git LFS。agent 在 clone 或切换提交后需要确认 LFS 文件已拉取到位。
 
+## Tools helper scripts
+
+- 发布目录 `<p6Root>/tools/cocos-cli` 包含 `install-cocos-cli.cmd`。
+- Windows 用户可双击该脚本；脚本会在发布目录执行 `npm install`，成功后执行 `npm link`，把全局 `cocos` 命令指向当前发布目录。
+- 发布目录还包含 `preview-runtime.cmd`。将它复制到 Cocos 项目根目录后双击，可执行：
+
+```powershell
+cocos preview --runtime --project <projectRoot> --watch-assets --refresh-on-reload
+```
+
+- `preview-runtime.cmd` 只通过当前目录的 `package.json.creator.version` 判断是否为 Cocos 项目；不要把它放在子目录或非项目目录运行。
+- 如果提示找不到 `cocos` 命令，先回到 `<p6Root>/tools/cocos-cli` 运行 `install-cocos-cli.cmd`。
+
 ## Engine 解析
 
 production 运行时 engine source 只允许来自明确配置或 Creator profile，优先级为：
