@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { dirname, join } from 'path';
+import { basename, dirname, join } from 'path';
 
 const {
     createRuntimePackageJson,
@@ -96,6 +97,29 @@ function releaseToolsFixture(targetRoot: string, repoRoot: string): void {
             });
         },
     });
+}
+
+function runCmdScript(scriptPath: string, cwd: string, pathPrefix: string): { status: number | null; output: string } {
+    const env = { ...process.env };
+    const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') || 'PATH';
+    env[pathKey] = `${pathPrefix};${env[pathKey] || ''}`;
+    const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `echo. | call ${basename(scriptPath)}`], {
+        cwd,
+        env,
+        encoding: 'utf8',
+        timeout: 10000,
+    });
+    return {
+        status: result.status,
+        output: `${result.stdout || ''}${result.stderr || ''}`,
+    };
+}
+
+function expectCmdScriptSuccess(result: { status: number | null; output: string }): void {
+    expect(result.output).not.toMatch(/is not recognized|not recognized as/i);
+    if (result.status !== 0) {
+        throw new Error(`Expected cmd script to exit 0, got ${result.status}.\nOutput:\n${result.output}`);
+    }
 }
 
 describe('release tools workflow helpers', () => {
@@ -485,5 +509,48 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
         expect(existsSync(join(targetRoot, 'install-cocos-cli.cmd'))).toBe(true);
         expect(existsSync(join(targetRoot, 'preview-runtime.cmd'))).toBe(true);
+    });
+
+    it('runs install-cocos-cli.cmd from a directory containing cmd metacharacters', () => {
+        const scriptRoot = createDir(join(fixtureRoot, 'install & split'));
+        const binRoot = createDir(join(fixtureRoot, 'install-bin'));
+        const npmLog = join(binRoot, 'npm-args.txt');
+        copyFileSync(
+            join(process.cwd(), 'workflow', 'tools-runtime-scripts', 'install-cocos-cli.cmd'),
+            join(scriptRoot, 'install-cocos-cli.cmd'),
+        );
+        writeText(join(binRoot, 'node.cmd'), '@echo off\r\nexit /b 0\r\n');
+        writeText(join(binRoot, 'npm.cmd'), `@echo off\r\necho %*>>"${npmLog}"\r\nexit /b 0\r\n`);
+
+        const result = runCmdScript(join(scriptRoot, 'install-cocos-cli.cmd'), scriptRoot, binRoot);
+
+        expectCmdScriptSuccess(result);
+        expect(readFileSync(npmLog, 'utf8').replace(/\r/g, '')).toBe('install\nlink\n');
+    });
+
+    it('runs preview-runtime.cmd from a directory containing cmd metacharacters', () => {
+        const scriptRoot = createDir(join(fixtureRoot, 'preview & split'));
+        const binRoot = createDir(join(fixtureRoot, 'preview-bin'));
+        const cocosLog = join(binRoot, 'cocos-args.txt');
+        copyFileSync(
+            join(process.cwd(), 'workflow', 'tools-runtime-scripts', 'preview-runtime.cmd'),
+            join(scriptRoot, 'preview-runtime.cmd'),
+        );
+        writeJson(join(scriptRoot, 'package.json'), {
+            creator: {
+                version: '3.8.6',
+            },
+        });
+        writeText(join(binRoot, 'cocos.cmd'), `@echo off\r\necho %*>>"${cocosLog}"\r\necho cocos %*\r\nexit /b 0\r\n`);
+
+        const result = runCmdScript(join(scriptRoot, 'preview-runtime.cmd'), scriptRoot, binRoot);
+
+        expectCmdScriptSuccess(result);
+        const cocosArgs = readFileSync(cocosLog, 'utf8');
+        expect(result.output).toContain('preview --runtime');
+        expect(cocosArgs).toContain('preview --runtime');
+        expect(cocosArgs).toContain(`--project "${scriptRoot}"`);
+        expect(cocosArgs).toContain('--watch-assets');
+        expect(cocosArgs).toContain('--refresh-on-reload');
     });
 });

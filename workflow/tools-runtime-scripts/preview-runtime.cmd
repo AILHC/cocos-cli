@@ -31,7 +31,7 @@ if errorlevel 1 (
 )
 
 echo [cocos-preview] Starting runtime preview for:
-echo %CD%
+echo Current directory: "%CD%"
 call cocos preview --runtime --project "%CD%" --watch-assets --refresh-on-reload
 set PREVIEW_EXIT_CODE=%ERRORLEVEL%
 if not "%PREVIEW_EXIT_CODE%"=="0" (

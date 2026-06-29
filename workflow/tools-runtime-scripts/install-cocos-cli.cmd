@@ -23,7 +23,7 @@ if errorlevel 1 (
 )
 
 echo [cocos-cli] Installing runtime dependencies in:
-echo %CD%
+echo Current directory: "%CD%"
 call npm install
 if errorlevel 1 (
     echo [cocos-cli] npm install failed.
