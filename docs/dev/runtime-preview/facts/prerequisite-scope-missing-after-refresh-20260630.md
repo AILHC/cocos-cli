@@ -223,3 +223,197 @@ QuickPack.build() catch
 3. runtime refresh endpoint 需要把脚本编译 / QuickPack build error 明确返回给页面；不能在失败后让页面继续 reload 到不一致 output。
 4. 保留 runtime preview programming integrity gate：当 `cce:/internal/x/prerequisite-imports` chunk source 含 `__unresolved_N` 时，`import-map.scopes[chunk]` 必须覆盖所有 unresolved specifiers。
 5. 用户代码层面，当前 `window.TestRefresh() = function () {}` 应改为合法赋值，例如 `window.TestRefresh = function () {}`；但 CLI 仍必须正确处理这种用户脚本错误，不能生成坏 preview records。
+
+## 修复后验证：本地 `dist/cli.js` + P7
+
+执行日期：2026-06-30
+
+使用命令：
+
+```powershell
+node E:\own_space\engines\cocos-cli\dist\cli.js preview --runtime `
+  --project D:\ps_copy\p7\trunk\GameClient\Client-fight-roguelike-migration `
+  --host 127.0.0.1 --port 9632 --watch-assets --refresh-on-reload
+```
+
+验证进程只使用 `9632`，未停止用户原有 `9527` 进程。stdout / stderr 记录：
+
+```text
+E:\own_space\engines\cocos-cli\.codex-tmp\runtime-preview-p7-validation\preview-9632.stdout.log
+E:\own_space\engines\cocos-cli\.codex-tmp\runtime-preview-p7-validation\preview-9632.stderr.log
+E:\own_space\engines\cocos-cli\.codex-tmp\runtime-preview-p7-validation\preview-9632.browser.stdout.log
+E:\own_space\engines\cocos-cli\.codex-tmp\runtime-preview-p7-validation\preview-9632.browser.stderr.log
+```
+
+runtime preview log：
+
+```text
+D:\ps_copy\p7\trunk\GameClient\Client-fight-roguelike-migration\temp\preview-logs\runtime-preview-20260630-153623.log
+```
+
+启动期批量编译证据：
+
+```text
+[runtime-preview] asset-db:script-sync:collect:done durationMs=847 count=3051
+[runtime-preview] asset-db:script-compile:start count=3051
+[runtime-preview] pack-target:build:start target=editor
+[runtime-preview] pack-target:build:done target=editor durationMs=23225
+[runtime-preview] pack-target:build:start target=preview
+[runtime-preview] pack-target:build:done target=preview durationMs=36054
+[runtime-preview] asset-db:done durationMs=132374
+[runtime-preview] preview:ready durationMs=179929
+```
+
+这次启动没有再出现 startup 阶段每个 `.ts` 单独触发一次 `compileScripts([script])` 的 3051 次 build；启动脚本 import 已按 batch 延后到 `afterStartDB()` 的一次 full compile。
+
+建立 last-good output 后，合法 `TestApi.ts` refresh 返回：
+
+```json
+{
+  "ok": true,
+  "refreshId": "runtime-refresh-1",
+  "target": "db://assets/tests/TestApi.ts",
+  "reason": "endpoint",
+  "changedAssetCount": 1,
+  "scriptCompile": {
+    "status": "done",
+    "durationMs": 1
+  },
+  "durationMs": 494
+}
+```
+
+last-good preview import-map 检查：
+
+```json
+{
+  "prerequisite": "./chunks/6d/6d8fd2b0177941b032ddc0733af48a561fb60657.js",
+  "hasScope": true,
+  "required": 3032
+}
+```
+
+重新临时引入非法语法：
+
+```ts
+window.TestRefresh() = function (){
+```
+
+refresh endpoint 返回 `ok:false`，且没有继续暴露缺 scope 的坏 output：
+
+```json
+{
+  "ok": false,
+  "refreshId": "runtime-refresh-2",
+  "target": "db://assets/tests/TestApi.ts",
+  "scriptCompile": {
+    "status": "failed",
+    "error": "Script compile failed: assets\\tests\\TestApi.ts:2047:0 Invalid left-hand side in assignment expression.",
+    "diagnostic": {
+      "phase": "build",
+      "message": "Invalid left-hand side in assignment expression.",
+      "location": {
+        "filePath": "D:\\ps_copy\\p7\\trunk\\GameClient\\Client-fight-roguelike-migration\\assets\\tests\\TestApi.ts",
+        "relativeFilePath": "assets\\tests\\TestApi.ts",
+        "assetUrl": "db://assets/tests/TestApi.ts",
+        "line": 2047,
+        "column": 0
+      },
+      "codeFrame": "  2045 |     return clear_tank_guide_test_session(true);\n  2046 | }\n> 2047 | window.TestRefresh() = function (){\n       | ^\n  2048 |     console.log(\"refresh\")",
+      "outputState": "lastGoodDueToFailure"
+    }
+  },
+  "outputState": "lastGoodDueToFailure"
+}
+```
+
+失败后 import-map 再次检查仍保持 last-good scope：
+
+```json
+{
+  "prerequisite": "./chunks/6d/6d8fd2b0177941b032ddc0733af48a561fb60657.js",
+  "hasScope": true,
+  "required": 3032
+}
+```
+
+stdout 可见具体 target、脚本、行列和 message：
+
+```text
+[runtime-preview] pack-target:build:failed target=editor file=D:\ps_copy\p7\trunk\GameClient\Client-fight-roguelike-migration\assets\tests\TestApi.ts:2047:0 message=Invalid left-hand side in assignment expression.
+[runtime-preview] pack-target:build:failed target=preview file=D:\ps_copy\p7\trunk\GameClient\Client-fight-roguelike-migration\assets\tests\TestApi.ts:2047:0 message=Invalid left-hand side in assignment expression.
+```
+
+浏览器验证：
+
+1. 打开 `http://127.0.0.1:9632/`，初始 title 为 `Cocos Creator - Client-fight-roguelike-migration`，console 无 `SystemJS Error#8`。
+2. 临时引入非法 `TestApi.ts` 后点击页面 `Refresh` 按钮。
+3. 页面出现 `#runtime-preview-compile-error-panel`，内容包含：
+
+```text
+assets\tests\TestApi.ts:2047:0
+Invalid left-hand side in assignment expression.
+> 2047 | window.TestRefresh() = function (){
+Current change was not applied. Preview keeps last good scripts.
+```
+
+4. 页面正文不包含 `__unresolved_0`，console 没有 `Unable to resolve bare specifier '__unresolved_0'`。本项目仍有既有 `[Physics] PhysicsSystem initDefaultMaterial() Failed to load builtinMaterial.` error，它与本 issue 无关。
+5. 恢复合法 `TestApi.ts` 后再次点击 `Refresh`，错误面板消失，页面仍不包含 `__unresolved_0`。
+
+P7 source 恢复状态：
+
+```text
+backup=D:\ps_copy\p7\trunk\GameClient\Client-fight-roguelike-migration\temp\codex-runtime-preview\TestApi.ts.rp-issue-032.backup
+current SHA256=E32F25DA2E855CC095442A43C2CF06EB279CAFE948FD43E5061E678A091A3725
+backup  SHA256=E32F25DA2E855CC095442A43C2CF06EB279CAFE948FD43E5061E678A091A3725
+git status --short -- assets/tests/TestApi.ts => M assets/tests/TestApi.ts
+```
+
+`assets/tests/TestApi.ts` 的 `M` 是验证前已有的用户工作区状态；当前文件已恢复到本轮验证前备份内容。
+
+## 2026-06-30 审查后补强
+
+资深审查指出三个需要补强的风险：
+
+1. PackerDriver transaction 的 rollback 如果不在 QuickPack workspace lock 内完成，两个 preview 进程或同一 workspace 的并发 build 仍可能交错写入 records / chunks。
+2. 没有 last-good output 的首次启动失败，不能继续返回正常 root HTML 并加载 runtime scripts；页面必须明确展示当前没有可用脚本产物。
+3. 启动期 diagnostic 不能继续显示 `phase=build target=unknown`，应归一为 `phase=startup target=preview`。
+
+对应实现：
+
+- `PackTarget._executeBuild()` 在同一个 QuickPack workspace lock 内执行 backup、build、prerequisite integrity gate、rollback 和 `loadCache()`，避免 rollback 与另一个 build 的 record / chunk 写入交错。
+- `src/runtime-preview/server/runtime-preview-server.ts` 在 `startupCompileFailure.outputState === "noUsableOutput"` 时，root `/` 返回最小错误页，不注入 import-map 和 runtime scripts。
+- `src/core/launcher.ts` 在 `programming:inspection:report-only source=asset-db:script-compile:error` 分支中，优先从已捕获的 `asset-db:script-compile:error` 行恢复脚本路径、行列和 message；只有没有该行时才退到 artifact inspection error。因此 no-usable-output 页面展示的是脚本编译失败，而不是后续 `main-record.json` / preview target 目录缺失。
+- `src/core/assets/manager/asset-db.ts` 启动期脚本同步失败统一输出 `phase=startup target=preview`。
+- no-usable-output 状态不是永久 sticky，但清除有产物验证门槛：`POST /__runtime-preview/refresh` 或 root `--refresh-on-reload` 成功后，必须继续通过 preview programming output inspection，才会清除 `startupCompileFailure`；root `--refresh-on-reload` 会先尝试 refresh，再决定是否继续显示 no-usable-output 错误页。
+- 如果 root `--refresh-on-reload` 在仍有 startup no-usable-output 状态时得到新的编译失败，错误页优先展示本次 reload refresh 的脚本、行列、message 和 code frame，同时保持 `outputState=noUsableOutput`，避免旧 startup error 遮蔽最新问题。
+- AssetDB error line fallback 只用于修正脚本路径、行列和 message；如果 `scripting.getLastCompileFailure()` 已有 Babel `codeFrame`，页面仍保留该 rich diagnostic。
+
+新增 / 更新验证：
+
+```text
+vitests/suites/runtime-preview/packer-driver-output-transaction.test.ts
+  - keeps rollback and cache reload inside the QuickPack workspace lock
+
+vitests/suites/runtime-preview/runtime-preview-express-server.test.ts
+  - noUsableOutput startup failure returns compile-error root page without import-map
+  - successful endpoint refresh clears startup noUsableOutput only after output verification
+  - successful endpoint refresh keeps startup noUsableOutput when output verification fails
+  - refresh-on-reload tries refresh before showing stale startup noUsableOutput, and clears only after output verification
+  - refresh-on-reload shows the latest reload compile failure while startup noUsableOutput remains active
+
+vitests/suites/runtime-preview/launcher-runtime-preview.test.ts
+  - reports runtime preview script compile errors without blocking preview ready
+  - reports programming artifact inspection failures after script compile errors without blocking preview ready
+```
+
+launcher 单测中的 no-usable-output 场景已验证 root HTML 包含：
+
+```text
+Runtime Preview Compile Error
+assets/scripts/Broken.ts:2047:0
+synthetic-error
+Current change was not applied. Preview has no usable script output.
+```
+
+并确认该 HTML 不包含 `type="systemjs-importmap"`。

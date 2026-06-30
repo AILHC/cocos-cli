@@ -59,7 +59,10 @@ export interface RuntimePreviewServerOptions {
     }) => RuntimeAssetChangeWatcher;
     refreshTarget?: (target: string) => Promise<number | null | undefined>;
     refreshCoordinator?: Pick<RuntimeRefreshCoordinator, 'refresh'>;
+    verifyProgrammingOutput?: () => Promise<void>;
     prepareRuntimePreview?: (serverUrl: string) => Promise<void>;
+    startupCompileFailure?: () => RuntimeRefreshResult | null | undefined;
+    clearStartupCompileFailure?: () => void;
     readiness?: {
         isReady(): boolean;
         describe(): {
@@ -194,6 +197,111 @@ function isRuntimeRefreshJsonObject(body: unknown): body is { target?: unknown }
     return !!body && typeof body === 'object' && !Array.isArray(body);
 }
 
+function escapeCompileErrorHtml(value: unknown): string {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function serializeCompileErrorState(value: unknown): string {
+    return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function getRuntimeRefreshCompileDiagnostic(result: RuntimeRefreshResult) {
+    return result.compileError ?? result.scriptCompile.diagnostic;
+}
+
+function formatRuntimeRefreshDiagnosticLocation(result: RuntimeRefreshResult): string {
+    const diagnostic = getRuntimeRefreshCompileDiagnostic(result);
+    const location = diagnostic?.location ?? {};
+    let text = location.relativeFilePath ?? location.filePath ?? location.assetUrl ?? 'unknown';
+    if (typeof location.line === 'number') {
+        text += `:${location.line}`;
+        if (typeof location.column === 'number') {
+            text += `:${location.column}`;
+        }
+    }
+    return text;
+}
+
+function getRuntimeRefreshOutputStateMessage(result: RuntimeRefreshResult): string {
+    if (result.outputState === 'lastGoodDueToFailure') {
+        return 'Current change was not applied. Preview keeps last good scripts.';
+    }
+    if (result.outputState === 'noUsableOutput') {
+        return 'Current change was not applied. Preview has no usable script output.';
+    }
+    return '';
+}
+
+function withNoUsableOutputState(result: RuntimeRefreshResult): RuntimeRefreshResult {
+    return {
+        ...result,
+        outputState: 'noUsableOutput',
+        compileError: result.compileError
+            ? {
+                ...result.compileError,
+                outputState: 'noUsableOutput',
+            }
+            : result.compileError,
+        scriptCompile: {
+            ...result.scriptCompile,
+            diagnostic: result.scriptCompile.diagnostic
+                ? {
+                    ...result.scriptCompile.diagnostic,
+                    outputState: 'noUsableOutput',
+                }
+                : result.scriptCompile.diagnostic,
+        },
+    };
+}
+
+function createRuntimePreviewCompileErrorPage(state: RuntimeRefreshClientState): RuntimePreviewHttpResponse {
+    const result = state.refreshOnReloadFailure ?? state.lastRefresh;
+    const diagnostic = result ? getRuntimeRefreshCompileDiagnostic(result) : undefined;
+    const location = result ? formatRuntimeRefreshDiagnosticLocation(result) : 'unknown';
+    const message = diagnostic?.message ?? result?.error ?? 'Unknown compile error';
+    const codeFrame = diagnostic?.codeFrame;
+    const stateMessage = result ? getRuntimeRefreshOutputStateMessage(result) : '';
+    const serializedState = serializeCompileErrorState(state);
+
+    return {
+        kind: 'body',
+        statusCode: 200,
+        headers: {
+            'content-type': 'text/html; charset=utf-8',
+        },
+        body: `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runtime Preview Compile Error</title>
+<style>
+body { margin: 0; padding: 24px; color: #f1f1f1; background: #171717; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { max-width: 960px; }
+h1 { margin: 0 0 16px; font-size: 24px; }
+.line { margin: 8px 0; }
+pre { overflow: auto; padding: 12px; color: #f5f5f5; background: #101010; border: 1px solid #333; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Runtime Preview Compile Error</h1>
+<div class="line">${escapeCompileErrorHtml(location)}</div>
+<div class="line">${escapeCompileErrorHtml(message)}</div>
+${codeFrame ? `<pre>${escapeCompileErrorHtml(codeFrame)}</pre>` : ''}
+<div class="line">${escapeCompileErrorHtml(stateMessage)}</div>
+<script>window.__RUNTIME_PREVIEW_REFRESH_STATE__ = ${serializedState};</script>
+</main>
+</body>
+</html>`,
+    };
+}
+
 function requiresRuntimePreviewReadiness(pathname: string): boolean {
     if (pathname === '/' || pathname === '/settings.js') {
         return true;
@@ -288,7 +396,14 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         response.status(503).type('text/plain').send(runtimePreviewPreparingText);
     };
     let refreshCoordinator = options.refreshCoordinator;
-    const getRefreshCoordinator = (): Pick<RuntimeRefreshCoordinator, 'refresh'> => {
+    let scriptingPromise: Promise<typeof import('../../core/scripting').default> | null = null;
+    const getScripting = () => {
+        if (!scriptingPromise) {
+            scriptingPromise = import('../../core/scripting').then((module) => module.default);
+        }
+        return scriptingPromise;
+    };
+    const getRefreshCoordinator = async (): Promise<Pick<RuntimeRefreshCoordinator, 'refresh'>> => {
         if (!refreshCoordinator) {
             refreshCoordinator = createRuntimeRefreshCoordinator({
                 projectRoot: context.projectRoot,
@@ -296,10 +411,34 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                     const { assetOperation } = await import('../../core/assets/manager/operation');
                     return assetOperation.refreshAsset(target);
                 }),
-                waitForIdle: async () => {
-                    const { default: scripting } = await import('../../core/scripting');
-                    await scripting.waitForIdle({ timeoutMs: 30_000 });
+                waitForIdle: async (waitOptions) => {
+                    const scripting = await getScripting();
+                    await scripting.waitForIdle({
+                        timeoutMs: 30_000,
+                        sinceFailureGeneration: waitOptions?.sinceFailureGeneration,
+                    });
                 },
+                getLastCompileFailure: async (failureOptions) => {
+                    const scripting = await getScripting();
+                    const failure = scripting.getLastCompileFailure(failureOptions);
+                    return failure
+                        ? {
+                            message: failure.message,
+                            diagnostic: failure.diagnostic,
+                            createdAt: failure.createdAt,
+                            generation: failure.generation,
+                        }
+                        : null;
+                },
+                getCompileFailureGeneration: async () => {
+                    const scripting = await getScripting();
+                    return scripting.getCompileFailureGeneration();
+                },
+                clearLastCompileFailure: async () => {
+                    const scripting = await getScripting();
+                    scripting.clearLastCompileFailure();
+                },
+                verifyProgrammingOutput: options.verifyProgrammingOutput,
                 invalidateSettings: () => getSettingsProvider().invalidate(),
                 clearImportReplacement: () => importReplacementExtensionResolver.clear(),
                 dirtyProvider: dirtyStore && assetWatcher
@@ -313,6 +452,22 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
             });
         }
         return refreshCoordinator;
+    };
+    const clearStartupCompileFailureAfterVerifiedOutput = async (): Promise<void> => {
+        const startupFailure = options.startupCompileFailure?.();
+        if (startupFailure?.outputState !== 'noUsableOutput') {
+            return;
+        }
+        if (!options.verifyProgrammingOutput) {
+            return;
+        }
+        try {
+            await options.verifyProgrammingOutput();
+            options.clearStartupCompileFailure?.();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            void logger.write(`startup-compile-failure:clear-skipped error=${message}`).catch(() => undefined);
+        }
     };
     const extensionRootSummary = context.extensionLibraryRoots
         .map((entry) => `${entry.name}:${entry.root}`)
@@ -371,10 +526,13 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 }
 
                 await options.prepareRuntimePreview?.(serverUrl);
-                const result = await getRefreshCoordinator().refresh({
+                const result = await (await getRefreshCoordinator()).refresh({
                     reason: 'endpoint',
                     target: request.body.target,
                 });
+                if (result.ok) {
+                    await clearStartupCompileFailureAfterVerifiedOutput();
+                }
                 response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
                 response.end(JSON.stringify(result));
             } catch (error) {
@@ -420,15 +578,40 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
             if (pathname === '/' && options.refreshOnReload === true) {
                 try {
                     await options.prepareRuntimePreview?.(serverUrl);
-                    const result = await getRefreshCoordinator().refresh({ reason: 'reload' });
+                    const result = await (await getRefreshCoordinator()).refresh({ reason: 'reload' });
+                    if (result.ok) {
+                        await clearStartupCompileFailureAfterVerifiedOutput();
+                    }
                     runtimeRefreshState = result.ok
                         ? { lastRefresh: result }
                         : { refreshOnReloadFailure: result };
+                    if (!result.ok && result.outputState === 'noUsableOutput') {
+                        sendRuntimePreviewResponse(
+                            response,
+                            createRuntimePreviewCompileErrorPage(runtimeRefreshState),
+                            next,
+                        );
+                        return;
+                    }
                 } catch (error) {
                     runtimeRefreshState = {
                         refreshOnReloadFailure: createRuntimeRefreshFailureResult('reload', error),
                     };
                 }
+            }
+            const startupCompileFailure = options.startupCompileFailure?.();
+            if (pathname === '/' && startupCompileFailure?.outputState === 'noUsableOutput') {
+                const latestRefreshFailure = runtimeRefreshState?.refreshOnReloadFailure;
+                sendRuntimePreviewResponse(
+                    response,
+                    createRuntimePreviewCompileErrorPage({
+                        refreshOnReloadFailure: latestRefreshFailure && !latestRefreshFailure.ok
+                            ? withNoUsableOutputState(latestRefreshFailure)
+                            : startupCompileFailure,
+                    }),
+                    next,
+                );
+                return;
             }
             if (pathname === '/' && assetWatcher) {
                 runtimeRefreshState = {

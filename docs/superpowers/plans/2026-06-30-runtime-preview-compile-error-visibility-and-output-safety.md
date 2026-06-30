@@ -2173,3 +2173,15 @@ Placeholder scan:
 Type consistency:
 
 - `ScriptCompileDiagnostic`, `RuntimePreviewOutputState`, `RuntimeRefreshResult.compileError`, and `RuntimeRefreshScriptCompileResult.diagnostic` are consistently named across tasks.
+
+## Execution Notes 2026-06-30
+
+本计划执行后额外补强了三项审查风险：
+
+- PackerDriver output transaction 现在在同一个 QuickPack workspace lock 内覆盖 backup、build、prerequisite integrity gate、rollback 和 `loadCache()`，避免失败回滚与并发 build 交错写 records / chunks。
+- 启动期没有 last-good output 且存在 script compile failure 时，root `/` 返回 no-usable-output 错误页，不注入 import-map 和 runtime scripts。
+- no-usable-output 错误页优先展示已捕获的 `asset-db:script-compile:error` 脚本路径、行列和 message；artifact inspection 的 `ENOENT` 只作为最后 fallback，避免遮蔽真正的脚本编译失败；已有 `scripting.getLastCompileFailure()` 的 `codeFrame` 会保留。
+- no-usable-output 状态可恢复，但清除前必须验证 preview programming output：endpoint refresh 或 root `--refresh-on-reload` 成功后，只有 `inspectRuntimePreviewProgrammingArtifacts()` 通过才清除 `startupCompileFailure`；root `--refresh-on-reload` 会先尝试 refresh，再决定是否显示旧启动失败页。
+- 如果 root `--refresh-on-reload` 产生新的失败，no-usable-output 页使用本次 reload failure 的 diagnostic，同时保持 no-usable-output 状态，避免旧 startup error 遮蔽最新脚本错误。
+
+P7 本地 `dist/cli.js` 验证已完成：非法 `assets/tests/TestApi.ts` refresh 返回 `ok:false`、`outputState=lastGoodDueToFailure`，页面显示 `assets\tests\TestApi.ts:2047:0` 和 code frame，失败后 import-map prerequisite scope 仍存在，浏览器未再出现 `Unable to resolve bare specifier '__unresolved_0'`。

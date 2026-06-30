@@ -301,6 +301,12 @@ describe('ScriptManager', () => {
     });
 
     describe('compileScripts', () => {
+        afterEach(() => {
+            scriptManager.clearLastCompileFailure();
+            jest.useRealTimers();
+            jest.restoreAllMocks();
+        });
+
         it('should compile scripts without asset changes', async () => {
             // Should not throw - actual compilation may take time
             await expect(scriptManager.compileScripts()).resolves.not.toThrow();
@@ -371,6 +377,45 @@ describe('ScriptManager', () => {
             // Should not throw - actual compilation may take time
             await expect(scriptManager.compileScripts(assetChanges)).resolves.not.toThrow();
         }, 60000); // Increase timeout for real compilation
+
+        it('should record compile failure diagnostic and preserve original error', async () => {
+            const packerDriver = PackerDriver.getInstance();
+            const error = new Error('Invalid left-hand side in assignment (2047:0)');
+            (error as Error & { loc: { line: number; column: number } }).loc = { line: 2047, column: 0 };
+            const buildSpy = jest.spyOn(packerDriver, 'build').mockRejectedValue(error);
+
+            await expect(scriptManager.compileScripts()).rejects.toBe(error);
+
+            const failure = scriptManager.getLastCompileFailure();
+            expect(buildSpy).toHaveBeenCalledWith(undefined);
+            expect(failure).not.toBeNull();
+            expect(failure!.error).toBe(error);
+            expect(failure!.message).toBe('Invalid left-hand side in assignment');
+            expect(failure!.diagnostic.phase).toBe('build');
+            expect(failure!.diagnostic.message).toBe('Invalid left-hand side in assignment');
+            expect(failure!.diagnostic.location.line).toBe(2047);
+            expect(failure!.diagnostic.location.column).toBe(0);
+            expect(failure!.generation).toBeGreaterThan(0);
+            expect(typeof failure!.createdAt).toBe('number');
+            expect(scriptManager.getLastCompileFailure({ error })).toBe(failure);
+            expect(scriptManager.getLastCompileFailure({ error: new Error('other') })).toBeNull();
+        });
+
+        it('should clear previous compile failure after a successful compile', async () => {
+            const packerDriver = PackerDriver.getInstance();
+            const error = new Error('compile failed (2047:0)');
+            const buildSpy = jest.spyOn(packerDriver, 'build')
+                .mockRejectedValueOnce(error)
+                .mockResolvedValueOnce(undefined);
+
+            await expect(scriptManager.compileScripts()).rejects.toBe(error);
+            expect(scriptManager.getLastCompileFailure()).not.toBeNull();
+
+            await expect(scriptManager.compileScripts()).resolves.toBeUndefined();
+
+            expect(buildSpy).toHaveBeenCalledTimes(2);
+            expect(scriptManager.getLastCompileFailure()).toBeNull();
+        });
     });
 
     describe('queryScriptUsers', () => {
@@ -457,6 +502,12 @@ describe('ScriptManager', () => {
     });
 
     describe('postCompileScripts', () => {
+        afterEach(() => {
+            scriptManager.clearLastCompileFailure();
+            jest.useRealTimers();
+            jest.restoreAllMocks();
+        });
+
         it('should schedule delayed compilation', async () => {
             const delay = 100;
             const taskId = scriptManager.postCompileScripts(delay);
@@ -561,6 +612,101 @@ describe('ScriptManager', () => {
                 busySpy.mockRestore();
                 jest.useRealTimers();
             }
+        });
+
+        it('should time out while a delayed compile promise remains pending', async () => {
+            jest.useFakeTimers();
+            const packerDriver = PackerDriver.getInstance();
+            let resolveBuild!: () => void;
+            const buildPromise = new Promise<void>((resolve) => {
+                resolveBuild = resolve;
+            });
+            const buildSpy = jest.spyOn(packerDriver, 'build').mockReturnValue(buildPromise);
+            const busySpy = jest.spyOn(packerDriver, 'busy').mockReturnValue(false);
+
+            try {
+                scriptManager.postCompileScripts(10);
+                await jest.advanceTimersByTimeAsync(10);
+
+                const idleAssertion = expect(
+                    scriptManager.waitForIdle({ timeoutMs: 50, pollMs: 1 }),
+                ).rejects.toThrow('Timed out waiting for scripting compile idle after 50ms.');
+                await jest.advanceTimersByTimeAsync(50);
+                await idleAssertion;
+
+                resolveBuild();
+                await Promise.resolve();
+                await Promise.resolve();
+            } finally {
+                buildSpy.mockRestore();
+                busySpy.mockRestore();
+                jest.useRealTimers();
+            }
+        });
+
+        it('should not clear a newer compile failure when an older delayed compile succeeds', async () => {
+            jest.useFakeTimers();
+            const packerDriver = PackerDriver.getInstance();
+            let resolveDelayedBuild!: () => void;
+            const delayedBuildPromise = new Promise<void>((resolve) => {
+                resolveDelayedBuild = resolve;
+            });
+            const newerError = new Error('newer compile failed (2047:0)');
+            const buildSpy = jest.spyOn(packerDriver, 'build')
+                .mockReturnValueOnce(delayedBuildPromise)
+                .mockRejectedValueOnce(newerError);
+            const busySpy = jest.spyOn(packerDriver, 'busy').mockReturnValue(false);
+
+            try {
+                scriptManager.postCompileScripts(10);
+                await jest.advanceTimersByTimeAsync(10);
+
+                await expect(scriptManager.compileScripts()).rejects.toBe(newerError);
+                const failureAfterNewerError = scriptManager.getLastCompileFailure();
+                expect(failureAfterNewerError?.error).toBe(newerError);
+
+                resolveDelayedBuild();
+                await Promise.resolve();
+                await Promise.resolve();
+
+                expect(scriptManager.getLastCompileFailure()).toBe(failureAfterNewerError);
+                expect(scriptManager.getLastCompileFailure({
+                    sinceGeneration: failureAfterNewerError!.generation - 1,
+                })).toBe(failureAfterNewerError);
+                expect(scriptManager.getLastCompileFailure({
+                    sinceGeneration: failureAfterNewerError!.generation,
+                })).toBeNull();
+            } finally {
+                buildSpy.mockRestore();
+                busySpy.mockRestore();
+                jest.useRealTimers();
+            }
+        });
+
+        it('should record delayed compile failure and reject waitForIdle with task id and generation', async () => {
+            jest.useFakeTimers();
+            const packerDriver = PackerDriver.getInstance();
+            const error = new Error('delayed compile failed (2047:0)');
+            const buildSpy = jest.spyOn(packerDriver, 'build').mockRejectedValue(error);
+            const busySpy = jest.spyOn(packerDriver, 'busy').mockReturnValue(false);
+
+            const taskId = scriptManager.postCompileScripts(10);
+            await jest.advanceTimersByTimeAsync(10);
+
+            await expect(scriptManager.waitForIdle({ timeoutMs: 1000, pollMs: 1 })).rejects.toBe(error);
+
+            const failure = scriptManager.getLastCompileFailure();
+            expect(buildSpy).toHaveBeenCalledWith(undefined, taskId);
+            expect(failure).not.toBeNull();
+            expect(failure!.error).toBe(error);
+            expect(failure!.message).toBe('delayed compile failed');
+            expect(failure!.diagnostic.phase).toBe('build');
+            expect(failure!.diagnostic.taskId).toBe(taskId);
+            expect(failure!.taskId).toBe(taskId);
+            expect(failure!.generation).toBeGreaterThan(0);
+
+            buildSpy.mockRestore();
+            busySpy.mockRestore();
         });
     });
 

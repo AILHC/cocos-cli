@@ -481,6 +481,50 @@ describe('runtime preview express server adapter', () => {
     }
   });
 
+  it('does not trust compileError-shaped payloads from refresh fallback errors', async () => {
+    const compileError = {
+      phase: 'refresh',
+      message: 'Unexpected token',
+      name: 'SyntaxError',
+      location: {
+        assetUrl: 'db://assets/scripts/broken.ts',
+        line: 4,
+        column: 2,
+      },
+      refreshId: 'runtime-refresh-test',
+      outputState: 'lastGoodDueToFailure',
+    };
+    const thrown = Object.assign(new Error('refresh adapter failed'), { compileError });
+    const refresh = vi.fn(async () => {
+      throw thrown;
+    });
+    const { server } = await createServerFixture({
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toMatchObject({
+        ok: false,
+        error: 'refresh adapter failed',
+        scriptCompile: {
+          status: 'skipped',
+        },
+      });
+      expect(body.outputState).toBeUndefined();
+      expect(body.compileError).toBeUndefined();
+      expect(body.scriptCompile.diagnostic).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
   it('runs prepare and refresh before root settings/render when refresh-on-reload is enabled', async () => {
     const order: string[] = [];
     const refresh = vi.fn(async () => {
@@ -556,6 +600,319 @@ describe('runtime preview express server adapter', () => {
       expect(response.status).toBe(200);
       expect(html).toContain('refreshOnReloadFailure');
       expect(html).toContain('reload failed');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns minimal compile error page on reload noUsableOutput without runtime scripts', async () => {
+    const refresh = vi.fn(async () => createRefreshResult({
+      ok: false,
+      reason: 'reload',
+      error: 'Script compile failed: assets/scripts/broken.ts:7:11 Unexpected token',
+      changedAssetCount: null,
+      outputState: 'noUsableOutput',
+      compileError: {
+        phase: 'reload-refresh',
+        message: 'Unexpected <token>',
+        location: {
+          relativeFilePath: 'assets/scripts/broken.ts',
+          line: 7,
+          column: 11,
+        },
+        codeFrame: '> 7 | const value = <bad>;\n    |              ^',
+      },
+      scriptCompile: {
+        status: 'failed',
+        durationMs: 8,
+      },
+    }));
+    const { server } = await createServerFixture({
+      refreshOnReload: true,
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/`);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/html');
+      expect(html).toContain('Runtime Preview Compile Error');
+      expect(html).toContain('assets/scripts/broken.ts:7:11');
+      expect(html).toContain('Unexpected &lt;token&gt;');
+      expect(html).toContain('&gt; 7 | const value = &lt;bad&gt;');
+      expect(html).toContain('Current change was not applied. Preview has no usable script output.');
+      expect(html).toContain('refreshOnReloadFailure');
+      expect(html).not.toContain('type="systemjs-importmap"');
+      expect(html).not.toContain('/scripting/import-map-global');
+      expect(html).not.toContain('/scripting/systemjs/system.js');
+      expect(html).not.toContain('/static/runtime-preview/preview-app/main.js');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns minimal compile error page for startup noUsableOutput without refresh-on-reload', async () => {
+    const startupCompileFailure = vi.fn(() => createRefreshResult({
+      ok: false,
+      reason: 'reload',
+      error: 'Script compile failed: assets/scripts/Broken.ts:2047:0 Invalid left-hand side',
+      changedAssetCount: null,
+      outputState: 'noUsableOutput',
+      compileError: {
+        phase: 'startup',
+        target: 'preview',
+        message: 'Invalid left-hand side in assignment expression.',
+        location: {
+          relativeFilePath: 'assets/scripts/Broken.ts',
+          line: 2047,
+          column: 0,
+        },
+        codeFrame: '> 2047 | window.TestRefresh() = function (){\n       | ^',
+        outputState: 'noUsableOutput',
+      },
+      scriptCompile: {
+        status: 'failed',
+        durationMs: 0,
+      },
+    }));
+    const { server } = await createServerFixture({
+      startupCompileFailure,
+    });
+    try {
+      const response = await fetch(`${server.url}/`);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(startupCompileFailure).toHaveBeenCalled();
+      expect(html).toContain('Runtime Preview Compile Error');
+      expect(html).toContain('assets/scripts/Broken.ts:2047:0');
+      expect(html).toContain('Invalid left-hand side in assignment expression.');
+      expect(html).toContain('window.TestRefresh() = function ()');
+      expect(html).toContain('Current change was not applied. Preview has no usable script output.');
+      expect(html).not.toContain('type="systemjs-importmap"');
+      expect(html).not.toContain('/scripting/systemjs/system.js');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('clears startup noUsableOutput after a successful endpoint refresh', async () => {
+    let startupFailure: RuntimeRefreshResult | null = createRefreshResult({
+      ok: false,
+      reason: 'reload',
+      error: 'Script compile failed: assets/scripts/Broken.ts:2047:0 Invalid left-hand side',
+      changedAssetCount: null,
+      outputState: 'noUsableOutput',
+      compileError: {
+        phase: 'startup',
+        target: 'preview',
+        message: 'Invalid left-hand side in assignment expression.',
+        location: {
+          relativeFilePath: 'assets/scripts/Broken.ts',
+          line: 2047,
+          column: 0,
+        },
+        outputState: 'noUsableOutput',
+      },
+    });
+    const startupCompileFailure = vi.fn(() => startupFailure);
+    const clearStartupCompileFailure = vi.fn(() => {
+      startupFailure = null;
+    });
+    const refresh = vi.fn(async () => createRefreshResult({ ok: true }));
+    const verifyProgrammingOutput = vi.fn(async () => undefined);
+    const { server } = await createServerFixture({
+      startupCompileFailure,
+      clearStartupCompileFailure,
+      verifyProgrammingOutput,
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const refreshResponse = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      const rootResponse = await fetch(`${server.url}/`);
+      const html = await rootResponse.text();
+
+      expect(refreshResponse.status).toBe(200);
+      expect(refresh).toHaveBeenCalled();
+      expect(verifyProgrammingOutput).toHaveBeenCalled();
+      expect(clearStartupCompileFailure).toHaveBeenCalledTimes(1);
+      expect(rootResponse.status).toBe(200);
+      expect(html).not.toContain('Runtime Preview Compile Error');
+      expect(html).toContain('type="systemjs-importmap"');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps startup noUsableOutput when a successful endpoint refresh cannot verify output', async () => {
+    const startupFailure = createRefreshResult({
+      ok: false,
+      reason: 'reload',
+      error: 'Script compile failed: assets/scripts/Broken.ts:2047:0 Invalid left-hand side',
+      changedAssetCount: null,
+      outputState: 'noUsableOutput',
+      compileError: {
+        phase: 'startup',
+        target: 'preview',
+        message: 'Invalid left-hand side in assignment expression.',
+        location: {
+          relativeFilePath: 'assets/scripts/Broken.ts',
+          line: 2047,
+          column: 0,
+        },
+        outputState: 'noUsableOutput',
+      },
+    });
+    const startupCompileFailure = vi.fn(() => startupFailure);
+    const clearStartupCompileFailure = vi.fn();
+    const verifyProgrammingOutput = vi.fn(async () => {
+      throw new Error('preview output is still missing');
+    });
+    const refresh = vi.fn(async () => createRefreshResult({ ok: true }));
+    const { server } = await createServerFixture({
+      startupCompileFailure,
+      clearStartupCompileFailure,
+      verifyProgrammingOutput,
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const refreshResponse = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      const rootResponse = await fetch(`${server.url}/`);
+      const html = await rootResponse.text();
+
+      expect(refreshResponse.status).toBe(200);
+      expect(refresh).toHaveBeenCalled();
+      expect(verifyProgrammingOutput).toHaveBeenCalled();
+      expect(clearStartupCompileFailure).not.toHaveBeenCalled();
+      expect(rootResponse.status).toBe(200);
+      expect(html).toContain('Runtime Preview Compile Error');
+      expect(html).toContain('assets/scripts/Broken.ts:2047:0');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tries refresh-on-reload before showing a stale startup noUsableOutput page', async () => {
+    let startupFailure: RuntimeRefreshResult | null = createRefreshResult({
+      ok: false,
+      reason: 'reload',
+      error: 'Script compile failed: assets/scripts/Broken.ts:2047:0 Invalid left-hand side',
+      changedAssetCount: null,
+      outputState: 'noUsableOutput',
+      compileError: {
+        phase: 'startup',
+        target: 'preview',
+        message: 'Invalid left-hand side in assignment expression.',
+        location: {
+          relativeFilePath: 'assets/scripts/Broken.ts',
+          line: 2047,
+          column: 0,
+        },
+        outputState: 'noUsableOutput',
+      },
+    });
+    const startupCompileFailure = vi.fn(() => startupFailure);
+    const clearStartupCompileFailure = vi.fn(() => {
+      startupFailure = null;
+    });
+    const verifyProgrammingOutput = vi.fn(async () => undefined);
+    const refresh = vi.fn(async () => createRefreshResult({
+      ok: true,
+      reason: 'reload',
+      outputState: 'latest',
+    }));
+    const { server } = await createServerFixture({
+      refreshOnReload: true,
+      startupCompileFailure,
+      clearStartupCompileFailure,
+      verifyProgrammingOutput,
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/`);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(refresh).toHaveBeenCalledWith({ reason: 'reload' });
+      expect(verifyProgrammingOutput).toHaveBeenCalled();
+      expect(clearStartupCompileFailure).toHaveBeenCalledTimes(1);
+      expect(html).not.toContain('Runtime Preview Compile Error');
+      expect(html).toContain('type="systemjs-importmap"');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('shows the latest reload compile failure when startup noUsableOutput is still active', async () => {
+    const startupFailure = createRefreshResult({
+      ok: false,
+      reason: 'reload',
+      error: 'Script compile failed: assets/scripts/OldBroken.ts:2047:0 Old syntax error',
+      changedAssetCount: null,
+      outputState: 'noUsableOutput',
+      compileError: {
+        phase: 'startup',
+        target: 'preview',
+        message: 'Old syntax error',
+        location: {
+          relativeFilePath: 'assets/scripts/OldBroken.ts',
+          line: 2047,
+          column: 0,
+        },
+        outputState: 'noUsableOutput',
+      },
+    });
+    const refresh = vi.fn(async () => createRefreshResult({
+      ok: false,
+      reason: 'reload',
+      error: 'Script compile failed: assets/scripts/NewBroken.ts:88:4 New syntax error',
+      changedAssetCount: 1,
+      outputState: 'lastGoodDueToFailure',
+      compileError: {
+        phase: 'reload-refresh',
+        target: 'preview',
+        message: 'New syntax error',
+        location: {
+          relativeFilePath: 'assets/scripts/NewBroken.ts',
+          line: 88,
+          column: 4,
+        },
+        codeFrame: '> 88 | const value = <bad>',
+        outputState: 'lastGoodDueToFailure',
+      },
+      scriptCompile: {
+        status: 'failed',
+        durationMs: 3,
+        error: 'Script compile failed: assets/scripts/NewBroken.ts:88:4 New syntax error',
+      },
+    }));
+    const { server } = await createServerFixture({
+      refreshOnReload: true,
+      startupCompileFailure: () => startupFailure,
+      refreshCoordinator: { refresh },
+    });
+    try {
+      const response = await fetch(`${server.url}/`);
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(refresh).toHaveBeenCalledWith({ reason: 'reload' });
+      expect(html).toContain('Runtime Preview Compile Error');
+      expect(html).toContain('assets/scripts/NewBroken.ts:88:4');
+      expect(html).toContain('New syntax error');
+      expect(html).toContain('&gt; 88 | const value = &lt;bad&gt;');
+      expect(html).not.toContain('OldBroken.ts');
+      expect(html).toContain('Current change was not applied. Preview has no usable script output.');
+      expect(html).not.toContain('type="systemjs-importmap"');
     } finally {
       await server.close();
     }

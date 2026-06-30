@@ -7,6 +7,7 @@ import { CustomEvent, EventType, eventEmitter } from './event-emitter';
 import { AssetChangeInfo, DBChangeType } from './packer-driver/asset-db-interop';
 import { v4 as uuid } from 'node-uuid';
 import { DBInfo } from './@types/config-export';
+import { createScriptCompileDiagnostic, ScriptCompileDiagnostic } from './compile-error-diagnostics';
 
 export const title = 'i18n:builder.tasks.load_script';
 
@@ -15,6 +16,26 @@ let executor: Executor | null = null;
 import { GlobalEnv } from '../scene/common/global-env';
 
 const globalEnv = new GlobalEnv();
+
+export interface ScriptCompileFailureState {
+    error: unknown;
+    message: string;
+    diagnostic: ScriptCompileDiagnostic;
+    createdAt: number;
+    generation: number;
+    taskId?: string;
+}
+
+export interface GetLastCompileFailureOptions {
+    sinceGeneration?: number;
+    error?: unknown;
+}
+
+export interface WaitForScriptIdleOptions {
+    timeoutMs?: number;
+    pollMs?: number;
+    sinceFailureGeneration?: number;
+}
 
 class ScriptManager {
 
@@ -27,6 +48,8 @@ class ScriptManager {
     private _pendingCompileTaskId: string | null = null;
     private _pendingCompilePromise: Promise<void> | null = null;
     private _projectPath: string = '';
+    private _lastCompileFailure: ScriptCompileFailureState | null = null;
+    private _compileFailureGeneration = 0;
 
     /**
      * 初始化Scripting模块
@@ -101,7 +124,14 @@ class ScriptManager {
      * @param assetChanges 资源变更列表，如果未提供，则编译上一次缓存的资源变更列表
      */
     async compileScripts(assetChanges?: AssetChangeInfo[]): Promise<void> {
-        await PackerDriver.getInstance().build(assetChanges);
+        const failureGenerationBeforeBuild = this._compileFailureGeneration;
+        try {
+            await PackerDriver.getInstance().build(assetChanges);
+            this._clearCompileFailureIfNotNewerThan(failureGenerationBeforeBuild);
+        } catch (error) {
+            this._recordCompileFailure(error, { phase: 'build' });
+            throw error;
+        }
     }
 
     /**
@@ -129,18 +159,52 @@ class ScriptManager {
             this._pendingCompileTimer = null;
             const currentTaskId = this._pendingCompileTaskId;
             this._pendingCompileTaskId = null;
-            const pendingCompilePromise = PackerDriver.getInstance().build(undefined, currentTaskId || undefined);
+            const pendingCompilePromise = (async () => {
+                const failureGenerationBeforeBuild = this._compileFailureGeneration;
+                try {
+                    await PackerDriver.getInstance().build(undefined, currentTaskId || undefined);
+                    this._clearCompileFailureIfNotNewerThan(failureGenerationBeforeBuild);
+                } catch (error) {
+                    this._recordCompileFailure(error, { phase: 'build', taskId: currentTaskId || undefined });
+                }
+            })();
             this._pendingCompilePromise = pendingCompilePromise;
-            try {
-                await pendingCompilePromise;
-            } finally {
+            pendingCompilePromise.finally(() => {
                 if (this._pendingCompilePromise === pendingCompilePromise) {
                     this._pendingCompilePromise = null;
                 }
-            }
+            });
         }, delay);
         
         return taskId;
+    }
+
+    getLastCompileFailure(options: GetLastCompileFailureOptions = {}): ScriptCompileFailureState | null {
+        const failure = this._lastCompileFailure;
+        if (!failure) {
+            return null;
+        }
+        if (options.error !== undefined && failure.error !== options.error) {
+            return null;
+        }
+        if (options.sinceGeneration !== undefined && failure.generation <= options.sinceGeneration) {
+            return null;
+        }
+        return failure;
+    }
+
+    getCompileFailureGeneration(): number {
+        return this._compileFailureGeneration;
+    }
+
+    clearLastCompileFailure(): void {
+        this._lastCompileFailure = null;
+    }
+
+    private _clearCompileFailureIfNotNewerThan(generation: number): void {
+        if (!this._lastCompileFailure || this._lastCompileFailure.generation <= generation) {
+            this._lastCompileFailure = null;
+        }
     }
 
     hasPendingCompileTask(): boolean {
@@ -152,7 +216,7 @@ class ScriptManager {
         );
     }
 
-    async waitForIdle(options: { timeoutMs?: number; pollMs?: number } = {}): Promise<void> {
+    async waitForIdle(options: WaitForScriptIdleOptions = {}): Promise<void> {
         const timeoutMs = options.timeoutMs ?? 30_000;
         const pollMs = options.pollMs ?? 50;
         const startedAt = Date.now();
@@ -160,7 +224,17 @@ class ScriptManager {
         while (this.hasPendingCompileTask()) {
             const pendingCompilePromise = this._pendingCompilePromise;
             if (pendingCompilePromise) {
-                await pendingCompilePromise;
+                const remainingMs = timeoutMs - (Date.now() - startedAt);
+                if (remainingMs <= 0) {
+                    throw new Error(`Timed out waiting for scripting compile idle after ${timeoutMs}ms.`);
+                }
+                const result = await Promise.race([
+                    pendingCompilePromise.then(() => 'settled' as const),
+                    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), remainingMs)),
+                ]);
+                if (result === 'timeout') {
+                    throw new Error(`Timed out waiting for scripting compile idle after ${timeoutMs}ms.`);
+                }
                 continue;
             }
 
@@ -170,6 +244,37 @@ class ScriptManager {
 
             await new Promise<void>((resolve) => setTimeout(resolve, pollMs));
         }
+
+        const failure = this.getLastCompileFailure({
+            sinceGeneration: options.sinceFailureGeneration,
+        });
+        if (failure) {
+            if (failure.error instanceof Error) {
+                throw failure.error;
+            }
+            throw new Error(failure.message);
+        }
+    }
+
+    private _recordCompileFailure(error: unknown, options: {
+        phase: ScriptCompileDiagnostic['phase'];
+        taskId?: string;
+        assetUrl?: string;
+    }): void {
+        const diagnostic = createScriptCompileDiagnostic(error, {
+            phase: options.phase,
+            projectRoot: this._projectPath,
+            taskId: options.taskId,
+            assetUrl: options.assetUrl,
+        });
+        this._lastCompileFailure = {
+            error,
+            message: diagnostic.message,
+            diagnostic,
+            createdAt: Date.now(),
+            generation: ++this._compileFailureGeneration,
+            taskId: options.taskId,
+        };
     }
 
     /**

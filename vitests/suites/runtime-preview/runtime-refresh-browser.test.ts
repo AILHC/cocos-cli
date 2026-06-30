@@ -244,7 +244,66 @@ describe('runtime refresh browser integration', () => {
       expect(refresh).toHaveBeenCalledTimes(1);
       expect(await resources.page.locator('#runtime-preview-refresh-toast').textContent()).toContain('refresh failed');
       expect(await resources.page.evaluate(() => localStorage.getItem('runtime-refresh-beforeunload-count'))).toBeNull();
+      await expect(resources.page.evaluate(() => (window as any).__RUNTIME_PREVIEW_REFRESH_STATE__)).resolves.toMatchObject({
+        lastRefresh: {
+          ok: false,
+          error: 'refresh failed',
+        },
+      });
+      await expect(resources.page.locator('#runtime-preview-compile-error-panel').count()).resolves.toBe(0);
       expect(consoleErrors).toEqual([]);
+    } finally {
+      await closeRuntimePreviewPage(resources);
+    }
+  }, 60_000);
+
+  it('shows compile failure panel and does not reload after endpoint refresh compile failure', async () => {
+    const refresh = vi.fn(async () => createRefreshResult({
+      ok: false,
+      error: 'Script compile failed: assets/scripts/broken.ts:7:11 Unexpected token',
+      changedAssetCount: null,
+      outputState: 'lastGoodDueToFailure',
+      compileError: {
+        phase: 'refresh',
+        message: 'Unexpected token',
+        location: {
+          relativeFilePath: 'assets/scripts/broken.ts',
+          line: 7,
+          column: 11,
+        },
+        codeFrame: [
+          '> 7 | const value = ;',
+          '    |              ^',
+        ].join('\n'),
+      },
+      scriptCompile: {
+        status: 'failed',
+        durationMs: 12,
+      },
+    }));
+    const resources = await openRuntimePreviewPage({ refresh });
+    try {
+      await resources.page.waitForSelector('#btn-runtime-refresh');
+      await resources.page.click('#btn-runtime-refresh');
+      await resources.page.waitForSelector('#runtime-preview-compile-error-panel');
+
+      const panelText = await resources.page.locator('#runtime-preview-compile-error-panel').textContent();
+      expect(panelText).toContain('Script compile failed');
+      expect(panelText).toContain('assets/scripts/broken.ts:7:11');
+      expect(panelText).toContain('Unexpected token');
+      expect(panelText).toContain('const value = ;');
+      expect(panelText).toContain('Current change was not applied. Preview keeps last good scripts.');
+      expect(await resources.page.locator('#runtime-preview-refresh-toast').textContent()).toContain('Script compile failed');
+      expect(await resources.page.evaluate(() => localStorage.getItem('runtime-refresh-beforeunload-count'))).toBeNull();
+      await expect(resources.page.evaluate(() => (window as any).__RUNTIME_PREVIEW_REFRESH_STATE__)).resolves.toMatchObject({
+        lastRefresh: {
+          ok: false,
+          outputState: 'lastGoodDueToFailure',
+          compileError: {
+            message: 'Unexpected token',
+          },
+        },
+      });
     } finally {
       await closeRuntimePreviewPage(resources);
     }
@@ -287,34 +346,78 @@ describe('runtime refresh browser integration', () => {
     }
   }, 60_000);
 
-  it('shows no-change message and does not reload when watcher dirty-set is empty', async () => {
-    const refresh = vi.fn(async () => createRefreshResult({
-      ok: true,
-      refreshId: 'watch-empty',
-      target: 'dirty-set',
-      targets: [],
-      reason: 'endpoint',
-      changedAssetCount: null,
-      dirtyEventCount: 0,
-      watcher: {
-        enabled: true,
-        running: true,
-        assetsRoot: 'E:/project/assets',
-        eventCount: 0,
-        dirtyTargetCount: 0,
-        sampleTargets: [],
-      },
-      scriptCompile: { status: 'skipped', durationMs: 0 },
-      durationMs: 0,
-    }));
+  it('shows no-change message, clears a stale compile panel, and does not reload when watcher dirty-set is empty', async () => {
+    const refresh = vi.fn()
+      .mockResolvedValueOnce(createRefreshResult({
+        ok: false,
+        error: 'Script compile failed: assets/scripts/broken.ts:7:11 Unexpected token',
+        changedAssetCount: null,
+        outputState: 'lastGoodDueToFailure',
+        compileError: {
+          phase: 'refresh',
+          target: 'preview',
+          message: 'Unexpected token',
+          location: {
+            relativeFilePath: 'assets/scripts/broken.ts',
+            line: 7,
+            column: 11,
+          },
+          codeFrame: '> 7 | const value = ;',
+          outputState: 'lastGoodDueToFailure',
+        },
+        scriptCompile: {
+          status: 'failed',
+          durationMs: 12,
+          error: 'Unexpected token',
+          diagnostic: {
+            phase: 'refresh',
+            target: 'preview',
+            message: 'Unexpected token',
+            location: {
+              relativeFilePath: 'assets/scripts/broken.ts',
+              line: 7,
+              column: 11,
+            },
+            codeFrame: '> 7 | const value = ;',
+            outputState: 'lastGoodDueToFailure',
+          },
+        },
+      }))
+      .mockResolvedValueOnce(createRefreshResult({
+        ok: true,
+        refreshId: 'watch-empty',
+        target: 'dirty-set',
+        targets: [],
+        reason: 'endpoint',
+        changedAssetCount: null,
+        dirtyEventCount: 0,
+        watcher: {
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        },
+        scriptCompile: { status: 'skipped', durationMs: 0 },
+        durationMs: 0,
+      }));
     const resources = await openRuntimePreviewPage({ refresh });
     try {
       await resources.page.waitForSelector('#btn-runtime-refresh');
       await resources.page.click('#btn-runtime-refresh');
-      await resources.page.waitForSelector('#runtime-preview-refresh-toast');
+      await resources.page.waitForSelector('#runtime-preview-compile-error-panel');
+      expect(await resources.page.locator('#runtime-preview-compile-error-panel').textContent()).toContain('Unexpected token');
 
+      await resources.page.click('#btn-runtime-refresh');
+      await resources.page.waitForFunction(() => {
+        return document.querySelector('#runtime-preview-refresh-toast')?.textContent?.includes('No asset changes') === true;
+      });
+
+      expect(refresh).toHaveBeenCalledTimes(2);
       expect(await resources.page.locator('#runtime-preview-refresh-toast').textContent()).toContain('No asset changes');
       expect(await resources.page.evaluate(() => localStorage.getItem('runtime-refresh-beforeunload-count'))).toBeNull();
+      await expect(resources.page.locator('#runtime-preview-compile-error-panel').count()).resolves.toBe(0);
       expect(await resources.page.locator('#btn-runtime-refresh').isEnabled()).toBe(true);
     } finally {
       await closeRuntimePreviewPage(resources);

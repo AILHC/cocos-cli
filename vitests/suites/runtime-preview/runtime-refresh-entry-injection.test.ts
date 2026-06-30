@@ -51,4 +51,39 @@ describe('runtime refresh entry injection', () => {
     expect(injected).toContain('function installRuntimeRefresh');
     expect(injected).toContain('runtime-preview-refresh-toast');
   });
+
+  it('injects compile error panel code and escaped serialized diagnostic state', () => {
+    const injected = injectRuntimeRefreshEntry('<html><body></body></html>', {
+      refreshOnReloadFailure: createRefreshResult({
+        ok: false,
+        reason: 'reload',
+        changedAssetCount: null,
+        outputState: 'noUsableOutput',
+        compileError: {
+          phase: 'reload-refresh',
+          message: 'Unexpected <token>',
+          location: {
+            relativeFilePath: 'assets/scripts/broken.ts',
+            line: 7,
+            column: 11,
+          },
+          codeFrame: 'const value = <bad>;',
+        },
+        scriptCompile: {
+          status: 'failed',
+          durationMs: 4,
+        },
+      }),
+    });
+
+    expect(injected).toContain('runtime-preview-compile-error-panel');
+    expect(injected).toContain('Script compile failed');
+    expect(injected).toContain('Current change was not applied. Preview has no usable script output.');
+    expect(injected).toContain('renderRuntimePreviewCompileErrorPanel');
+    expect(injected).toContain('assets/scripts/broken.ts');
+    expect(injected).toContain('Unexpected \\u003ctoken>');
+    expect(injected).toContain('const value = \\u003cbad>;');
+    expect(injected).not.toContain('Unexpected <token>');
+    expect(injected).not.toContain('const value = <bad>;');
+  });
 });

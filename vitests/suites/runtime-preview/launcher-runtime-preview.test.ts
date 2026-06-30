@@ -12,6 +12,11 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const diagnosticSceneUuid = '5d1de01c-5229-4d34-bde3-2c90372f88d9';
+const syntheticAssetDbScriptCompileSummary =
+  'asset-db:script-compile:error durationMs=1 count=1 Script compile failed: assets/scripts/Broken.ts:2047:0 synthetic-error';
+const syntheticAssetDbScriptCompileDetail =
+  'asset-db:script-compile:failed phase=build target=unknown file=assets/scripts/Broken.ts:2047:0';
+const syntheticAssetDbScriptCompileMessage = 'asset-db:synthetic-error';
 
 async function writeMinimalProgrammingArtifacts(projectRoot: string): Promise<void> {
   const previewRoot = join(projectRoot, 'temp', 'cli', 'programming', 'packer-driver', 'targets', 'preview');
@@ -623,13 +628,35 @@ describe('runtime preview production asset routes', () => {
     const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
     const code = `
       import Launcher from './src/core/launcher.ts';
+      import { eventEmitter } from './src/core/scripting/event-emitter.ts';
 
       const originalImport = Launcher.prototype.import;
       Launcher.prototype.import = async function patchedRuntimePreviewImport(options) {
         await originalImport.call(this, options);
         globalThis.__cocosCliRuntimePreviewDiagnostics?.event(
-          'asset-db:script-compile:error durationMs=1 count=1 synthetic-error',
+          '${syntheticAssetDbScriptCompileSummary}',
         );
+        globalThis.__cocosCliRuntimePreviewDiagnostics?.event(
+          '${syntheticAssetDbScriptCompileDetail}',
+        );
+        globalThis.__cocosCliRuntimePreviewDiagnostics?.event(
+          '${syntheticAssetDbScriptCompileMessage}',
+        );
+        eventEmitter.emit('pack-build-start', 'preview');
+        eventEmitter.emit('pack-build-failed', {
+          targetName: 'preview',
+          error: new SyntaxError('synthetic pack failure'),
+          diagnostic: {
+            phase: 'build',
+            target: 'preview',
+            message: 'synthetic pack failure',
+            location: {
+              relativeFilePath: 'assets/scripts/Broken.ts',
+              line: 2047,
+              column: 0,
+            },
+          },
+        });
       };
 
       void (async () => {
@@ -642,9 +669,13 @@ describe('runtime preview production asset routes', () => {
         });
 
         try {
+          const rootResponse = await fetch(server.url);
+          const rootHtml = await rootResponse.text();
           process.stdout.write('RESULT ' + JSON.stringify({
             serverUrl: server.url,
             logFilePath: server.logFilePath,
+            rootStatus: rootResponse.status,
+            rootHtml,
           }) + '\\n');
         } finally {
           await server.close();
@@ -666,18 +697,39 @@ describe('runtime preview production asset routes', () => {
     });
     const resultLine = stdout.trim().split(/\r?\n/).find((line) => line.startsWith('RESULT '));
     expect(resultLine).toBeTruthy();
-    expect(stdout).toContain('[runtime-preview] asset-db:script-compile:error durationMs=1 count=1 synthetic-error');
+    expect(stdout).toContain(`[runtime-preview] ${syntheticAssetDbScriptCompileSummary}`);
+    expect(stdout).toContain(`[runtime-preview] ${syntheticAssetDbScriptCompileDetail}`);
+    expect(stdout).toContain(`[runtime-preview] ${syntheticAssetDbScriptCompileMessage}`);
     expect(stdout).toContain('[runtime-preview] asset-db:script-compile:report-only source=asset-db:script-compile:error');
+    const syntheticPackStart = '[runtime-preview] pack-target:build:start target=preview';
+    const syntheticPackFailed = '[runtime-preview] pack-target:build:failed target=preview file=assets/scripts/Broken.ts:2047:0 message=synthetic pack failure';
+    const packDone = '[runtime-preview] pack-target:build:done target=preview';
+    expect(stdout).toContain(syntheticPackStart);
+    expect(stdout).toContain(syntheticPackFailed);
+    expect(stdout.lastIndexOf(packDone)).toBeGreaterThanOrEqual(0);
+    expect(stdout.lastIndexOf(packDone)).toBeLessThan(stdout.lastIndexOf(syntheticPackStart));
+    expect(stdout.lastIndexOf(syntheticPackStart)).toBeLessThan(stdout.lastIndexOf(syntheticPackFailed));
     expect(stdout).toContain('[runtime-preview] preview:ready');
 
     const result = JSON.parse(resultLine!.slice('RESULT '.length)) as {
       serverUrl: string;
       logFilePath: string;
+      rootStatus: number;
+      rootHtml: string;
     };
     expect(result.serverUrl).toContain('http://');
+    expect(result.rootStatus).toBe(200);
+    expect(result.rootHtml).not.toContain('Runtime Preview Compile Error');
+    expect(result.rootHtml).toContain('type="systemjs-importmap"');
     const logSource = await readFile(result.logFilePath, 'utf8');
-    expect(logSource).toContain('asset-db:script-compile:error durationMs=1 count=1 synthetic-error');
+    expect(logSource).toContain(syntheticAssetDbScriptCompileSummary);
+    expect(logSource).toContain(syntheticAssetDbScriptCompileDetail);
+    expect(logSource).toContain(syntheticAssetDbScriptCompileMessage);
     expect(logSource).toContain('asset-db:script-compile:report-only source=asset-db:script-compile:error');
+    expect(logSource).toContain('pack-target:build:start target=preview');
+    expect(logSource).toContain('pack-target:build:failed target=preview file=assets/scripts/Broken.ts:2047:0 message=synthetic pack failure');
+    expect(logSource.lastIndexOf('pack-target:build:done target=preview')).toBeGreaterThanOrEqual(0);
+    expect(logSource.lastIndexOf('pack-target:build:done target=preview')).toBeLessThan(logSource.lastIndexOf('pack-target:build:start target=preview'));
     expect(logSource).toContain('preview:ready');
   }, 120_000);
 
@@ -701,7 +753,13 @@ describe('runtime preview production asset routes', () => {
           });
         }
         globalThis.__cocosCliRuntimePreviewDiagnostics?.event(
-          'asset-db:script-compile:error durationMs=1 count=1 synthetic-error',
+          '${syntheticAssetDbScriptCompileSummary}',
+        );
+        globalThis.__cocosCliRuntimePreviewDiagnostics?.event(
+          '${syntheticAssetDbScriptCompileDetail}',
+        );
+        globalThis.__cocosCliRuntimePreviewDiagnostics?.event(
+          '${syntheticAssetDbScriptCompileMessage}',
         );
       };
 
@@ -716,9 +774,13 @@ describe('runtime preview production asset routes', () => {
         });
 
         try {
+          const rootResponse = await fetch(server.url);
+          const rootHtml = await rootResponse.text();
           process.stdout.write('RESULT ' + JSON.stringify({
             serverUrl: server.url,
             logFilePath: server.logFilePath,
+            rootStatus: rootResponse.status,
+            rootHtml,
           }) + '\\n');
         } finally {
           await server.close();
@@ -740,16 +802,29 @@ describe('runtime preview production asset routes', () => {
     });
     const resultLine = stdout.trim().split(/\r?\n/).find((line) => line.startsWith('RESULT '));
     expect(resultLine).toBeTruthy();
-    expect(stdout).toContain('[runtime-preview] asset-db:script-compile:error durationMs=1 count=1 synthetic-error');
+    expect(stdout).toContain(`[runtime-preview] ${syntheticAssetDbScriptCompileSummary}`);
+    expect(stdout).toContain(`[runtime-preview] ${syntheticAssetDbScriptCompileDetail}`);
+    expect(stdout).toContain(`[runtime-preview] ${syntheticAssetDbScriptCompileMessage}`);
     expect(stdout).toContain('[runtime-preview] programming:inspection:report-only source=asset-db:script-compile:error');
     expect(stdout).toContain('[runtime-preview] preview:ready');
 
     const result = JSON.parse(resultLine!.slice('RESULT '.length)) as {
       serverUrl: string;
       logFilePath: string;
+      rootStatus: number;
+      rootHtml: string;
     };
     expect(result.serverUrl).toContain('http://');
+    expect(result.rootStatus).toBe(200);
+    expect(result.rootHtml).toContain('Runtime Preview Compile Error');
+    expect(result.rootHtml).toContain('assets/scripts/Broken.ts:2047:0');
+    expect(result.rootHtml).toContain('synthetic-error');
+    expect(result.rootHtml).toContain('Current change was not applied. Preview has no usable script output.');
+    expect(result.rootHtml).not.toContain('type="systemjs-importmap"');
     const logSource = await readFile(result.logFilePath, 'utf8');
+    expect(logSource).toContain(syntheticAssetDbScriptCompileSummary);
+    expect(logSource).toContain(syntheticAssetDbScriptCompileDetail);
+    expect(logSource).toContain(syntheticAssetDbScriptCompileMessage);
     expect(logSource).toContain('programming:inspection:report-only source=asset-db:script-compile:error');
     expect(logSource).toContain('preview:ready');
   }, 120_000);

@@ -7,6 +7,10 @@ import { JavaScriptAssetUserData, PluginScriptUserData } from '../../@types/user
 import scripting from '../../../scripting';
 import { AssetActionEnum } from '@cocos/asset-db/libs/asset';
 
+type AssetDbStartupScriptImportingGlobal = typeof globalThis & {
+    __cocosCliAssetDbStartupScriptImporting?: boolean;
+};
+
 export const JavascriptHandler: AssetHandlerBase = {
     // Handler 的名字，用于指定 Handler as 等
     name: 'javascript',
@@ -40,6 +44,9 @@ export const JavascriptHandler: AssetHandlerBase = {
                 if (userData.isPlugin) {
                     return await _importPluginScript(asset);
                 } else {
+                    if ((globalThis as AssetDbStartupScriptImportingGlobal).__cocosCliAssetDbStartupScriptImporting === true) {
+                        return true;
+                    }
                     await scripting.compileScripts([{
                         type: asset.action,
                         uuid: asset.uuid,

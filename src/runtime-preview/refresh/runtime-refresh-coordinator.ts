@@ -1,4 +1,10 @@
 import { isAbsolute, relative, resolve } from 'node:path';
+import {
+    createScriptCompileDiagnostic,
+    formatScriptCompileDiagnosticSummary,
+    type RuntimePreviewOutputState,
+    type ScriptCompileDiagnostic,
+} from '../../core/scripting/compile-error-diagnostics';
 
 export type RuntimeRefreshReason = 'endpoint' | 'reload';
 export type RuntimeRefreshScriptCompileStatus = 'done' | 'skipped' | 'failed';
@@ -7,7 +13,17 @@ export interface RuntimeRefreshScriptCompileResult {
     status: RuntimeRefreshScriptCompileStatus;
     durationMs: number;
     error?: string;
+    diagnostic?: ScriptCompileDiagnostic;
 }
+
+export interface RuntimeRefreshCompileFailureState {
+    message: string;
+    diagnostic: ScriptCompileDiagnostic;
+    createdAt: number;
+    generation?: number;
+}
+
+type MaybePromise<T> = T | Promise<T>;
 
 export interface RuntimeRefreshFailedTarget {
     target: string;
@@ -44,6 +60,8 @@ export interface RuntimeRefreshResult {
     dirtyEventCount?: number;
     watcher?: RuntimeRefreshWatcherStatus;
     scriptCompile: RuntimeRefreshScriptCompileResult;
+    outputState?: RuntimePreviewOutputState;
+    compileError?: ScriptCompileDiagnostic;
     durationMs: number;
     error?: string;
 }
@@ -55,9 +73,13 @@ export interface RuntimeRefreshCoordinator {
 export interface RuntimeRefreshCoordinatorOptions {
     projectRoot: string;
     refreshTarget: (target: string) => Promise<number | null | undefined>;
-    waitForIdle: () => Promise<void>;
+    waitForIdle: (options?: { sinceFailureGeneration?: number }) => Promise<void>;
     invalidateSettings: () => void | Promise<void>;
     clearImportReplacement: () => void | Promise<void>;
+    getLastCompileFailure?: (options?: { sinceGeneration?: number }) => MaybePromise<RuntimeRefreshCompileFailureState | null>;
+    getCompileFailureGeneration?: () => MaybePromise<number>;
+    clearLastCompileFailure?: () => MaybePromise<void>;
+    verifyProgrammingOutput?: () => Promise<void>;
     dirtyProvider?: RuntimeRefreshDirtyProvider;
     maxDirtyRefreshPasses?: number;
     logger?: { write: (line: string) => Promise<void> | void };
@@ -109,6 +131,7 @@ type TargetNormalizationResult = NormalizedRefreshTarget | InvalidRefreshTarget;
 const defaultReloadDedupeMs = 500;
 const defaultRefreshTarget = 'db://assets';
 const dirtySetRefreshTarget = 'dirty-set';
+const defaultFailureOutputState: RuntimePreviewOutputState = 'lastGoodDueToFailure';
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -291,6 +314,10 @@ export function createRuntimeRefreshCoordinator(
         scriptCompile: RuntimeRefreshScriptCompileResult,
         error: string,
         patch: RuntimeRefreshResultPatch = {},
+        structuredFailure: {
+            compileError: ScriptCompileDiagnostic;
+            outputState: RuntimePreviewOutputState;
+        } | null = null,
     ): RuntimeRefreshResult => ({
         ok: false,
         refreshId,
@@ -298,10 +325,104 @@ export function createRuntimeRefreshCoordinator(
         reason,
         changedAssetCount,
         scriptCompile,
+        ...(structuredFailure ? {
+            outputState: structuredFailure.outputState,
+            compileError: structuredFailure.compileError,
+        } : {}),
         durationMs: now() - startedAt,
         error,
         ...patch,
     });
+
+    const createDiagnostic = (
+        error: unknown,
+        refreshId: string,
+        target: string,
+        reason: RuntimeRefreshReason,
+    ): ScriptCompileDiagnostic => createScriptCompileDiagnostic(error, {
+        phase: reason === 'reload' ? 'reload-refresh' : 'refresh',
+        projectRoot: options.projectRoot,
+        assetUrl: target,
+        refreshId,
+        outputState: defaultFailureOutputState,
+    });
+
+    const withRuntimeDiagnosticDefaults = (
+        diagnostic: ScriptCompileDiagnostic,
+        refreshId: string,
+        target: string,
+    ): ScriptCompileDiagnostic => {
+        if (
+            diagnostic.refreshId
+            && diagnostic.outputState
+            && diagnostic.location.assetUrl
+        ) {
+            return diagnostic;
+        }
+
+        return {
+            ...diagnostic,
+            refreshId: diagnostic.refreshId ?? refreshId,
+            outputState: diagnostic.outputState ?? defaultFailureOutputState,
+            location: {
+                ...diagnostic.location,
+                assetUrl: diagnostic.location.assetUrl ?? target,
+            },
+        };
+    };
+
+    const getLastCompileFailureDiagnostic = async (
+        refreshId: string,
+        target: string,
+        sinceGeneration: number,
+    ): Promise<ScriptCompileDiagnostic | null> => {
+        let failure: RuntimeRefreshCompileFailureState | null | undefined;
+        try {
+            failure = await options.getLastCompileFailure?.({ sinceGeneration });
+        } catch {
+            return null;
+        }
+        return failure ? withRuntimeDiagnosticDefaults(failure.diagnostic, refreshId, target) : null;
+    };
+
+    const getCompileFailureGeneration = async (): Promise<number> => {
+        try {
+            return (await options.getCompileFailureGeneration?.()) ?? 0;
+        } catch {
+            return 0;
+        }
+    };
+
+    const createStructuredCompileFailureResult = (
+        refreshId: string,
+        target: string,
+        reason: RuntimeRefreshReason,
+        startedAt: number,
+        changedAssetCount: number | null,
+        diagnostic: ScriptCompileDiagnostic,
+        durationMs: number,
+        patch: RuntimeRefreshResultPatch = {},
+    ): RuntimeRefreshResult => {
+        const outputState = diagnostic.outputState ?? defaultFailureOutputState;
+        const error = formatScriptCompileDiagnosticSummary(diagnostic);
+        const scriptCompile: RuntimeRefreshScriptCompileResult = {
+            status: 'failed',
+            durationMs,
+            error,
+            diagnostic,
+        };
+        return createFailedResult(
+            refreshId,
+            target,
+            reason,
+            startedAt,
+            changedAssetCount,
+            scriptCompile,
+            error,
+            patch,
+            { compileError: diagnostic, outputState },
+        );
+    };
 
     const writeResult = async (result: RuntimeRefreshResult): Promise<void> => {
         await options.logger?.write(`runtime-refresh ${JSON.stringify(result)}`);
@@ -314,12 +435,28 @@ export function createRuntimeRefreshCoordinator(
         startedAt: number,
     ): Promise<RuntimeRefreshResult> => {
         let changedAssetCount: number | null = null;
+        const failureGenerationBeforeRefresh = await getCompileFailureGeneration();
 
         try {
             const changed = await options.refreshTarget(target);
             changedAssetCount = typeof changed === 'number' ? changed : null;
         } catch (error) {
-            const result = createSkippedResult(refreshId, target, reason, startedAt, getErrorMessage(error));
+            const diagnostic = await getLastCompileFailureDiagnostic(
+                refreshId,
+                target,
+                failureGenerationBeforeRefresh,
+            );
+            const result = diagnostic
+                ? createStructuredCompileFailureResult(
+                    refreshId,
+                    target,
+                    reason,
+                    startedAt,
+                    changedAssetCount,
+                    diagnostic,
+                    now() - startedAt,
+                )
+                : createSkippedResult(refreshId, target, reason, startedAt, getErrorMessage(error));
             await writeResult(result);
             return result;
         }
@@ -327,26 +464,60 @@ export function createRuntimeRefreshCoordinator(
         const scriptStartedAt = now();
         let scriptCompile: RuntimeRefreshScriptCompileResult;
         try {
-            await options.waitForIdle();
+            await options.waitForIdle({ sinceFailureGeneration: failureGenerationBeforeRefresh });
             scriptCompile = {
                 status: 'done',
                 durationMs: now() - scriptStartedAt,
             };
         } catch (error) {
-            const errorMessage = getErrorMessage(error);
-            scriptCompile = {
-                status: 'failed',
-                durationMs: now() - scriptStartedAt,
-                error: errorMessage,
-            };
-            const result = createFailedResult(
+            const diagnostic = await getLastCompileFailureDiagnostic(
+                refreshId,
+                target,
+                failureGenerationBeforeRefresh,
+            ) ?? createDiagnostic(error, refreshId, target, reason);
+            const result = createStructuredCompileFailureResult(
                 refreshId,
                 target,
                 reason,
                 startedAt,
                 changedAssetCount,
-                scriptCompile,
-                errorMessage,
+                diagnostic,
+                now() - scriptStartedAt,
+            );
+            await writeResult(result);
+            return result;
+        }
+
+        const failureDiagnostic = await getLastCompileFailureDiagnostic(
+            refreshId,
+            target,
+            failureGenerationBeforeRefresh,
+        );
+        if (failureDiagnostic) {
+            const result = createStructuredCompileFailureResult(
+                refreshId,
+                target,
+                reason,
+                startedAt,
+                changedAssetCount,
+                failureDiagnostic,
+                now() - scriptStartedAt,
+            );
+            await writeResult(result);
+            return result;
+        }
+
+        try {
+            await options.verifyProgrammingOutput?.();
+        } catch (error) {
+            const result = createStructuredCompileFailureResult(
+                refreshId,
+                target,
+                reason,
+                startedAt,
+                changedAssetCount,
+                createDiagnostic(error, refreshId, target, reason),
+                now() - scriptStartedAt,
             );
             await writeResult(result);
             return result;
@@ -392,30 +563,67 @@ export function createRuntimeRefreshCoordinator(
         startedAt: number,
         changedAssetCount: number | null,
         patch: RuntimeRefreshResultPatch,
+        failureGenerationBeforeRefresh: number,
     ): Promise<{ ok: true; scriptCompile: RuntimeRefreshScriptCompileResult } | { ok: false; result: RuntimeRefreshResult }> => {
         const scriptStartedAt = now();
         let scriptCompile: RuntimeRefreshScriptCompileResult;
         try {
-            await options.waitForIdle();
+            await options.waitForIdle({ sinceFailureGeneration: failureGenerationBeforeRefresh });
             scriptCompile = {
                 status: 'done',
                 durationMs: now() - scriptStartedAt,
             };
         } catch (error) {
-            const errorMessage = getErrorMessage(error);
-            scriptCompile = {
-                status: 'failed',
-                durationMs: now() - scriptStartedAt,
-                error: errorMessage,
-            };
-            const result = createFailedResult(
+            const diagnostic = await getLastCompileFailureDiagnostic(
+                refreshId,
+                target,
+                failureGenerationBeforeRefresh,
+            ) ?? createDiagnostic(error, refreshId, target, reason);
+            const result = createStructuredCompileFailureResult(
                 refreshId,
                 target,
                 reason,
                 startedAt,
                 changedAssetCount,
-                scriptCompile,
-                errorMessage,
+                diagnostic,
+                now() - scriptStartedAt,
+                patch,
+            );
+            await writeResult(result);
+            return { ok: false, result };
+        }
+
+        const failureDiagnostic = await getLastCompileFailureDiagnostic(
+            refreshId,
+            target,
+            failureGenerationBeforeRefresh,
+        );
+        if (failureDiagnostic) {
+            const result = createStructuredCompileFailureResult(
+                refreshId,
+                target,
+                reason,
+                startedAt,
+                changedAssetCount,
+                failureDiagnostic,
+                now() - scriptStartedAt,
+                patch,
+            );
+            await writeResult(result);
+            return { ok: false, result };
+        }
+
+        try {
+            await options.verifyProgrammingOutput?.();
+        } catch (error) {
+            const result = createStructuredCompileFailureResult(
+                refreshId,
+                target,
+                reason,
+                startedAt,
+                changedAssetCount,
+                createDiagnostic(error, refreshId, target, reason),
+                now() - scriptStartedAt,
                 patch,
             );
             await writeResult(result);
@@ -461,6 +669,7 @@ export function createRuntimeRefreshCoordinator(
         let changedAssetCount = 0;
         let dirtyEventCount = 0;
         const successfulTargetSet = new Set<string>();
+        let failureGenerationBeforeRefresh: number | null = null;
 
         for (let passIndex = 1; passIndex <= maxPasses; passIndex += 1) {
             const passStartedAt = now();
@@ -490,6 +699,7 @@ export function createRuntimeRefreshCoordinator(
             const successfulTargets: string[] = [];
             const failedTargets: RuntimeRefreshFailedTarget[] = [];
             const settledTargets: RuntimeRefreshSettledTarget[] = [];
+            failureGenerationBeforeRefresh ??= await getCompileFailureGeneration();
 
             for (const target of passTargets) {
                 allTargets.push(target);
@@ -549,6 +759,7 @@ export function createRuntimeRefreshCoordinator(
                 startedAt,
                 changedAssetCount || null,
                 basePatch,
+                failureGenerationBeforeRefresh ?? 0,
             );
             if (!postRefresh.ok) {
                 return postRefresh.result;
@@ -645,7 +856,11 @@ export function createRuntimeRefreshCoordinator(
                     return result;
                 }
 
-                const refreshPromise = refreshDirtySet(refreshId, input.reason, startedAt)
+                const refreshPromise = refreshDirtySet(
+                    refreshId,
+                    input.reason,
+                    startedAt,
+                )
                     .finally(() => {
                         if (inFlight.get(dirtySetRefreshTarget) === refreshPromise) {
                             inFlight.delete(dirtySetRefreshTarget);
@@ -685,7 +900,12 @@ export function createRuntimeRefreshCoordinator(
                 };
             }
 
-            const refreshPromise = runRefresh(refreshId, target, input.reason, startedAt)
+            const refreshPromise = runRefresh(
+                refreshId,
+                target,
+                input.reason,
+                startedAt,
+            )
                 .finally(() => {
                     if (inFlight.get(target) === refreshPromise) {
                         inFlight.delete(target);

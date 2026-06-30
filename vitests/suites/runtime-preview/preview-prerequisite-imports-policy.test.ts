@@ -3,9 +3,22 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { shouldUseTentativePrerequisiteImportsMod } from '../../../src/core/scripting/packer-driver/target-policy';
+import { verifyPrerequisiteImportMapIntegrity } from '../../../src/core/scripting/packer-driver/prerequisite-integrity';
 import { main } from '../../../src/runtime-preview/preview-app/src/main';
 import { loadRuntimePreviewPrerequisiteImports } from '../../../src/runtime-preview/preview-app/src/prerequisite-imports';
 import { readRuntimePreviewPrerequisiteEvidence } from '@shared/runtime-preview-prerequisite-evidence';
+
+async function writeIntegrityFixture(
+  root: string,
+  importMap: unknown,
+  chunkSource = 'System.register(["__unresolved_0"], function () {})',
+) {
+  await mkdir(join(root, 'chunks', '6d'), { recursive: true });
+  await mkdir(join(root, 'chunks', 'aa'), { recursive: true });
+  await writeFile(join(root, 'import-map.json'), JSON.stringify(importMap), 'utf8');
+  await writeFile(join(root, 'chunks', '6d', 'prereq.js'), chunkSource, 'utf8');
+  await writeFile(join(root, 'chunks', 'aa', 'dep.js'), 'System.register([], function () {})', 'utf8');
+}
 
 describe('runtime preview prerequisite imports policy', () => {
   it('uses static prerequisite imports for preview target to match Editor browser preview output', () => {
@@ -88,6 +101,124 @@ describe('runtime preview prerequisite imports policy', () => {
     expect(evidence.hasSequentialDynamicImportLoop).toBe(false);
     expect(evidence.dependencyCount).toBe(2);
     expect(evidence.unresolvedMappingCount).toBe(2);
+  });
+
+  it('passes prerequisite import-map integrity for a complete generated scope', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-ok-'));
+    await writeIntegrityFixture(root, {
+      imports: {
+        'cce:/internal/x/prerequisite-imports': './chunks/6d/prereq.js',
+      },
+      scopes: {
+        './chunks/6d/prereq.js': {
+          __unresolved_0: './chunks/aa/dep.js',
+        },
+      },
+    });
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).resolves.toBeUndefined();
+  });
+
+  it('passes prerequisite import-map integrity without scope when no unresolved specifiers are generated', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-no-unresolved-'));
+    await writeIntegrityFixture(root, {
+      imports: {
+        'cce:/internal/x/prerequisite-imports': './chunks/6d/prereq.js',
+      },
+      scopes: {},
+    }, 'System.register([], function () {})');
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).resolves.toBeUndefined();
+  });
+
+  it('fails prerequisite import-map integrity when the prerequisite import is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-missing-import-'));
+    await writeIntegrityFixture(root, { imports: {}, scopes: {} });
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).rejects.toThrow('prerequisite import is missing');
+  });
+
+  it('fails prerequisite import-map integrity when the prerequisite chunk path is invalid', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-invalid-path-'));
+    await writeIntegrityFixture(root, {
+      imports: {
+        'cce:/internal/x/prerequisite-imports': '../outside.js',
+      },
+      scopes: {},
+    });
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).rejects.toThrow('invalid prerequisite chunk');
+  });
+
+  it('fails prerequisite import-map integrity when the prerequisite chunk path traverses with dot segments', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-dot-traversal-'));
+    await writeIntegrityFixture(root, {
+      imports: {
+        'cce:/internal/x/prerequisite-imports': './chunks/../outside.js',
+      },
+      scopes: {},
+    });
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).rejects.toThrow('invalid prerequisite chunk');
+  });
+
+  it('fails prerequisite import-map integrity when a scope chunk path uses Windows traversal separators', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-backslash-traversal-'));
+    await writeIntegrityFixture(root, {
+      imports: {
+        'cce:/internal/x/prerequisite-imports': './chunks/6d/prereq.js',
+      },
+      scopes: {
+        './chunks/6d/prereq.js': {
+          __unresolved_0: './chunks/aa/..\\..\\outside.js',
+        },
+      },
+    });
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).rejects.toThrow('prerequisite scope is missing __unresolved_0');
+  });
+
+  it('fails prerequisite import-map integrity when the prerequisite scope is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-missing-scope-'));
+    await writeIntegrityFixture(root, {
+      imports: {
+        'cce:/internal/x/prerequisite-imports': './chunks/6d/prereq.js',
+      },
+      scopes: {},
+    });
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).rejects.toThrow('prerequisite import scope is missing');
+  });
+
+  it('fails prerequisite import-map integrity when an unresolved dependency mapping is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-missing-unresolved-'));
+    await writeIntegrityFixture(root, {
+      imports: {
+        'cce:/internal/x/prerequisite-imports': './chunks/6d/prereq.js',
+      },
+      scopes: {
+        './chunks/6d/prereq.js': {},
+      },
+    });
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).rejects.toThrow('prerequisite scope is missing __unresolved_0');
+  });
+
+  it('fails prerequisite import-map integrity when the prerequisite chunk file is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cocos-prerequisite-integrity-missing-file-'));
+    await mkdir(join(root, 'chunks', '6d'), { recursive: true });
+    await writeFile(join(root, 'import-map.json'), JSON.stringify({
+      imports: {
+        'cce:/internal/x/prerequisite-imports': './chunks/6d/prereq.js',
+      },
+      scopes: {
+        './chunks/6d/prereq.js': {
+          __unresolved_0: './chunks/aa/dep.js',
+        },
+      },
+    }), 'utf8');
+
+    await expect(verifyPrerequisiteImportMapIntegrity(root)).rejects.toThrow(/ENOENT|no such file/i);
   });
 
   it('records cc.game.init as the phase that contains engine prerequisite loading', async () => {

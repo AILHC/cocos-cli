@@ -1,6 +1,10 @@
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { createRuntimeRefreshCoordinator } from '@runtime-preview/refresh/runtime-refresh-coordinator';
+import {
+  createRuntimeRefreshCoordinator,
+  type RuntimeRefreshCoordinatorOptions,
+} from '@runtime-preview/refresh/runtime-refresh-coordinator';
+import type { ScriptCompileDiagnostic } from '../../../src/core/scripting/compile-error-diagnostics';
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -12,7 +16,9 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
-function createCoordinatorFixture() {
+function createCoordinatorFixture(
+  overrides: Partial<RuntimeRefreshCoordinatorOptions> = {},
+) {
   let now = 1_000;
   const calls: string[] = [];
   const writes: string[] = [];
@@ -44,6 +50,7 @@ function createCoordinatorFixture() {
     logger,
     now: () => now,
     reloadDedupeMs: 500,
+    ...overrides,
   });
 
   return {
@@ -198,6 +205,9 @@ describe('runtime refresh coordinator', () => {
       scriptCompile: { status: 'skipped' },
       error: 'refresh failed',
     });
+    expect(result.outputState).toBeUndefined();
+    expect(result.compileError).toBeUndefined();
+    expect(result.scriptCompile.diagnostic).toBeUndefined();
     expect(waitForIdle).not.toHaveBeenCalled();
   });
 
@@ -210,12 +220,210 @@ describe('runtime refresh coordinator', () => {
     expect(result).toMatchObject({
       ok: false,
       changedAssetCount: 2,
+      outputState: 'lastGoodDueToFailure',
       scriptCompile: {
         status: 'failed',
-        error: 'compile failed',
+        error: 'Script compile failed: unknown compile failed',
       },
-      error: 'compile failed',
+      error: 'Script compile failed: unknown compile failed',
     });
+    expect(result.scriptCompile.diagnostic).toBe(result.compileError);
+    expect(invalidateSettings).not.toHaveBeenCalled();
+    expect(clearImportReplacement).not.toHaveBeenCalled();
+  });
+
+  it('returns ok:false when last compile failure exists even if waitForIdle resolves', async () => {
+    const diagnostic: ScriptCompileDiagnostic = {
+      phase: 'refresh',
+      message: 'Unexpected token',
+      name: 'SyntaxError',
+      location: {
+        filePath: 'C:\\project\\assets\\scripts\\player.ts',
+        relativeFilePath: 'assets\\scripts\\player.ts',
+        assetUrl: 'db://assets/scripts/player.ts',
+        line: 3,
+        column: 8,
+      },
+      refreshId: 'runtime-refresh-1',
+      outputState: 'lastGoodDueToFailure',
+    };
+    const getCompileFailureGeneration = vi.fn(() => 7);
+    const getLastCompileFailure = vi.fn(({ sinceGeneration }: { sinceGeneration?: number } = {}) => {
+      if (sinceGeneration === 7) {
+        return {
+          message: diagnostic.message,
+          diagnostic,
+          createdAt: 1200,
+          generation: 8,
+        };
+      }
+      return null;
+    });
+    const { coordinator, waitForIdle, invalidateSettings, clearImportReplacement } = createCoordinatorFixture({
+      getCompileFailureGeneration,
+      getLastCompileFailure,
+    });
+
+    const result = await coordinator.refresh({
+      reason: 'endpoint',
+      target: 'db://assets/scripts/player.ts',
+    });
+
+    expect(waitForIdle).toHaveBeenCalledWith({ sinceFailureGeneration: 7 });
+    expect(getLastCompileFailure).toHaveBeenCalledWith({ sinceGeneration: 7 });
+    expect(result).toMatchObject({
+      ok: false,
+      target: 'db://assets/scripts/player.ts',
+      changedAssetCount: 2,
+      outputState: 'lastGoodDueToFailure',
+      scriptCompile: {
+        status: 'failed',
+        error: 'Script compile failed: assets\\scripts\\player.ts:3:8 Unexpected token',
+      },
+      error: 'Script compile failed: assets\\scripts\\player.ts:3:8 Unexpected token',
+    });
+    expect(result.compileError).toBe(diagnostic);
+    expect(result.scriptCompile.diagnostic).toBe(diagnostic);
+    expect(invalidateSettings).not.toHaveBeenCalled();
+    expect(clearImportReplacement).not.toHaveBeenCalled();
+  });
+
+  it('returns structured compile failure when refreshTarget throws syntax error', async () => {
+    const error = new SyntaxError('Unexpected token (4:2)') as SyntaxError & {
+      filename?: string;
+      loc?: { line: number; column: number };
+    };
+    error.filename = 'C:\\project\\assets\\scripts\\broken.ts';
+    error.loc = { line: 4, column: 2 };
+    const diagnostic: ScriptCompileDiagnostic = {
+      phase: 'refresh',
+      message: 'Unexpected token',
+      name: 'SyntaxError',
+      location: {
+        filePath: 'C:\\project\\assets\\scripts\\broken.ts',
+        relativeFilePath: 'assets\\scripts\\broken.ts',
+        assetUrl: 'db://assets/scripts/broken.ts',
+        line: 4,
+        column: 2,
+      },
+      refreshId: 'runtime-refresh-1',
+      outputState: 'lastGoodDueToFailure',
+    };
+    const getLastCompileFailure = vi.fn(({ sinceGeneration }: { sinceGeneration?: number } = {}) => {
+      if (sinceGeneration === 0) {
+        return {
+          message: diagnostic.message,
+          diagnostic,
+          createdAt: 1200,
+          generation: 1,
+        };
+      }
+      return null;
+    });
+    const { coordinator, refreshTarget, waitForIdle } = createCoordinatorFixture({
+      getCompileFailureGeneration: vi.fn(() => 0),
+      getLastCompileFailure,
+    });
+    refreshTarget.mockRejectedValueOnce(error);
+
+    const result = await coordinator.refresh({
+      reason: 'endpoint',
+      target: 'db://assets/scripts/broken.ts',
+    });
+
+    expect(getLastCompileFailure).toHaveBeenCalledWith({ sinceGeneration: 0 });
+    expect(result.ok).toBe(false);
+    expect(result.outputState).toBe('lastGoodDueToFailure');
+    expect(result.scriptCompile.status).toBe('failed');
+    expect(result.scriptCompile.error).toBe(result.error);
+    expect(result.scriptCompile.diagnostic).toBe(result.compileError);
+    expect(result.compileError).toMatchObject({
+      phase: 'refresh',
+      message: 'Unexpected token',
+      name: 'SyntaxError',
+      location: {
+        relativeFilePath: 'assets\\scripts\\broken.ts',
+        assetUrl: 'db://assets/scripts/broken.ts',
+        line: 4,
+        column: 2,
+      },
+      refreshId: 'runtime-refresh-1',
+      outputState: 'lastGoodDueToFailure',
+    });
+    expect(result.error).toBe('Script compile failed: assets\\scripts\\broken.ts:4:2 Unexpected token');
+    expect(waitForIdle).not.toHaveBeenCalled();
+  });
+
+  it('does not let old compile failure generation fail current refresh', async () => {
+    const diagnostic: ScriptCompileDiagnostic = {
+      phase: 'refresh',
+      message: 'old failure',
+      location: {
+        assetUrl: 'db://assets/scripts/old.ts',
+      },
+      outputState: 'lastGoodDueToFailure',
+    };
+    const getLastCompileFailure = vi.fn(({ sinceGeneration }: { sinceGeneration?: number } = {}) => {
+      if (sinceGeneration === undefined) {
+        return {
+          message: diagnostic.message,
+          diagnostic,
+          createdAt: 900,
+          generation: 3,
+        };
+      }
+      return null;
+    });
+    const { coordinator, invalidateSettings, clearImportReplacement } = createCoordinatorFixture({
+      getCompileFailureGeneration: vi.fn(() => 3),
+      getLastCompileFailure,
+    });
+
+    const result = await coordinator.refresh({ reason: 'endpoint' });
+
+    expect(getLastCompileFailure).toHaveBeenCalledWith({ sinceGeneration: 3 });
+    expect(result).toMatchObject({
+      ok: true,
+      target: 'db://assets',
+      scriptCompile: { status: 'done' },
+    });
+    expect(result.compileError).toBeUndefined();
+    expect(invalidateSettings).toHaveBeenCalledTimes(1);
+    expect(clearImportReplacement).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns structured compile failure when programming output verification fails', async () => {
+    const verifyProgrammingOutput = vi.fn(async () => {
+      throw new Error('prerequisite scope is missing');
+    });
+    const { coordinator, invalidateSettings, clearImportReplacement } = createCoordinatorFixture({
+      getCompileFailureGeneration: vi.fn(() => 2),
+      verifyProgrammingOutput,
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload', target: 'db://assets/scripts/main.ts' });
+
+    expect(verifyProgrammingOutput).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: false,
+      target: 'db://assets/scripts/main.ts',
+      outputState: 'lastGoodDueToFailure',
+      scriptCompile: {
+        status: 'failed',
+        error: 'Script compile failed: unknown prerequisite scope is missing',
+      },
+      compileError: {
+        phase: 'reload-refresh',
+        message: 'prerequisite scope is missing',
+        location: {
+          assetUrl: 'db://assets/scripts/main.ts',
+        },
+        refreshId: 'runtime-refresh-1',
+        outputState: 'lastGoodDueToFailure',
+      },
+      error: 'Script compile failed: unknown prerequisite scope is missing',
+    });
+    expect(result.scriptCompile.diagnostic).toBe(result.compileError);
     expect(invalidateSettings).not.toHaveBeenCalled();
     expect(clearImportReplacement).not.toHaveBeenCalled();
   });
@@ -374,6 +582,9 @@ describe('runtime refresh coordinator', () => {
     const result = await coordinator.refresh({ reason: 'endpoint' });
 
     expect(result.ok).toBe(false);
+    expect(result.error).toBe('Runtime refresh failed for 1 dirty target(s).');
+    expect(result.scriptCompile.status).toBe('done');
+    expect(result.compileError).toBeUndefined();
     expect(result.failedTargets).toEqual([{ target: 'db://assets/bad.json', error: 'refresh failed' }]);
     expect(requeueTargets).toHaveBeenCalledWith(['db://assets/bad.json']);
   });

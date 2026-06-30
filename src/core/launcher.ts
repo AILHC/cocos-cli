@@ -1,4 +1,4 @@
-import { join, resolve } from 'path';
+import { isAbsolute, join, resolve } from 'path';
 import { IBuildCommandOption, Platform } from './builder/@types/protected';
 import utils from './base/utils';
 import { newConsole } from './base/console';
@@ -12,6 +12,13 @@ import { readFile } from 'fs/promises';
 import { pathToFileURL } from 'url';
 import { resolveProjectExtensionAssetDbMounts } from './assets/extension-asset-db-mounts';
 import { resolveLauncherEngineRoot, type LauncherEngineRootResolution } from './launcher-engine-root';
+import { eventEmitter } from './scripting/event-emitter';
+import {
+    createScriptCompileDiagnostic,
+    formatScriptCompileDiagnosticSummary,
+    type ScriptCompileDiagnostic,
+} from './scripting/compile-error-diagnostics';
+import type { RuntimeRefreshResult } from '../runtime-preview/refresh/runtime-refresh-coordinator';
 
 interface RuntimePreviewStageDiagnostics {
     stageStart: (stage: string) => void;
@@ -30,6 +37,136 @@ type RuntimePreviewDiagnosticsGlobal = typeof globalThis & {
 function writeRuntimePreviewConsoleLine(line: string) {
     const rawConsole = (console as typeof console & { __rawConsole?: typeof console }).__rawConsole;
     (rawConsole ?? console).log(`[runtime-preview] ${line}`);
+}
+
+function formatRuntimePreviewDiagnosticLocation(diagnostic: ScriptCompileDiagnostic): string {
+    const location = diagnostic.location;
+    const file = location.relativeFilePath ?? location.filePath ?? location.assetUrl ?? 'unknown';
+    if (typeof location.line === 'number' && typeof location.column === 'number') {
+        return `${file}:${location.line}:${location.column}`;
+    }
+    if (typeof location.line === 'number') {
+        return `${file}:${location.line}`;
+    }
+    return file;
+}
+
+function formatPackBuildFailedLine(payload: {
+    targetName?: string;
+    error?: unknown;
+    diagnostic?: ScriptCompileDiagnostic;
+}): string {
+    const targetName = payload.targetName ?? payload.diagnostic?.target ?? 'unknown';
+    const diagnostic = payload.diagnostic;
+    if (diagnostic) {
+        return [
+            `pack-target:build:failed target=${targetName}`,
+            `file=${formatRuntimePreviewDiagnosticLocation(diagnostic)}`,
+            `message=${diagnostic.message}`,
+        ].join(' ');
+    }
+    const message = payload.error instanceof Error ? payload.error.message : String(payload.error ?? 'unknown error');
+    return `pack-target:build:failed target=${targetName} message=${message}`;
+}
+
+function toStartupCompileDiagnostic(diagnostic: ScriptCompileDiagnostic): ScriptCompileDiagnostic {
+    return {
+        ...diagnostic,
+        phase: 'startup',
+        target: diagnostic.target ?? 'preview',
+        outputState: 'noUsableOutput',
+    };
+}
+
+function createStartupCompileFailureResult(diagnostic: ScriptCompileDiagnostic): RuntimeRefreshResult {
+    const startupDiagnostic = toStartupCompileDiagnostic(diagnostic);
+    const error = formatScriptCompileDiagnosticSummary(startupDiagnostic);
+    return {
+        ok: false,
+        refreshId: 'runtime-startup-compile-error',
+        target: 'db://assets',
+        reason: 'reload',
+        changedAssetCount: null,
+        scriptCompile: {
+            status: 'failed',
+            durationMs: 0,
+            error,
+            diagnostic: startupDiagnostic,
+        },
+        outputState: 'noUsableOutput',
+        compileError: startupDiagnostic,
+        durationMs: 0,
+        error,
+    };
+}
+
+function stripAnsiControlCodes(text: string): string {
+    return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+}
+
+function createDiagnosticFromAssetDbScriptCompileErrorLine(
+    line: string,
+    options: { projectRoot: string },
+): ScriptCompileDiagnostic | null {
+    const cleanLine = stripAnsiControlCodes(line);
+    const match = cleanLine.match(/Script compile failed:\s+(.+):(\d+):(\d+)\s+(.+)$/);
+    if (!match) {
+        return null;
+    }
+    const file = match[1];
+    const lineNumber = Number(match[2]);
+    const columnNumber = Number(match[3]);
+    const message = match[4].trim();
+    const location = isAbsolute(file)
+        ? {
+            filePath: file,
+            relativeFilePath: file.startsWith(options.projectRoot)
+                ? file.slice(options.projectRoot.length).replace(/^[\\/]+/, '')
+                : undefined,
+        }
+        : {
+            relativeFilePath: file,
+        };
+
+    return {
+        phase: 'startup',
+        target: 'preview',
+        message,
+        location: {
+            ...location,
+            line: lineNumber,
+            column: columnNumber,
+        },
+        outputState: 'noUsableOutput',
+    };
+}
+
+function createStartupCompileDiagnosticFromFailure(options: {
+    assetDbScriptCompileErrorLine: string;
+    projectRoot: string;
+    failureDiagnostic?: ScriptCompileDiagnostic;
+    fallbackError: unknown;
+}): ScriptCompileDiagnostic {
+    const parsedDiagnostic = createDiagnosticFromAssetDbScriptCompileErrorLine(
+        options.assetDbScriptCompileErrorLine,
+        { projectRoot: options.projectRoot },
+    );
+    if (parsedDiagnostic) {
+        return {
+            ...parsedDiagnostic,
+            name: options.failureDiagnostic?.name,
+            codeFrame: options.failureDiagnostic?.codeFrame,
+            stackSummary: options.failureDiagnostic?.codeFrame
+                ? options.failureDiagnostic.stackSummary
+                : undefined,
+            logFilePath: options.failureDiagnostic?.logFilePath,
+        };
+    }
+    return options.failureDiagnostic
+        ?? createScriptCompileDiagnostic(options.fallbackError, {
+            phase: 'startup',
+            outputState: 'noUsableOutput',
+        });
 }
 
 function resolveRuntimePreviewInternalLibraryRoot(projectPath: string, engineRoot: string): string {
@@ -372,6 +509,7 @@ export default class Launcher {
             assetWatcherReady: options.watchAssets !== true,
             artifactsInspected: false,
         };
+        let startupCompileFailureResult: RuntimeRefreshResult | null = null;
         const readiness = {
             isReady: () => readinessState.settingsReady
                 && readinessState.assetWatcherReady
@@ -480,7 +618,17 @@ export default class Launcher {
             deferAssetWatcherStart: options.watchAssets === true,
             assetWatcherStartupSnapshot,
             prepareRuntimePreview: ensurePreviewSettingsReady,
+            verifyProgrammingOutput: () => inspectRuntimePreviewProgrammingArtifacts({
+                projectRoot: this.projectPath,
+                engineRoot,
+                programmingRoot: projectProgrammingRoot,
+                emit: emitRuntimePreviewEvent,
+            }),
             settingsProvider,
+            startupCompileFailure: () => startupCompileFailureResult,
+            clearStartupCompileFailure: () => {
+                startupCompileFailureResult = null;
+            },
             readiness,
         });
         serverUrl = server.url;
@@ -505,6 +653,37 @@ export default class Launcher {
             emitRuntimePreviewEvent(`scene=${options.scene}`);
         }
         emitRuntimePreviewEvent('preview:preparing');
+        const packBuildStartedAt = new Map<string, number>();
+        const onPackBuildStart = (targetName: string) => {
+            packBuildStartedAt.set(targetName, Date.now());
+            emitRuntimePreviewEvent(`pack-target:build:start target=${targetName}`);
+        };
+        const onPackBuildEnd = (targetName: string) => {
+            const startedAt = packBuildStartedAt.get(targetName);
+            const durationPart = typeof startedAt === 'number'
+                ? ` durationMs=${Date.now() - startedAt}`
+                : '';
+            packBuildStartedAt.delete(targetName);
+            emitRuntimePreviewEvent(`pack-target:build:done target=${targetName}${durationPart}`);
+        };
+        const onPackBuildFailed = (payload: {
+            targetName?: string;
+            error?: unknown;
+            diagnostic?: ScriptCompileDiagnostic;
+        }) => {
+            if (payload.targetName) {
+                packBuildStartedAt.delete(payload.targetName);
+            }
+            emitRuntimePreviewEvent(formatPackBuildFailedLine(payload));
+        };
+        eventEmitter.on('pack-build-start', onPackBuildStart);
+        eventEmitter.on('pack-build-end', onPackBuildEnd);
+        eventEmitter.on('pack-build-failed', onPackBuildFailed);
+        const cleanupPackBuildListeners = () => {
+            eventEmitter.off('pack-build-start', onPackBuildStart);
+            eventEmitter.off('pack-build-end', onPackBuildEnd);
+            eventEmitter.off('pack-build-failed', onPackBuildFailed);
+        };
         try {
             await settingsProvider.getPreviewSettings(options.scene ? { startScene: options.scene } : undefined);
             if (assetDbScriptCompileErrorLine) {
@@ -531,6 +710,15 @@ export default class Launcher {
                 emitRuntimePreviewEvent(
                     `programming:inspection:report-only source=asset-db:script-compile:error error=${message}`,
                 );
+                const failure = scripting.getLastCompileFailure();
+                startupCompileFailureResult = createStartupCompileFailureResult(
+                    createStartupCompileDiagnosticFromFailure({
+                        assetDbScriptCompileErrorLine,
+                        projectRoot: this.projectPath,
+                        failureDiagnostic: failure?.diagnostic,
+                        fallbackError: error,
+                    }),
+                );
                 readinessState.artifactsInspected = true;
             }
             if (!readiness.isReady()) {
@@ -538,6 +726,7 @@ export default class Launcher {
             }
             emitRuntimePreviewEvent(`preview:ready durationMs=${Date.now() - previewStartedAt}`);
         } catch (error) {
+            cleanupPackBuildListeners();
             diagnostics.stageError('preview', error);
             throw error;
         }
@@ -548,6 +737,7 @@ export default class Launcher {
                 try {
                     await server.close();
                 } finally {
+                    cleanupPackBuildListeners();
                     runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics = previousRuntimePreviewDiagnostics;
                 }
             },

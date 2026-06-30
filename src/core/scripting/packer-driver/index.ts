@@ -32,6 +32,8 @@ import { DBInfo } from '../@types/config-export';
 import path from 'path';
 import { shouldUseTentativePrerequisiteImportsMod } from './target-policy';
 import { installCommonJSBareSpecifierFallback } from './commonjs-bare-specifier-fallback';
+import { verifyPrerequisiteImportMapIntegrity } from './prerequisite-integrity';
+import { createScriptCompileDiagnostic } from '../compile-error-diagnostics';
 
 const VERSION = '20';
 
@@ -910,6 +912,167 @@ interface ImportMapWithURL {
 // 考虑到这是潜在的收费点，默认关闭入口脚本的优化功能。
 const defaultOptimizeEntrySourceCompilation = false;
 
+type OutputTransactionFileBackup = Buffer | null;
+
+class PackTargetOutputTransaction {
+    constructor(
+        private readonly _quickPack: QuickPack,
+        private readonly _logger: Logger,
+        private readonly _targetName: string,
+    ) {
+    }
+
+    public begin(): void {
+        this._backupRecordFiles();
+        this._chunkSnapshot = this._snapshotChunkFiles();
+        this._installAddChunkBackup();
+    }
+
+    public commit(): void {
+        this._restoreAddChunk();
+        this._fileBackups.clear();
+        this._chunkSnapshot.clear();
+    }
+
+    public rollback(): void {
+        this._restoreAddChunk();
+        this._removeNewChunkFiles();
+        for (const [filePath, backup] of this._fileBackups) {
+            try {
+                if (backup === null) {
+                    if (fs.pathExistsSync(filePath)) {
+                        fs.removeSync(filePath);
+                    }
+                } else {
+                    fs.ensureDirSync(ps.dirname(filePath));
+                    fs.writeFileSync(filePath, backup);
+                }
+            } catch (err) {
+                this._logger.error(`Target(${this._targetName}) rollback failed for ${filePath}: ${getErrorMessage(err)}`);
+            }
+        }
+        this._fileBackups.clear();
+        this._chunkSnapshot.clear();
+    }
+
+    private _backupRecordFiles(): void {
+        const middleware = (this._quickPack as any)._middleware;
+        for (const filePath of [
+            middleware?.mainRecordPath,
+            middleware?.assemblyRecordPath,
+            middleware?.importMapPath,
+            middleware?.resolutionDetailMapPath,
+        ]) {
+            if (typeof filePath !== 'string') {
+                continue;
+            }
+            this._backupFile(filePath);
+            this._backupFile(`${filePath}.tmp`);
+        }
+    }
+
+    private _installAddChunkBackup(): void {
+        const chunkWriter = (this._quickPack as any)._chunkWriter;
+        if (!chunkWriter || typeof chunkWriter.addChunk !== 'function') {
+            return;
+        }
+        const originalAddChunk = chunkWriter.addChunk;
+        this._chunkWriter = chunkWriter;
+        this._originalAddChunk = originalAddChunk;
+        const transaction = this;
+        chunkWriter.addChunk = function (...args: unknown[]) {
+            const chunkPath = transaction._resolveChunkFilePath(this, args);
+            if (chunkPath) {
+                transaction._backupFile(chunkPath);
+                transaction._backupFile(`${chunkPath}.map`);
+            }
+            return originalAddChunk.apply(this, args);
+        };
+    }
+
+    private _restoreAddChunk(): void {
+        if (this._chunkWriter && this._originalAddChunk) {
+            this._chunkWriter.addChunk = this._originalAddChunk;
+        }
+        this._chunkWriter = undefined;
+        this._originalAddChunk = undefined;
+    }
+
+    private _resolveChunkFilePath(chunkWriter: any, args: unknown[]): string | undefined {
+        const [moduleURL, code] = args;
+        if (typeof chunkWriter._generateChunkId !== 'function' ||
+            typeof chunkWriter._calculateChunkCodeFileName !== 'function') {
+            return undefined;
+        }
+        try {
+            const chunkId = chunkWriter._generateChunkId(moduleURL, code);
+            return chunkWriter._calculateChunkCodeFileName(chunkId);
+        } catch (err) {
+            this._logger.warn(`Target(${this._targetName}) could not precompute chunk backup path: ${getErrorMessage(err)}`);
+            return undefined;
+        }
+    }
+
+    private _backupFile(filePath: string): void {
+        if (this._fileBackups.has(filePath)) {
+            return;
+        }
+        try {
+            this._fileBackups.set(filePath, fs.pathExistsSync(filePath) ? fs.readFileSync(filePath) : null);
+        } catch (err) {
+            const reason = getErrorMessage(err);
+            this._logger.error(`Target(${this._targetName}) backup failed for ${filePath}: ${reason}`);
+            throw new Error(`Target(${this._targetName}) backup failed for ${filePath}: ${reason}`);
+        }
+    }
+
+    private _snapshotChunkFiles(): Set<string> {
+        const chunkHomePath = (this._quickPack as any)._middleware?.chunkHomePath;
+        if (typeof chunkHomePath !== 'string' || !fs.pathExistsSync(chunkHomePath)) {
+            return new Set();
+        }
+        const files = new Set<string>();
+        this._collectFiles(chunkHomePath, files);
+        return files;
+    }
+
+    private _collectFiles(directory: string, files: Set<string>): void {
+        for (const entry of fs.readdirSync(directory)) {
+            const absolutePath = ps.join(directory, entry);
+            const stat = fs.statSync(absolutePath);
+            if (stat.isDirectory()) {
+                this._collectFiles(absolutePath, files);
+            } else if (stat.isFile()) {
+                files.add(absolutePath);
+            }
+        }
+    }
+
+    private _removeNewChunkFiles(): void {
+        const chunkHomePath = (this._quickPack as any)._middleware?.chunkHomePath;
+        if (typeof chunkHomePath !== 'string' || !fs.pathExistsSync(chunkHomePath)) {
+            return;
+        }
+        const currentFiles = new Set<string>();
+        this._collectFiles(chunkHomePath, currentFiles);
+        for (const filePath of currentFiles) {
+            if (this._chunkSnapshot.has(filePath)) {
+                continue;
+            }
+            try {
+                fs.removeSync(filePath);
+            } catch (err) {
+                this._logger.error(`Target(${this._targetName}) failed to remove new chunk ${filePath}: ${getErrorMessage(err)}`);
+            }
+        }
+    }
+
+    private readonly _fileBackups = new Map<string, OutputTransactionFileBackup>();
+    private _chunkSnapshot = new Set<string>();
+    private _chunkWriter: any;
+    private _originalAddChunk: ((...args: unknown[]) => unknown) | undefined;
+}
+
 class PackTarget {
     constructor(options: {
         name: string;
@@ -1270,24 +1433,118 @@ class PackTarget {
         let buildResult: BuildResult = {};
         const t1 = performance.now();
         try {
-            buildResult = await this._build();
+            await this._runWithQuickPackOutputLock(async () => {
+                const transaction = new PackTargetOutputTransaction(this._quickPack, this._logger, targetName);
+                try {
+                    transaction.begin();
+                    buildResult = await this._build();
+                    if (buildResult.err) {
+                        throw buildResult.err;
+                    }
+                    const integrityError = await this._verifyPrerequisiteImportMapIntegrity();
+                    if (integrityError) {
+                        throw integrityError;
+                    }
+                    transaction.commit();
+                    this._ready = true;
+
+                    // 发送编译完成消息
+                    eventEmitter.emit('pack-build-end', targetName);
+                } catch (err: any) {
+                    this._logger.error(`${err}, stack: ${err.stack}`);
+                    buildResult.err = err;
+                    transaction.rollback();
+                    await this._reloadQuickPackCacheAfterRollback();
+                    this._ready = false;
+                    const diagnostic = createScriptCompileDiagnostic(err, {
+                        phase: 'build',
+                        target: targetName,
+                    });
+                    eventEmitter.emit('pack-build-failed', { targetName, error: err, diagnostic });
+                }
+            });
         } catch (err: any) {
             this._logger.error(`${err}, stack: ${err.stack}`);
             buildResult.err = err;
+            this._ready = false;
+            const diagnostic = createScriptCompileDiagnostic(err, {
+                phase: 'build',
+                target: targetName,
+            });
+            eventEmitter.emit('pack-build-failed', { targetName, error: err, diagnostic });
         } finally {
             this._firstBuild = false;
             const t2 = performance.now();
             this._logger.debug(`Target(${targetName}) ends with cost ${t2 - t1}ms.`);
 
-            this._ready = true;
-
-            // 发送编译完成消息
-            eventEmitter.emit('pack-build-end', targetName);
-
             this._buildStarted = false;
         }
 
         return buildResult;
+    }
+
+    private async _runWithQuickPackOutputLock<T>(callback: () => Promise<T>): Promise<T> {
+        const middleware = (this._quickPack as any)._middleware;
+        if (!middleware || typeof middleware.lock !== 'function') {
+            return callback();
+        }
+
+        const originalLock = middleware.lock;
+        const originalUnlock = middleware.unlock;
+        let unlock: (() => Promise<void>) | undefined;
+        try {
+            unlock = await originalLock.call(middleware);
+            middleware.lock = async () => async () => undefined;
+            middleware.unlock = async () => undefined;
+            return await callback();
+        } finally {
+            middleware.lock = originalLock;
+            middleware.unlock = originalUnlock;
+            if (unlock) {
+                try {
+                    await unlock();
+                } catch (err) {
+                    if (typeof originalUnlock === 'function') {
+                        await originalUnlock.call(middleware);
+                    }
+                    this._logger.error(`Target(${this._name}) output lock release failed: ${getErrorMessage(err)}`);
+                }
+            }
+        }
+    }
+
+    private async _reloadQuickPackCacheAfterRollback(): Promise<void> {
+        const quickPack = this._quickPack as any;
+        quickPack._moduleRecords = {};
+        if (quickPack._chunkWriter && typeof quickPack._chunkWriter === 'object') {
+            quickPack._chunkWriter._build = {
+                chunks: {},
+                entries: {},
+            };
+        }
+        if (typeof quickPack.loadCache === 'function') {
+            try {
+                await quickPack.loadCache();
+            } catch (err) {
+                this._logger.error(`Target(${this._name}) reload cache after rollback failed: ${getErrorMessage(err)}`);
+            }
+        }
+    }
+
+    private async _verifyPrerequisiteImportMapIntegrity(): Promise<Error | null> {
+        if (this._name !== 'preview') {
+            return null;
+        }
+        const recordsRoot = (this._quickPack as any)._middleware?.workspace;
+        if (typeof recordsRoot !== 'string') {
+            return null;
+        }
+        try {
+            await verifyPrerequisiteImportMapIntegrity(recordsRoot);
+            return null;
+        } catch (error) {
+            return error instanceof Error ? error : new Error(String(error));
+        }
     }
 
     deleteCacheFile(filePath: string) {

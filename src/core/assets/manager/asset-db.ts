@@ -18,6 +18,11 @@ import { bootstrapAssetsSidecarRecords } from '../asset-db-sidecar-bootstrap';
 import scripting from '../../scripting';
 import { AssetChangeInfo, DBChangeType } from '../../scripting/packer-driver/asset-db-interop';
 import { AssetActionEnum } from '@cocos/asset-db/libs/asset';
+import {
+    createScriptCompileDiagnostic,
+    formatScriptCompileDiagnosticForConsole,
+    formatScriptCompileDiagnosticSummary,
+} from '../../scripting/compile-error-diagnostics';
 
 const AssetDBPriority: Record<string, number> = {
     internal: 99,
@@ -36,6 +41,7 @@ type RuntimePreviewDiagnosticsGlobal = typeof globalThis & {
     __cocosCliRuntimePreviewDiagnostics?: {
         event: (line: string) => void;
     };
+    __cocosCliAssetDbStartupScriptImporting?: boolean;
 };
 
 interface IWaitingTask {
@@ -136,11 +142,17 @@ class AssetDBManager extends EventEmitter {
     async start() {
         newConsole.trackTimeStart('assets:start-database');
 
-        if (AssetDBManager.useCache) {
-            await this._startFromCache();
-        } else {
-            // await this._start();
-            await this._startDirectly();
+        const runtimePreviewGlobal = globalThis as RuntimePreviewDiagnosticsGlobal;
+        runtimePreviewGlobal.__cocosCliAssetDbStartupScriptImporting = true;
+        try {
+            if (AssetDBManager.useCache) {
+                await this._startFromCache();
+            } else {
+                // await this._start();
+                await this._startDirectly();
+            }
+        } finally {
+            runtimePreviewGlobal.__cocosCliAssetDbStartupScriptImporting = false;
         }
         await afterStartDB(this.assetDBInfo);
         this.ready = true;
@@ -834,8 +846,17 @@ async function afterStartDB(dbInfoMap: Record<string, IAssetDBInfo>) {
                 await scripting.compileScripts(changes);
                 emitRuntimePreviewAssetDbEvent(`asset-db:script-compile:done durationMs=${Date.now() - startedAt} count=${changes.length}`);
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                emitRuntimePreviewAssetDbEvent(`asset-db:script-compile:error durationMs=${Date.now() - startedAt} count=${changes.length} ${message}`);
+                const failure = scripting.getLastCompileFailure?.({ error });
+                const diagnostic = {
+                    ...(failure?.diagnostic ?? createScriptCompileDiagnostic(error, { phase: 'startup' })),
+                    phase: 'startup' as const,
+                    target: failure?.diagnostic.target ?? 'preview',
+                };
+                const summary = formatScriptCompileDiagnosticSummary(diagnostic);
+                emitRuntimePreviewAssetDbEvent(`asset-db:script-compile:error durationMs=${Date.now() - startedAt} count=${changes.length} ${summary}`);
+                for (const line of formatScriptCompileDiagnosticForConsole(diagnostic)) {
+                    emitRuntimePreviewAssetDbEvent(`asset-db:${line}`);
+                }
                 console.error(error);
             }
         } else {
