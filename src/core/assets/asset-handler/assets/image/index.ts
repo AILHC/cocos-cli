@@ -155,28 +155,29 @@ export const ImageHandler: AssetHandler = {
         default: {
             type: {
                 label: 'i18n:ENGINE.assets.image.type',
+                description: 'i18n:ENGINE.assets.image.typeTip',
                 default: 'sprite-frame',
                 render: {
                     ui: 'ui-select',
                     items: [
                         {
-                            label: 'raw',
+                            label: 'i18n:importer.property_schema.image.type_raw',
                             value: 'raw',
                         },
                         {
-                            label: 'texture',
+                            label: 'i18n:importer.property_schema.image.type_texture',
                             value: 'texture',
                         },
                         {
-                            label: 'normal map',
+                            label: 'i18n:importer.property_schema.image.type_normal_map',
                             value: 'normal map',
                         },
                         {
-                            label: 'sprite-frame',
+                            label: 'i18n:importer.property_schema.image.type_sprite_frame',
                             value: 'sprite-frame',
                         },
                         {
-                            label: 'texture cube',
+                            label: 'i18n:importer.property_schema.image.type_texture_cube',
                             value: 'texture cube',
                         },
                     ],
@@ -184,6 +185,7 @@ export const ImageHandler: AssetHandler = {
             },
             flipVertical: {
                 label: 'i18n:ENGINE.assets.image.flipVertical',
+                description: 'i18n:ENGINE.assets.image.flipVerticalTip',
                 render: {
                     ui: 'ui-checkbox',
                 },

@@ -365,7 +365,6 @@ export const SchemaAssetPropertySchema: z.ZodType<any> = z.lazy(() => z.object({
     order: z.number().optional().describe('Display order'), // 展示顺序
     properties: z.record(z.string(), SchemaAssetPropertySchema).optional().describe('Nested object properties'), // 嵌套对象属性
     items: z.union([SchemaAssetPropertySchema, z.array(SchemaAssetPropertySchema)]).optional().describe('Array item schema'), // 数组元素 schema
-    raw: z.any().optional().describe('Original legacy userDataConfig item for debugging only'), // 原始旧配置，仅用于调试
 }).describe('Standardized asset import property schema')); // 标准化资源导入属性 schema
 
 export const SchemaAssetPropertySchemaResult = z.record(z.string(), SchemaAssetPropertySchema).describe('Asset import property schema map, key is property name'); // 资源导入属性 schema 映射

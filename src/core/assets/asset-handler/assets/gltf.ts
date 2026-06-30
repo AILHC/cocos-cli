@@ -50,74 +50,82 @@ export const GltfHandler: AssetHandlerBase = {
 
     propertySchemaConfig: {
             dumpMaterials: {
-                label: 'Dump Materials',
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.dumpMaterials.name',
+                description: 'i18n:ENGINE.assets.fbx.GlTFUserData.dumpMaterials.title',
                 default: false,
                 render: { ui: 'ui-checkbox' },
             },
             mountAllAnimationsOnPrefab: {
-                label: 'Mount All Animations On Prefab',
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.mountAllAnimationsOnPrefab.name',
                 default: false,
                 render: { ui: 'ui-checkbox' },
             },
             allowMeshDataAccess: {
-                label: 'Allow Mesh Data Access',
+                label: 'i18n:ENGINE.assets.fbx.allowMeshDataAccess.name',
+                description: 'i18n:ENGINE.assets.fbx.allowMeshDataAccess.title',
                 default: true,
                 render: { ui: 'ui-checkbox' },
             },
             addVertexColor: {
-                label: 'Add Vertex Color',
+                label: 'i18n:ENGINE.assets.fbx.addVertexColor.name',
+                description: 'i18n:ENGINE.assets.fbx.addVertexColor.title',
                 default: false,
                 render: { ui: 'ui-checkbox' },
             },
             promoteSingleRootNode: {
-                label: 'Promote Single Root Node',
+                label: 'i18n:ENGINE.assets.fbx.promoteSingleRootNode.name',
+                description: 'i18n:ENGINE.assets.fbx.promoteSingleRootNode.title',
                 default: false,
                 render: { ui: 'ui-checkbox' },
             },
             generateLightmapUVNode: {
-                label: 'Generate Lightmap UV',
+                label: 'i18n:ENGINE.assets.fbx.generateLightmapUVNode.name',
+                description: 'i18n:ENGINE.assets.fbx.generateLightmapUVNode.title',
                 default: false,
                 render: { ui: 'ui-checkbox' },
             },
             normals: {
-                label: 'Normals',
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.name',
+                description: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.title',
                 default: NormalImportSetting.require,
                 render: {
                     ui: 'ui-select',
                     items: [
-                        { label: 'Optional', value: String(NormalImportSetting.optional) },
-                        { label: 'Exclude', value: String(NormalImportSetting.exclude) },
-                        { label: 'Require', value: String(NormalImportSetting.require) },
-                        { label: 'Recalculate', value: String(NormalImportSetting.recalculate) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.optional.name', value: String(NormalImportSetting.optional) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.exclude.name', value: String(NormalImportSetting.exclude) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.require.name', value: String(NormalImportSetting.require) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.recalculate.name', value: String(NormalImportSetting.recalculate) },
                     ],
                 },
             },
             tangents: {
-                label: 'Tangents',
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.name',
+                description: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.title',
                 default: TangentImportSetting.require,
                 render: {
                     ui: 'ui-select',
                     items: [
-                        { label: 'Exclude', value: String(TangentImportSetting.exclude) },
-                        { label: 'Optional', value: String(TangentImportSetting.optional) },
-                        { label: 'Require', value: String(TangentImportSetting.require) },
-                        { label: 'Recalculate', value: String(TangentImportSetting.recalculate) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.exclude.name', value: String(TangentImportSetting.exclude) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.optional.name', value: String(TangentImportSetting.optional) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.require.name', value: String(TangentImportSetting.require) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.recalculate.name', value: String(TangentImportSetting.recalculate) },
                     ],
                 },
             },
             morphNormals: {
-                label: 'Morph Normals',
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.morphNormals.name',
+                description: 'i18n:ENGINE.assets.fbx.GlTFUserData.morphNormals.title',
                 default: NormalImportSetting.exclude,
                 render: {
                     ui: 'ui-select',
                     items: [
-                        { label: 'Exclude', value: String(NormalImportSetting.exclude) },
-                        { label: 'Optional', value: String(NormalImportSetting.optional) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.morphNormals.exclude.name', value: String(NormalImportSetting.exclude) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.morphNormals.optional.name', value: String(NormalImportSetting.optional) },
                     ],
                 },
             },
             meshOptimizer: {
-                label: 'Mesh Optimizer',
+                label: 'i18n:importer.property_schema.gltf.mesh_optimizer',
                 type: 'object',
                 default: {
                     enable: false,
@@ -126,43 +134,43 @@ export const GltfHandler: AssetHandlerBase = {
                 },
                 itemConfigs: {
                     enable: {
-                        label: 'Enable',
+                        label: 'i18n:importer.property_schema.gltf.mesh_optimizer_enable',
                         default: false,
                         render: { ui: 'ui-checkbox' },
                     },
                     algorithm: {
-                        label: 'Algorithm',
+                        label: 'i18n:importer.property_schema.gltf.mesh_optimizer_algorithm',
                         default: 'simplify',
                         render: {
                             ui: 'ui-select',
                             items: [
-                                { label: 'Simplify', value: 'simplify' },
-                                { label: 'gltfpack', value: 'gltfpack' },
+                                { label: 'i18n:importer.property_schema.gltf.mesh_optimizer_simplify', value: 'simplify' },
+                                { label: 'i18n:importer.property_schema.gltf.mesh_optimizer_gltfpack', value: 'gltfpack' },
                             ],
                         },
                     },
                     simplifyOptions: {
-                        label: 'Simplify Options',
+                        label: 'i18n:importer.property_schema.gltf.simplify_options',
                         type: 'object',
                         default: getDefaultSimplifyOptions(),
                         itemConfigs: {
                             targetRatio: {
-                                label: 'Target Ratio',
+                                label: 'i18n:ENGINE.assets.fbx.meshSimplify.targetRatio.name',
                                 default: 1,
                                 render: { ui: 'ui-number-input', attributes: { min: 0, max: 1, step: 0.01 } },
                             },
                             enableSmartLink: {
-                                label: 'Enable Smart Link',
+                                label: 'i18n:importer.property_schema.gltf.enable_smart_link',
                                 default: true,
                                 render: { ui: 'ui-checkbox' },
                             },
                             agressiveness: {
-                                label: 'Agressiveness',
+                                label: 'i18n:importer.property_schema.gltf.agressiveness',
                                 default: 7,
                                 render: { ui: 'ui-number-input', attributes: { min: 0, step: 1 } },
                             },
                             maxIterationCount: {
-                                label: 'Max Iteration Count',
+                                label: 'i18n:importer.property_schema.gltf.max_iteration_count',
                                 default: 100,
                                 render: { ui: 'ui-number-input', attributes: { min: 1, step: 1 } },
                             },

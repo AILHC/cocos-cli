@@ -10,12 +10,13 @@ export const FbxHandler: AssetHandlerBase = {
     propertySchemaConfig: {
         ...(GltfHandler.propertySchemaConfig ?? {}),
         legacyFbxImporter: {
-            label: 'Legacy FBX Importer',
+            label: 'i18n:ENGINE.assets.fbx.legacyFbxImporter.name',
+            description: 'i18n:ENGINE.assets.fbx.legacyFbxImporter.title',
             default: false,
             render: { ui: 'ui-checkbox' },
         },
         fbx: {
-            label: 'FBX',
+            label: 'i18n:ENGINE.assets.fbx.fbx',
             type: 'object',
             default: {
                 unitConversion: 'geometry-level',
@@ -26,24 +27,25 @@ export const FbxHandler: AssetHandlerBase = {
             },
             itemConfigs: {
                 unitConversion: {
-                    label: 'Unit Conversion',
+                    label: 'i18n:importer.property_schema.fbx.unit_conversion',
                     default: 'geometry-level',
                     render: {
                         ui: 'ui-select',
                         items: [
-                            { label: 'Geometry Level', value: 'geometry-level' },
-                            { label: 'Hierarchy Level', value: 'hierarchy-level' },
-                            { label: 'Disabled', value: 'disabled' },
+                            { label: 'i18n:importer.property_schema.fbx.unit_conversion_geometry_level', value: 'geometry-level' },
+                            { label: 'i18n:importer.property_schema.fbx.unit_conversion_hierarchy_level', value: 'hierarchy-level' },
+                            { label: 'i18n:importer.property_schema.fbx.unit_conversion_disabled', value: 'disabled' },
                         ],
                     },
                 },
                 animationBakeRate: {
-                    label: 'Animation Bake Rate',
+                    label: 'i18n:ENGINE.assets.fbx.animationBakeRate.name',
+                    description: 'i18n:ENGINE.assets.fbx.animationBakeRate.title',
                     default: 24,
                     render: {
                         ui: 'ui-select',
                         items: [
-                            { label: 'Original', value: '0' },
+                            { label: 'i18n:ENGINE.assets.fbx.animationBakeRate.auto', value: '0' },
                             { label: '24 FPS', value: '24' },
                             { label: '25 FPS', value: '25' },
                             { label: '30 FPS', value: '30' },
@@ -52,17 +54,19 @@ export const FbxHandler: AssetHandlerBase = {
                     },
                 },
                 preferLocalTimeSpan: {
-                    label: 'Prefer Local Time Span',
+                    label: 'i18n:ENGINE.assets.fbx.preferLocalTimeSpan.name',
+                    description: 'i18n:ENGINE.assets.fbx.preferLocalTimeSpan.title',
                     default: true,
                     render: { ui: 'ui-checkbox' },
                 },
                 smartMaterialEnabled: {
-                    label: 'Smart Material',
+                    label: 'i18n:ENGINE.assets.fbx.smartMaterialEnabled.name',
+                    description: 'i18n:ENGINE.assets.fbx.smartMaterialEnabled.title',
                     default: false,
                     render: { ui: 'ui-checkbox' },
                 },
                 matchMeshNames: {
-                    label: 'Match Mesh Names',
+                    label: 'i18n:importer.property_schema.fbx.match_mesh_names',
                     default: false,
                     render: { ui: 'ui-checkbox' },
                 },

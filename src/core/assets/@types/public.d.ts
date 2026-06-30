@@ -58,7 +58,6 @@ export interface AssetPropertySchema {
     order?: number;
     properties?: Record<string, AssetPropertySchema>;
     items?: AssetPropertySchema | AssetPropertySchema[];
-    raw?: unknown;
 }
 
 export type AssetPropertySchemaMap = Record<string, AssetPropertySchema>;

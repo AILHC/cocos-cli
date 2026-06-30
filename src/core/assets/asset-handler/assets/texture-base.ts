@@ -24,7 +24,8 @@ export function makeDefaultTextureBaseAssetUserData(): TextureBaseAssetUserData 
 export function createTextureBaseUserDataConfig(): Record<string, IUerDataConfigItem> {
     return {
         wrapModeS: {
-            label: 'Wrap Mode S',
+            label: 'i18n:ENGINE.assets.texture.wrapModeS',
+            description: 'i18n:ENGINE.assets.texture.wrapModeSTip',
             default: defaultWrapModeS,
             render: {
                 ui: 'ui-select',
@@ -32,7 +33,8 @@ export function createTextureBaseUserDataConfig(): Record<string, IUerDataConfig
             },
         },
         wrapModeT: {
-            label: 'Wrap Mode T',
+            label: 'i18n:ENGINE.assets.texture.wrapModeT',
+            description: 'i18n:ENGINE.assets.texture.wrapModeTTip',
             default: defaultWrapModeT,
             render: {
                 ui: 'ui-select',
@@ -40,7 +42,8 @@ export function createTextureBaseUserDataConfig(): Record<string, IUerDataConfig
             },
         },
         minfilter: {
-            label: 'Min Filter',
+            label: 'i18n:ENGINE.assets.texture.minfilter',
+            description: 'i18n:ENGINE.assets.texture.minfilterTip',
             default: defaultMinFilter,
             render: {
                 ui: 'ui-select',
@@ -48,7 +51,8 @@ export function createTextureBaseUserDataConfig(): Record<string, IUerDataConfig
             },
         },
         magfilter: {
-            label: 'Mag Filter',
+            label: 'i18n:ENGINE.assets.texture.magfilter',
+            description: 'i18n:ENGINE.assets.texture.magfilterTip',
             default: defaultMagFilter,
             render: {
                 ui: 'ui-select',
@@ -56,7 +60,8 @@ export function createTextureBaseUserDataConfig(): Record<string, IUerDataConfig
             },
         },
         mipfilter: {
-            label: 'Mip Filter',
+            label: 'i18n:ENGINE.assets.texture.mipfilter',
+            description: 'i18n:ENGINE.assets.texture.mipfilterTip',
             default: defaultMipFilter,
             render: {
                 ui: 'ui-select',
@@ -64,7 +69,8 @@ export function createTextureBaseUserDataConfig(): Record<string, IUerDataConfig
             },
         },
         anisotropy: {
-            label: 'Anisotropy',
+            label: 'i18n:ENGINE.assets.texture.anisotropy',
+            description: 'i18n:ENGINE.assets.texture.anisotropyTip',
             default: 0,
             render: {
                 ui: 'ui-number-input',
@@ -120,17 +126,17 @@ export function makeDefaultSpriteFrameBaseAssetUserData(): SpriteFrameBaseAssetU
 
 function createWrapModeOptions() {
     return [
-        { label: 'Repeat', value: 'repeat' },
-        { label: 'Clamp To Edge', value: 'clamp-to-edge' },
-        { label: 'Mirrored Repeat', value: 'mirrored-repeat' },
+        { label: 'i18n:importer.property_schema.texture.wrap_repeat', value: 'repeat' },
+        { label: 'i18n:importer.property_schema.texture.wrap_clamp_to_edge', value: 'clamp-to-edge' },
+        { label: 'i18n:importer.property_schema.texture.wrap_mirrored_repeat', value: 'mirrored-repeat' },
     ];
 }
 
 function createFilterOptions() {
     return [
-        { label: 'None', value: 'none' },
-        { label: 'Nearest', value: 'nearest' },
-        { label: 'Linear', value: 'linear' },
+        { label: 'i18n:importer.property_schema.texture.filter_none', value: 'none' },
+        { label: 'i18n:importer.property_schema.texture.filter_nearest', value: 'nearest' },
+        { label: 'i18n:importer.property_schema.texture.filter_linear', value: 'linear' },
     ];
 }
 

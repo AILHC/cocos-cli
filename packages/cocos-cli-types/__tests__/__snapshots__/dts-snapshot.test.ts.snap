@@ -132,7 +132,6 @@ export declare interface AssetPropertySchema {
     order?: number;
     properties?: Record<string, AssetPropertySchema>;
     items?: AssetPropertySchema | AssetPropertySchema[];
-    raw?: unknown;
 }
 export declare type AssetPropertySchemaMap = Record<string, AssetPropertySchema>;
 export declare interface AssetPropertySchemaOption {
@@ -7026,7 +7025,6 @@ export declare interface AssetPropertySchema {
     order?: number;
     properties?: Record<string, AssetPropertySchema>;
     items?: AssetPropertySchema | AssetPropertySchema[];
-    raw?: unknown;
 }
 export declare type AssetPropertySchemaMap = Record<string, AssetPropertySchema>;
 export declare interface AssetPropertySchemaOption {

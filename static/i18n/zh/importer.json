@@ -47,6 +47,70 @@
         "find_class_name_from_file_name_failed": "无法从文件名 {fileBasename} 中获取到有效的类名，已自动更名为 {className}",
         "transform_failure": "脚本 {path} 转换失败：${reason}"
     },
+    "property_schema": {
+        "auto_atlas": {
+            "max_width": "最大宽度",
+            "max_height": "最大高度",
+            "padding": "间距",
+            "allow_rotation": "允许旋转",
+            "force_squared": "强制正方形",
+            "power_of_two": "2 的幂",
+            "algorithm": "算法",
+            "max_rects": "MaxRects",
+            "format": "格式",
+            "png": "PNG",
+            "jpg": "JPG",
+            "quality": "质量",
+            "contour_bleed": "轮廓扩边",
+            "padding_bleed": "间距扩边",
+            "filter_unused": "过滤未使用资源",
+            "remove_texture_in_bundle": "从 Bundle 移除 Texture",
+            "remove_image_in_bundle": "从 Bundle 移除 Image",
+            "remove_sprite_atlas_in_bundle": "从 Bundle 移除 SpriteAtlas",
+            "texture_setting": "纹理设置"
+        },
+        "texture": {
+            "use_uuid": "使用 UUID",
+            "wrap_repeat": "重复",
+            "wrap_clamp_to_edge": "边缘钳制",
+            "wrap_mirrored_repeat": "镜像重复",
+            "filter_none": "无",
+            "filter_nearest": "最近点",
+            "filter_linear": "线性"
+        },
+        "image": {
+            "type_raw": "原始资源",
+            "type_texture": "纹理",
+            "type_normal_map": "法线贴图",
+            "type_sprite_frame": "精灵帧",
+            "type_texture_cube": "立方体纹理"
+        },
+        "sprite_frame": {
+            "trim_type_auto": "自动",
+            "trim_type_custom": "自定义",
+            "trim_type_none": "无",
+            "mesh_type_rect": "矩形",
+            "mesh_type_polygon": "多边形"
+        },
+        "gltf": {
+            "mesh_optimizer": "网格优化器",
+            "mesh_optimizer_enable": "启用",
+            "mesh_optimizer_algorithm": "算法",
+            "mesh_optimizer_simplify": "简化",
+            "mesh_optimizer_gltfpack": "gltfpack",
+            "simplify_options": "简化选项",
+            "enable_smart_link": "启用智能连接",
+            "agressiveness": "优化强度",
+            "max_iteration_count": "最大迭代次数"
+        },
+        "fbx": {
+            "unit_conversion": "单位转换",
+            "unit_conversion_geometry_level": "几何级别",
+            "unit_conversion_hierarchy_level": "层级级别",
+            "unit_conversion_disabled": "禁用",
+            "match_mesh_names": "匹配网格名称"
+        }
+    },
     "texture": {
         "anisotropy": "Anisotropy",
         "anisotropy_tip": "应用各向异性过滤算法的最大阈值",

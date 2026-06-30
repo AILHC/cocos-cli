@@ -46,5 +46,69 @@
         "invalid_class_name": "File class name is invalid, will be automatically renamed after creation",
         "find_class_name_from_file_name_failed": "Cannot get valid class name from file name {fileBasename}, automatically renamed to {className}",
         "transform_failure": "Script {path} transformation failed: ${reason}"
+    },
+    "property_schema": {
+        "auto_atlas": {
+            "max_width": "Max Width",
+            "max_height": "Max Height",
+            "padding": "Padding",
+            "allow_rotation": "Allow Rotation",
+            "force_squared": "Force Squared",
+            "power_of_two": "Power Of Two",
+            "algorithm": "Algorithm",
+            "max_rects": "MaxRects",
+            "format": "Format",
+            "png": "PNG",
+            "jpg": "JPG",
+            "quality": "Quality",
+            "contour_bleed": "Contour Bleed",
+            "padding_bleed": "Padding Bleed",
+            "filter_unused": "Filter Unused",
+            "remove_texture_in_bundle": "Remove Texture In Bundle",
+            "remove_image_in_bundle": "Remove Image In Bundle",
+            "remove_sprite_atlas_in_bundle": "Remove SpriteAtlas In Bundle",
+            "texture_setting": "Texture Setting"
+        },
+        "texture": {
+            "use_uuid": "Use UUID",
+            "wrap_repeat": "Repeat",
+            "wrap_clamp_to_edge": "Clamp To Edge",
+            "wrap_mirrored_repeat": "Mirrored Repeat",
+            "filter_none": "None",
+            "filter_nearest": "Nearest",
+            "filter_linear": "Linear"
+        },
+        "image": {
+            "type_raw": "raw",
+            "type_texture": "texture",
+            "type_normal_map": "normal map",
+            "type_sprite_frame": "sprite-frame",
+            "type_texture_cube": "texture cube"
+        },
+        "sprite_frame": {
+            "trim_type_auto": "auto",
+            "trim_type_custom": "custom",
+            "trim_type_none": "none",
+            "mesh_type_rect": "Rect",
+            "mesh_type_polygon": "Polygon"
+        },
+        "gltf": {
+            "mesh_optimizer": "Mesh Optimizer",
+            "mesh_optimizer_enable": "Enable",
+            "mesh_optimizer_algorithm": "Algorithm",
+            "mesh_optimizer_simplify": "Simplify",
+            "mesh_optimizer_gltfpack": "gltfpack",
+            "simplify_options": "Simplify Options",
+            "enable_smart_link": "Enable Smart Link",
+            "agressiveness": "Aggressiveness",
+            "max_iteration_count": "Max Iteration Count"
+        },
+        "fbx": {
+            "unit_conversion": "Unit Conversion",
+            "unit_conversion_geometry_level": "Geometry Level",
+            "unit_conversion_hierarchy_level": "Hierarchy Level",
+            "unit_conversion_disabled": "Disabled",
+            "match_mesh_names": "Match Mesh Names"
+        }
     }
 }

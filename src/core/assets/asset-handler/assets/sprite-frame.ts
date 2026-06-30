@@ -33,19 +33,20 @@ export const SpriteFrameHandler: AssetHandler = {
             trimType: {
                 default: 'auto',
                 label: 'i18n:ENGINE.assets.spriteFrame.trimType',
+                description: 'i18n:ENGINE.assets.spriteFrame.trimTypeTip',
                 render: {
                     ui: 'ui-select',
                     items: [
                         {
-                            label: 'auto',
+                            label: 'i18n:importer.property_schema.sprite_frame.trim_type_auto',
                             value: 'auto',
                         },
                         {
-                            label: 'custom',
+                            label: 'i18n:importer.property_schema.sprite_frame.trim_type_custom',
                             value: 'custom',
                         },
                         {
-                            label: 'none',
+                            label: 'i18n:importer.property_schema.sprite_frame.trim_type_none',
                             value: 'none',
                         },
                     ],
@@ -56,7 +57,8 @@ export const SpriteFrameHandler: AssetHandler = {
     propertySchemaConfig: {
         trimThreshold: {
             default: defaultSpriteFrameUserData.trimThreshold,
-            label: 'Trim Threshold',
+            label: 'i18n:ENGINE.assets.spriteFrame.trimThreshold',
+            description: 'i18n:ENGINE.assets.spriteFrame.trimThresholdTip',
             render: {
                 ui: 'ui-number-input',
                 attributes: { min: 0, step: 1 },
@@ -64,12 +66,14 @@ export const SpriteFrameHandler: AssetHandler = {
         },
         packable: {
             default: defaultSpriteFrameUserData.packable,
-            label: 'Packable',
+            label: 'i18n:ENGINE.assets.spriteFrame.packable',
+            description: 'i18n:ENGINE.assets.spriteFrame.packableTip',
             render: { ui: 'ui-checkbox' },
         },
         pixelsToUnit: {
             default: defaultSpriteFrameUserData.pixelsToUnit,
-            label: 'Pixels To Unit',
+            label: 'i18n:ENGINE.assets.spriteFrame.pixelsToUnit',
+            description: 'i18n:ENGINE.assets.spriteFrame.pixelsToUnitTip',
             render: {
                 ui: 'ui-number-input',
                 attributes: { min: 1, step: 1 },
@@ -77,7 +81,8 @@ export const SpriteFrameHandler: AssetHandler = {
         },
         pivotX: {
             default: defaultSpriteFrameUserData.pivotX,
-            label: 'Pivot X',
+            label: 'i18n:ENGINE.assets.spriteFrame.pivotX',
+            description: 'i18n:ENGINE.assets.spriteFrame.pivotXTip',
             render: {
                 ui: 'ui-number-input',
                 attributes: { min: 0, max: 1, step: 0.01 },
@@ -85,7 +90,8 @@ export const SpriteFrameHandler: AssetHandler = {
         },
         pivotY: {
             default: defaultSpriteFrameUserData.pivotY,
-            label: 'Pivot Y',
+            label: 'i18n:ENGINE.assets.spriteFrame.pivotY',
+            description: 'i18n:ENGINE.assets.spriteFrame.pivotYTip',
             render: {
                 ui: 'ui-number-input',
                 attributes: { min: 0, max: 1, step: 0.01 },
@@ -93,33 +99,38 @@ export const SpriteFrameHandler: AssetHandler = {
         },
         meshType: {
             default: defaultSpriteFrameUserData.meshType,
-            label: 'Mesh Type',
+            label: 'i18n:ENGINE.assets.spriteFrame.meshType',
+            description: 'i18n:ENGINE.assets.spriteFrame.meshTypeTip',
             render: {
                 ui: 'ui-select',
                 items: [
-                    { label: 'Rect', value: '0' },
-                    { label: 'Polygon', value: '1' },
+                    { label: 'i18n:importer.property_schema.sprite_frame.mesh_type_rect', value: '0' },
+                    { label: 'i18n:importer.property_schema.sprite_frame.mesh_type_polygon', value: '1' },
                 ],
             },
         },
         borderTop: {
             default: defaultSpriteFrameUserData.borderTop,
-            label: 'Border Top',
+            label: 'i18n:ENGINE.assets.spriteFrame.borderTop',
+            description: 'i18n:ENGINE.assets.spriteFrame.borderTopTip',
             render: { ui: 'ui-number-input', attributes: { min: 0, step: 1 } },
         },
         borderBottom: {
             default: defaultSpriteFrameUserData.borderBottom,
-            label: 'Border Bottom',
+            label: 'i18n:ENGINE.assets.spriteFrame.borderBottom',
+            description: 'i18n:ENGINE.assets.spriteFrame.borderBottomTip',
             render: { ui: 'ui-number-input', attributes: { min: 0, step: 1 } },
         },
         borderLeft: {
             default: defaultSpriteFrameUserData.borderLeft,
-            label: 'Border Left',
+            label: 'i18n:ENGINE.assets.spriteFrame.borderLeft',
+            description: 'i18n:ENGINE.assets.spriteFrame.borderLeftTip',
             render: { ui: 'ui-number-input', attributes: { min: 0, step: 1 } },
         },
         borderRight: {
             default: defaultSpriteFrameUserData.borderRight,
-            label: 'Border Right',
+            label: 'i18n:ENGINE.assets.spriteFrame.borderRight',
+            description: 'i18n:ENGINE.assets.spriteFrame.borderRightTip',
             render: { ui: 'ui-number-input', attributes: { min: 0, step: 1 } },
         },
     },

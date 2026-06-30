@@ -66,7 +66,6 @@ export function convertUserDataConfigItemToPropertySchema(
     const schema: AssetPropertySchema = {
         label: normalizeDisplayText(item.label, createTitleFromKey(key)),
         type: inferSchemaType(item),
-        raw: item,
     };
 
     const description = translateMetadataText(item.description);

@@ -19,7 +19,7 @@ export const TextureHandler: AssetHandler = {
     propertySchemaConfig: {
         ...createTextureBaseUserDataConfig(),
         imageUuidOrDatabaseUri: {
-            label: 'Image',
+            label: 'i18n:ENGINE.assets.image.label',
             default: '',
             render: {
                 ui: 'ui-asset',
@@ -29,7 +29,7 @@ export const TextureHandler: AssetHandler = {
             },
         },
         isUuid: {
-            label: 'Use UUID',
+            label: 'i18n:importer.property_schema.texture.use_uuid',
             default: true,
             render: {
                 ui: 'ui-checkbox',
