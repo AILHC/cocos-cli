@@ -19,6 +19,7 @@
 - `architecture/`：跨模块架构、生命周期、数据流和文档维护规则。
 - `modules/`：当前模块职责、入口、输出、依赖和边界。
 - `testing-spec.md`：项目级测试、诊断、验收、真实项目复现和环境变量边界规范。
+- `issues.md`：跨模块、产品化和工程治理类问题台账。
 - `facts/`：源码位置、真实产物、命令输出和对比记录。
 - `decisions/`：带取舍的长期设计决策。
 - `reference/`：长期保留的外部参考材料；只能用于事实核对和历史行为理解，不能作为 production 默认策略。
@@ -34,6 +35,7 @@
 现有主题文档继续保留，并从正式入口登记：
 
 - `design.md`：历史总体设计入口，后续稳定内容逐步回填到 `architecture/` 和 `modules/`。
+- `issues.md`：跨模块问题台账；normal build 和 runtime preview 专项问题分别记录在 `build/issues.md`、`runtime-preview/issues.md`。
 - `quick-reference.md`：开发速查入口。
 - `codegraph-usage.md`：CodeGraph 使用说明。
 - `reference/`：长期参考材料入口，当前包含旧 Editor preview server 参考源码。
