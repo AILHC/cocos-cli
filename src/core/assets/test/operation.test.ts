@@ -13,27 +13,58 @@ describe('测试 db 的操作接口', function () {
     const databasePath = TestGlobalEnv.testRoot;
     type AssetEventName = 'asset-add' | 'asset-change' | 'asset-delete';
 
-    function waitForAssetEventPropagation() {
-        return new Promise((resolve) => setTimeout(resolve, 30));
-    }
+    type EventAssetPayload = IAsset & {
+        importer?: string;
+        type?: string;
+        file?: string;
+    };
 
-    async function expectSingleAssetEvent(eventName: AssetEventName, expectedUrl: string, action: () => Promise<void>) {
+    async function expectSingleAssetEvent(eventName: AssetEventName, expectedUrl: string, action: () => Promise<unknown>) : Promise<EventAssetPayload> {
         const payloads: IAsset[] = [];
+        const timeoutMs = 1000;
+        const settleWindowMs = 50;
+        const intervalMs = 25;
+        const safePayloadSummary = (asset: IAsset) => {
+            const raw = asset as unknown as Record<string, unknown>;
+            const url = typeof raw.url === 'string' ? raw.url : '<empty-url>';
+            const uuid = typeof raw.uuid === 'string' ? raw.uuid : '<empty-uuid>';
+            const importer = typeof raw.importer === 'string' ? raw.importer : '<empty-importer>';
+            const type = typeof raw.type === 'string' ? raw.type : '<empty-type>';
+            return `${url}|${uuid}|${importer}|${type}`;
+        };
         const handler = (asset: IAsset) => {
-            if (asset.url === expectedUrl) {
-                payloads.push(asset);
-            }
+            payloads.push(asset);
         };
 
         assetManager.on(eventName, handler);
+        let firstMatchAt: number | null = null;
         try {
             await action();
-            await waitForAssetEventPropagation();
+            const startedAt = Date.now();
+            while (firstMatchAt === null && Date.now() - startedAt < timeoutMs) {
+                const matched = payloads.some((asset) => asset.url === expectedUrl);
+                if (matched) {
+                    firstMatchAt = Date.now();
+                    break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, intervalMs));
+            }
+            if (firstMatchAt !== null) {
+                await new Promise((resolve) => setTimeout(resolve, settleWindowMs));
+            }
         } finally {
             assetManager.removeListener(eventName, handler);
         }
-        expect(payloads).toHaveLength(1);
-        return payloads[0]!;
+
+        const matchedPayloads = payloads.filter((asset) => asset.url === expectedUrl);
+        if (matchedPayloads.length !== 1) {
+            throw new Error(
+                `Timed out waiting for ${eventName} "${expectedUrl}" within ${timeoutMs}ms; `
+                + `matched=${matchedPayloads.length}, observed=${payloads.map(safePayloadSummary).join(' ; ')}`,
+            );
+        }
+
+        return matchedPayloads[0] as EventAssetPayload;
     }
 
     beforeAll(async () => {
@@ -415,6 +446,50 @@ describe('测试 db 的操作接口', function () {
             });
 
             expect(createdAsset).not.toBeNull();
+            expect(eventAsset.uuid).toEqual(createdAsset!.uuid);
+            expect(eventAsset.url).toEqual(targetUrl);
+        });
+
+        it('刷新父目录会为外部删除的资源广播 asset-delete 消息', async function () {
+            const targetName = `${name}_external_delete.txt`;
+            const targetPath = join(databasePath, targetName);
+            const targetUrl = `${TestGlobalEnv.testRootUrl}/${targetName}`;
+            const createdAsset = await assetManager.createAsset({
+                target: targetPath,
+                content: 'external delete event',
+                overwrite: true,
+            });
+
+            await remove(targetPath);
+            await remove(`${targetPath}.meta`);
+
+            const eventAsset = await expectSingleAssetEvent('asset-delete', targetUrl, async () => {
+                await assetManager.refreshAsset(databasePath);
+            });
+
+            expect(createdAsset).not.toBeNull();
+            expect(eventAsset.uuid).toEqual(createdAsset!.uuid);
+            expect(eventAsset.url).toEqual(targetUrl);
+        });
+
+        it('刷新父目录会为外部删除的 TypeScript 脚本广播 asset-delete 消息', async function () {
+            const targetName = `${name}_external_delete_script.ts`;
+            const targetPath = join(databasePath, targetName);
+            const targetUrl = `${TestGlobalEnv.testRootUrl}/${targetName}`;
+            const createdAsset = await assetManager.createAssetByType('typescript', databasePath, targetName, {
+                content: 'export const deletedScriptMarker = 1;',
+                overwrite: true,
+            });
+
+            await remove(targetPath);
+            await remove(`${targetPath}.meta`);
+
+            const eventAsset = await expectSingleAssetEvent('asset-delete', targetUrl, async () => {
+                await assetManager.refreshAsset(databasePath);
+            });
+
+            expect(createdAsset).not.toBeNull();
+            expect(createdAsset!.type).toEqual('cc.Script');
             expect(eventAsset.uuid).toEqual(createdAsset!.uuid);
             expect(eventAsset.url).toEqual(targetUrl);
         });

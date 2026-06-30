@@ -140,6 +140,20 @@ describe('runtime asset dirty store', () => {
     ]);
   });
 
+  it('keeps delete event type when source and meta are deleted together', () => {
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    store.recordFileEvent({ type: 'delete', path: join(assetsRoot, 'resources', 'gone.ts') });
+    store.recordFileEvent({ type: 'delete', path: join(assetsRoot, 'resources', 'gone.ts.meta') });
+    expect(store.drainDirtyTargets().entries).toEqual([
+      {
+        target: 'db://assets/resources/gone.ts',
+        eventTypes: ['delete'],
+        assetEventCount: 1,
+        metaEventCount: 1,
+      },
+    ]);
+  });
+
   it('records startup baseline source diffs as dirty targets and counts meta diffs separately', async () => {
     const store = createRuntimeAssetDirtyStore({ projectRoot });
     const unsubscribe = vi.fn();

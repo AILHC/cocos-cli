@@ -240,6 +240,35 @@ describe('runtime asset change watcher', () => {
     }
   });
 
+  it('records startup baseline source deletes as dirty targets', async () => {
+    const projectRoot = 'E:/project';
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    const watcher = createRuntimeAssetChangeWatcher({
+      projectRoot,
+      dirtyStore: store,
+      startupSnapshot: {
+        files: new Map([
+          ['scripts/gone.ts', { mtimeMs: 1, size: 10 }],
+          ['scripts/gone.ts.meta', { mtimeMs: 1, size: 10 }],
+        ]),
+      },
+      snapshotFiles: async () => ({
+        files: new Map(),
+      }),
+      subscribe: async () => ({ unsubscribe: vi.fn() }),
+    });
+
+    await watcher.start();
+
+    expect(store.drainDirtyTargets().entries).toEqual([{
+      target: 'db://assets/scripts/gone.ts',
+      eventTypes: ['delete'],
+      assetEventCount: 1,
+      metaEventCount: 0,
+    }]);
+    expect(watcher.getStatus().startupDirtyTargetCount).toBe(1);
+  });
+
   it('ignores startup baseline system files with the live watcher ignore contract', async () => {
     const projectRoot = 'E:/project';
     const store = createRuntimeAssetDirtyStore({ projectRoot });

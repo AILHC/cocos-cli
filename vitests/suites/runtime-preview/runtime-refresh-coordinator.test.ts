@@ -589,7 +589,167 @@ describe('runtime refresh coordinator', () => {
     expect(requeueTargets).toHaveBeenCalledWith(['db://assets/bad.json']);
   });
 
-  it('settles missing dirty targets without requeueing poison entries', async () => {
+  it('refreshes parent directory and waits for scripting after a deleted script target is missing', async () => {
+    const refreshTarget = vi.fn(async (target: string) => {
+      if (target === 'db://assets/scripts/gone.ts') {
+        throw new Error('can not find asset db://assets/scripts/gone.ts');
+      }
+      if (target === 'db://assets/scripts') {
+        return 1;
+      }
+      throw new Error(`unexpected target ${target}`);
+    });
+    const waitForIdle = vi.fn(async () => undefined);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle,
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      verifyProgrammingOutput: vi.fn(async () => undefined),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn()
+          .mockReturnValueOnce({
+            targets: ['db://assets/scripts/gone.ts'],
+            entries: [{
+              target: 'db://assets/scripts/gone.ts',
+              eventTypes: ['delete'],
+              assetEventCount: 1,
+              metaEventCount: 0,
+            }],
+            eventCount: 1,
+            drainedAt: 1000,
+          })
+          .mockReturnValueOnce({ targets: [], entries: [], eventCount: 0, drainedAt: 1001 }),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.targets).toEqual(['db://assets/scripts/gone.ts', 'db://assets/scripts']);
+    expect(result.passes?.[0]?.targets).toEqual(['db://assets/scripts/gone.ts']);
+    expect(result.passes?.[0]?.parentFallbackTargets).toEqual(['db://assets/scripts']);
+    expect(result.settledTargets).toEqual([{
+      target: 'db://assets/scripts/gone.ts',
+      error: 'can not find asset db://assets/scripts/gone.ts',
+    }]);
+    expect(refreshTarget).toHaveBeenCalledWith('db://assets/scripts/gone.ts');
+    expect(refreshTarget).toHaveBeenCalledWith('db://assets/scripts');
+    expect(waitForIdle).toHaveBeenCalledTimes(1);
+    expect(result.scriptCompile.status).toBe('done');
+  });
+
+  it('dedupes parent refresh for multiple missing deleted script targets in the same directory', async () => {
+    const refreshTarget = vi.fn(async (target: string) => {
+      if (target === 'db://assets/scripts/a.ts' || target === 'db://assets/scripts/b.ts') {
+        throw new Error(`can not find asset ${target}`);
+      }
+      if (target === 'db://assets/scripts') {
+        return 2;
+      }
+      throw new Error(`unexpected target ${target}`);
+    });
+    const waitForIdle = vi.fn(async () => undefined);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle,
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      verifyProgrammingOutput: vi.fn(async () => undefined),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn()
+          .mockReturnValueOnce({
+            targets: ['db://assets/scripts/a.ts', 'db://assets/scripts/b.ts'],
+            entries: [
+              { target: 'db://assets/scripts/a.ts', eventTypes: ['delete'], assetEventCount: 1, metaEventCount: 0 },
+              { target: 'db://assets/scripts/b.ts', eventTypes: ['delete'], assetEventCount: 1, metaEventCount: 0 },
+            ],
+            eventCount: 2,
+            drainedAt: 1000,
+          })
+          .mockReturnValueOnce({ targets: [], entries: [], eventCount: 0, drainedAt: 1001 }),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(refreshTarget.mock.calls.filter(([target]) => target === 'db://assets/scripts')).toHaveLength(1);
+    expect(result.passes?.[0]?.parentFallbackTargets).toEqual(['db://assets/scripts']);
+    expect(waitForIdle).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails dirty refresh when parent refresh for a missing deleted script fails', async () => {
+    const requeueTargets = vi.fn();
+    const waitForIdle = vi.fn(async () => undefined);
+    const refreshTarget = vi.fn(async (target: string) => {
+      if (target === 'db://assets/scripts/gone.ts') {
+        throw new Error('can not find asset db://assets/scripts/gone.ts');
+      }
+      if (target === 'db://assets/scripts') {
+        throw new Error('parent refresh failed');
+      }
+      throw new Error(`unexpected target ${target}`);
+    });
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle,
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      verifyProgrammingOutput: vi.fn(async () => undefined),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn().mockReturnValueOnce({
+          targets: ['db://assets/scripts/gone.ts'],
+          entries: [{ target: 'db://assets/scripts/gone.ts', eventTypes: ['delete'], assetEventCount: 1, metaEventCount: 0 }],
+          eventCount: 1,
+          drainedAt: 1000,
+        }),
+        requeueTargets,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(false);
+    expect(result.failedTargets).toEqual([{ target: 'db://assets/scripts', error: 'parent refresh failed' }]);
+    expect(result.settledTargets).toEqual([{
+      target: 'db://assets/scripts/gone.ts',
+      error: 'can not find asset db://assets/scripts/gone.ts',
+    }]);
+    expect(requeueTargets).toHaveBeenCalledWith(['db://assets/scripts']);
+    expect(waitForIdle).not.toHaveBeenCalled();
+  });
+
+  it('settles missing dirty targets with parent fallback and root fallback', async () => {
     const requeueTargets = vi.fn();
     const waitForIdle = vi.fn(async () => undefined);
     const invalidateSettings = vi.fn();
@@ -598,8 +758,14 @@ describe('runtime refresh coordinator', () => {
     let drained = false;
     const coordinator = createRuntimeRefreshCoordinator({
       projectRoot: 'E:/project',
-      refreshTarget: vi.fn(async () => {
-        throw new Error('can not find asset db://assets/temp.json');
+      refreshTarget: vi.fn(async (target: string) => {
+        if (target === 'db://assets/temp.json') {
+          throw new Error('can not find asset db://assets/temp.json');
+        }
+        if (target === 'db://assets') {
+          return 1;
+        }
+        throw new Error(`unexpected target ${target}`);
       }),
       waitForIdle,
       invalidateSettings,
@@ -633,15 +799,127 @@ describe('runtime refresh coordinator', () => {
     const result = await coordinator.refresh({ reason: 'reload' });
 
     expect(result.ok).toBe(true);
-    expect(result.scriptCompile.status).toBe('skipped');
+    expect(result.scriptCompile.status).toBe('done');
     expect(result.settledTargets).toEqual([{
       target: 'db://assets/temp.json',
       error: 'can not find asset db://assets/temp.json',
     }]);
+    expect(result.failedTargets).toBeUndefined();
     expect(requeueTargets).not.toHaveBeenCalled();
-    expect(waitForIdle).not.toHaveBeenCalled();
-    expect(invalidateSettings).not.toHaveBeenCalled();
-    expect(clearImportReplacement).not.toHaveBeenCalled();
+    expect(result.passes?.[0]?.parentFallbackTargets).toEqual(['db://assets']);
+    expect(result.passes?.[0]?.rootFallback).toBe(true);
+    expect(waitForIdle).toHaveBeenCalledTimes(1);
+    expect(invalidateSettings).toHaveBeenCalledTimes(1);
+    expect(clearImportReplacement).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports compile failure after parent fallback refresh succeeds', async () => {
+    const refreshTarget = vi.fn(async (target: string) => {
+      if (target === 'db://assets/scripts/gone.ts') {
+        throw new Error('can not find asset db://assets/scripts/gone.ts');
+      }
+      if (target === 'db://assets/scripts') {
+        return 1;
+      }
+      throw new Error(`unexpected target ${target}`);
+    });
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle: vi.fn(async () => {
+        throw new Error('stale prerequisite remains');
+      }),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn()
+          .mockReturnValueOnce({
+            targets: ['db://assets/scripts/gone.ts'],
+            entries: [{ target: 'db://assets/scripts/gone.ts', eventTypes: ['delete'], assetEventCount: 1, metaEventCount: 0 }],
+            eventCount: 1,
+            drainedAt: 1000,
+          })
+          .mockReturnValueOnce({ targets: [], entries: [], eventCount: 0, drainedAt: 1001 }),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(false);
+    expect(result.scriptCompile.status).toBe('failed');
+    expect(result.error).toContain('stale prerequisite remains');
+    expect(result.passes?.[0]?.parentFallbackTargets).toEqual(['db://assets/scripts']);
+  });
+
+  it('limits parent fallback to unique non-root directories for bulk deleted scripts', async () => {
+    const scriptTargets = Array.from({ length: 100 }, (_, index) => {
+      const dir = index % 3;
+      return `db://assets/scripts/group-${dir}/deleted-${index}.ts`;
+    });
+    const parentTargets = [
+      'db://assets/scripts/group-0',
+      'db://assets/scripts/group-1',
+      'db://assets/scripts/group-2',
+    ];
+    const refreshTarget = vi.fn(async (target: string) => {
+      if (scriptTargets.includes(target)) {
+        throw new Error(`can not find asset ${target}`);
+      }
+      if (parentTargets.includes(target)) {
+        return 1;
+      }
+      throw new Error(`unexpected target ${target}`);
+    });
+    const waitForIdle = vi.fn(async () => undefined);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'E:/project',
+      refreshTarget,
+      waitForIdle,
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      verifyProgrammingOutput: vi.fn(async () => undefined),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn()
+          .mockReturnValueOnce({
+            targets: scriptTargets,
+            entries: scriptTargets.map((target) => ({
+              target,
+              eventTypes: ['delete'],
+              assetEventCount: 1,
+              metaEventCount: 0,
+            })),
+            eventCount: scriptTargets.length,
+            drainedAt: 1000,
+          })
+          .mockReturnValueOnce({ targets: [], entries: [], eventCount: 0, drainedAt: 1001 }),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.passes?.[0]?.parentFallbackTargets.sort()).toEqual(parentTargets);
+    expect(result.passes?.[0]?.rootFallback).toBe(false);
+    expect(refreshTarget).toHaveBeenCalledTimes(103);
+    expect(waitForIdle).toHaveBeenCalledTimes(1);
   });
 
   it('returns watcher failure for no-target refresh when watcher is enabled but not running', async () => {

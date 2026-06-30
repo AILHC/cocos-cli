@@ -43,6 +43,8 @@ export interface RuntimeRefreshPassResult {
     settledTargets: RuntimeRefreshSettledTarget[];
     dirtyEventCount: number;
     durationMs: number;
+    parentFallbackTargets: string[];
+    rootFallback: boolean;
 }
 
 export interface RuntimeRefreshResult {
@@ -132,6 +134,7 @@ const defaultReloadDedupeMs = 500;
 const defaultRefreshTarget = 'db://assets';
 const dirtySetRefreshTarget = 'dirty-set';
 const defaultFailureOutputState: RuntimePreviewOutputState = 'lastGoodDueToFailure';
+const parentPathSeparator = '/';
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -199,6 +202,25 @@ function normalizeRefreshTarget(projectRoot: string, target: unknown): TargetNor
         ok: true,
         target: relativeAssetPath ? `db://assets/${relativeAssetPath}` : defaultRefreshTarget,
     };
+}
+
+function dirnameForDbAssetTarget(target: string): string | null {
+    if (target === defaultRefreshTarget) {
+        return null;
+    }
+
+    const prefix = `${defaultRefreshTarget}/`;
+    if (!target.startsWith(prefix)) {
+        return null;
+    }
+
+    const relativePath = target.slice(prefix.length);
+    const slashIndex = relativePath.lastIndexOf(parentPathSeparator);
+    if (slashIndex < 0) {
+        return defaultRefreshTarget;
+    }
+
+    return `${prefix}${relativePath.slice(0, slashIndex)}`;
 }
 
 function dedupeTargets(targets: string[]): string[] {
@@ -692,6 +714,7 @@ export function createRuntimeRefreshCoordinator(
             }
 
             const passTargets = optimizeDirtyBatchTargets(batch.targets, batch.entries, successfulTargetSet);
+            const passTargetSet = new Set(passTargets);
             if (passTargets.length === 0) {
                 break;
             }
@@ -699,6 +722,9 @@ export function createRuntimeRefreshCoordinator(
             const successfulTargets: string[] = [];
             const failedTargets: RuntimeRefreshFailedTarget[] = [];
             const settledTargets: RuntimeRefreshSettledTarget[] = [];
+            const parentFallbackTargets: string[] = [];
+            let rootFallback = false;
+            const parentFallbackTargetSet = new Set<string>();
             failureGenerationBeforeRefresh ??= await getCompileFailureGeneration();
 
             for (const target of passTargets) {
@@ -714,6 +740,33 @@ export function createRuntimeRefreshCoordinator(
                     const errorMessage = getErrorMessage(error);
                     if (shouldSettleMissingDirtyTarget(batch.entries, target, errorMessage)) {
                         settledTargets.push({ target, error: errorMessage });
+                        const parentTarget = dirnameForDbAssetTarget(target);
+                        if (
+                            parentTarget
+                            && !passTargetSet.has(parentTarget)
+                            && !successfulTargetSet.has(parentTarget)
+                            && !parentFallbackTargetSet.has(parentTarget)
+                        ) {
+                            parentFallbackTargetSet.add(parentTarget);
+                            parentFallbackTargets.push(parentTarget);
+                            if (parentTarget === defaultRefreshTarget) {
+                                rootFallback = true;
+                            }
+                            allTargets.push(parentTarget);
+                            try {
+                                const changed = await options.refreshTarget(parentTarget);
+                                successfulTargets.push(parentTarget);
+                                successfulTargetSet.add(parentTarget);
+                                if (typeof changed === 'number') {
+                                    changedAssetCount += changed;
+                                }
+                            } catch (parentError) {
+                                failedTargets.push({
+                                    target: parentTarget,
+                                    error: getErrorMessage(parentError),
+                                });
+                            }
+                        }
                     } else {
                         failedTargets.push({ target, error: errorMessage });
                     }
@@ -728,6 +781,8 @@ export function createRuntimeRefreshCoordinator(
                 successfulTargets,
                 failedTargets,
                 settledTargets,
+                parentFallbackTargets,
+                rootFallback,
                 dirtyEventCount: batch.eventCount,
                 durationMs: now() - passStartedAt,
             });
