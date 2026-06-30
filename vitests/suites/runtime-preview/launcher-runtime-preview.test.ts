@@ -63,6 +63,12 @@ describe('runtime preview production asset routes', () => {
       }));
       const initBuilder = vi.fn(async () => undefined);
       const startAssetWatcher = vi.fn(async () => undefined);
+      const startupSnapshot = {
+        files: new Map([
+          ['scripts/damage_system.ts', { mtimeMs: 1, size: 100 }],
+        ]),
+      };
+      const createRuntimeAssetStartupSnapshot = vi.fn(async () => startupSnapshot);
       const capturedServerOptions: any[] = [];
 
       vi.doMock('../../../src/core/base/console', () => ({
@@ -96,6 +102,9 @@ describe('runtime preview production asset routes', () => {
         init: initBuilder,
         getPreviewSettings,
       }));
+      vi.doMock('../../../src/runtime-preview/watch/runtime-asset-change-watcher', () => ({
+        createRuntimeAssetStartupSnapshot,
+      }));
       vi.doMock('../../../src/runtime-preview', async () => {
         const settings = await vi.importActual<typeof import('../../../src/runtime-preview/settings/preview-settings-provider')>(
           '../../../src/runtime-preview/settings/preview-settings-provider',
@@ -105,8 +114,20 @@ describe('runtime preview production asset routes', () => {
           PreviewSettingsProvider: settings.PreviewSettingsProvider,
           startRuntimePreviewServer: vi.fn(async (options) => {
             capturedServerOptions.push(options);
+            expect(createRuntimeAssetStartupSnapshot).toHaveBeenCalledWith(join(projectRoot, 'assets'));
+            expect(options.assetWatcherStartupSnapshot).toBe(startupSnapshot);
+            expect(options.readiness.describe()).toEqual({
+              settingsReady: false,
+              assetWatcherReady: false,
+              artifactsInspected: false,
+            });
             await options.prepareRuntimePreview(finalServerUrl);
             await options.settingsProvider.getPreviewSettings({ startScene: diagnosticSceneUuid });
+            expect(options.readiness.describe()).toEqual({
+              settingsReady: true,
+              assetWatcherReady: false,
+              artifactsInspected: false,
+            });
             return {
               server: {} as never,
               host: '127.0.0.1',
@@ -141,6 +162,12 @@ describe('runtime preview production asset routes', () => {
       expect(capturedServerOptions[0].watchAssets).toBe(true);
       expect(capturedServerOptions[0].deferAssetWatcherStart).toBe(true);
       expect(capturedServerOptions[0].prepareRuntimePreview).toEqual(expect.any(Function));
+      expect(capturedServerOptions[0].readiness.isReady()).toBe(true);
+      expect(capturedServerOptions[0].readiness.describe()).toEqual({
+        settingsReady: true,
+        assetWatcherReady: true,
+        artifactsInspected: true,
+      });
       expect(startAssetWatcher).toHaveBeenCalledTimes(1);
       expect(importSpy).toHaveBeenCalledWith(expect.objectContaining({
         serverURL: `${finalServerUrl}/`,
@@ -161,6 +188,7 @@ describe('runtime preview production asset routes', () => {
       vi.doUnmock('../../../src/core/assets/extension-asset-db-mounts');
       vi.doUnmock('../../../src/core/launcher-engine-root');
       vi.doUnmock('../../../src/core/builder');
+      vi.doUnmock('../../../src/runtime-preview/watch/runtime-asset-change-watcher');
       vi.doUnmock('../../../src/runtime-preview');
       vi.resetModules();
       for (const key of isolatedEnvKeys) {

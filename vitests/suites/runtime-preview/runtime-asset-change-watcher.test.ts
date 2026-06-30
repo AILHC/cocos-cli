@@ -1,6 +1,9 @@
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { createRuntimeAssetChangeWatcher } from '@runtime-preview/watch/runtime-asset-change-watcher';
+import {
+  createRuntimeAssetChangeWatcher,
+  createRuntimeAssetStartupSnapshot,
+} from '@runtime-preview/watch/runtime-asset-change-watcher';
 import { createRuntimeAssetDirtyStore } from '@runtime-preview/watch/runtime-asset-dirty-store';
 
 describe('runtime asset change watcher', () => {
@@ -58,5 +61,212 @@ describe('runtime asset change watcher', () => {
     await watcher.stop();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     expect(watcher.getStatus().running).toBe(false);
+  });
+
+  it('normalizes startup snapshot keys before diffing and rejects absolute or escaping keys', async () => {
+    const projectRoot = 'E:/project';
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    const watcher = createRuntimeAssetChangeWatcher({
+      projectRoot,
+      dirtyStore: store,
+      startupSnapshot: {
+        files: new Map([
+          ['scripts\\a.ts', { mtimeMs: 1, size: 10 }],
+          ['scripts/./unchanged.ts', { mtimeMs: 1, size: 10 }],
+          ['../outside.ts', { mtimeMs: 1, size: 10 }],
+          ['C:\\outside\\absolute.ts', { mtimeMs: 1, size: 10 }],
+          ['/absolute.ts', { mtimeMs: 1, size: 10 }],
+        ]),
+      },
+      snapshotFiles: async () => ({
+        files: new Map([
+          ['scripts/a.ts', { mtimeMs: 2, size: 11 }],
+          ['scripts/unchanged.ts', { mtimeMs: 1, size: 10 }],
+          ['../outside.ts', { mtimeMs: 2, size: 11 }],
+          ['C:\\outside\\absolute.ts', { mtimeMs: 2, size: 11 }],
+          ['/absolute.ts', { mtimeMs: 2, size: 11 }],
+        ]),
+      }),
+      subscribe: async () => ({ unsubscribe: vi.fn() }),
+    });
+
+    await watcher.start();
+
+    expect(store.drainDirtyTargets().targets).toEqual(['db://assets/scripts/a.ts']);
+  });
+
+  it('keeps startup skipped symlink diagnostics without recording dirty targets', async () => {
+    const projectRoot = 'E:/project';
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    const watcher = createRuntimeAssetChangeWatcher({
+      projectRoot,
+      dirtyStore: store,
+      startupSnapshot: {
+        files: new Map(),
+        skippedSymlinks: ['scripts/link.ts'],
+      },
+      snapshotFiles: async () => ({
+        files: new Map(),
+        skippedSymlinks: ['scripts/link.ts', 'textures/link.png'],
+      }),
+      subscribe: async () => ({ unsubscribe: vi.fn() }),
+    });
+
+    await watcher.start();
+
+    expect(store.peekDirtyTargets()).toEqual([]);
+    expect(watcher.getStatus()).toMatchObject({
+      startupSkippedSymlinkCount: 2,
+      startupSkippedSymlinkSample: ['scripts/link.ts', 'textures/link.png'],
+    });
+  });
+
+  it('skips symlinks while creating startup snapshots', async () => {
+    vi.resetModules();
+    const readdir = vi.fn(async () => [
+      {
+        name: 'real.ts',
+        isDirectory: () => false,
+        isFile: () => true,
+        isSymbolicLink: () => false,
+      },
+      {
+        name: 'link.ts',
+        isDirectory: () => false,
+        isFile: () => true,
+        isSymbolicLink: () => true,
+      },
+    ]);
+    const stat = vi.fn(async () => ({ isFile: () => true, mtimeMs: 1, size: 10 }));
+    vi.doMock('node:fs/promises', () => ({
+      readdir,
+      stat,
+      default: {
+        readdir,
+        stat,
+      },
+    }));
+
+    try {
+      const { createRuntimeAssetStartupSnapshot: createSnapshot } = await import(
+        '../../../src/runtime-preview/watch/runtime-asset-change-watcher'
+      );
+      const snapshot = await createSnapshot('E:/project/assets');
+      expect(snapshot.files.has('real.ts')).toBe(true);
+      expect(snapshot.files.has('link.ts')).toBe(false);
+      expect(snapshot.skippedSymlinks).toEqual(['link.ts']);
+      expect(stat).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.doUnmock('node:fs/promises');
+      vi.resetModules();
+    }
+  });
+
+  it('skips startup snapshot files that disappear before stat', async () => {
+    vi.resetModules();
+    const readdir = vi.fn(async () => [
+        {
+          name: 'gone.ts',
+          isDirectory: () => false,
+          isFile: () => true,
+          isSymbolicLink: () => false,
+        },
+      ]);
+    const stat = vi.fn(async () => {
+        const error = new Error('gone') as NodeJS.ErrnoException;
+        error.code = 'ENOENT';
+        throw error;
+      });
+    vi.doMock('node:fs/promises', () => ({
+      readdir,
+      stat,
+      default: {
+        readdir,
+        stat,
+      },
+    }));
+
+    try {
+      const { createRuntimeAssetStartupSnapshot: createSnapshot } = await import(
+        '../../../src/runtime-preview/watch/runtime-asset-change-watcher'
+      );
+      const snapshot = await createSnapshot('E:/project/assets');
+      expect(snapshot.files.size).toBe(0);
+      expect(snapshot.skippedSymlinks).toEqual([]);
+    } finally {
+      vi.doUnmock('node:fs/promises');
+      vi.resetModules();
+    }
+  });
+
+  it('skips startup snapshot directories replaced before child readdir', async () => {
+    vi.resetModules();
+    const readdir = vi.fn(async (root: string) => {
+      if (root.replace(/\\/g, '/').endsWith('/temp-dir')) {
+        const error = new Error('not a directory') as NodeJS.ErrnoException;
+        error.code = 'ENOTDIR';
+        throw error;
+      }
+      return [
+        {
+          name: 'temp-dir',
+          isDirectory: () => true,
+          isFile: () => false,
+          isSymbolicLink: () => false,
+        },
+      ];
+    });
+    const stat = vi.fn();
+    vi.doMock('node:fs/promises', () => ({
+      readdir,
+      stat,
+      default: {
+        readdir,
+        stat,
+      },
+    }));
+
+    try {
+      const { createRuntimeAssetStartupSnapshot: createSnapshot } = await import(
+        '../../../src/runtime-preview/watch/runtime-asset-change-watcher'
+      );
+      const snapshot = await createSnapshot('E:/project/assets');
+      expect(snapshot.files.size).toBe(0);
+      expect(snapshot.skippedSymlinks).toEqual([]);
+      expect(stat).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('node:fs/promises');
+      vi.resetModules();
+    }
+  });
+
+  it('ignores startup baseline system files with the live watcher ignore contract', async () => {
+    const projectRoot = 'E:/project';
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    const watcher = createRuntimeAssetChangeWatcher({
+      projectRoot,
+      dirtyStore: store,
+      startupSnapshot: {
+        files: new Map([
+          ['.DS_Store', { mtimeMs: 1, size: 10 }],
+          ['textures/Thumbs.db', { mtimeMs: 1, size: 10 }],
+        ]),
+      },
+      snapshotFiles: async () => ({
+        files: new Map([
+          ['.DS_Store', { mtimeMs: 2, size: 11 }],
+          ['textures/Thumbs.db', { mtimeMs: 2, size: 11 }],
+        ]),
+      }),
+      subscribe: async () => ({ unsubscribe: vi.fn() }),
+    });
+
+    await watcher.start();
+
+    expect(store.peekDirtyTargets()).toEqual([]);
+    expect(watcher.getStatus()).toMatchObject({
+      startupDirtyTargetCount: 0,
+      startupIgnoredMetaOnlyCount: 0,
+    });
   });
 });

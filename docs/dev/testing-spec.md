@@ -30,8 +30,23 @@
 - 命令示例默认使用 PowerShell 语法；Windows 路径不得改写成 Bash 风格。
 - 在 Codex / agent 会话中执行命令时，遵守仓库 `AGENTS.md` 和本机 `RTK.md` 的命令包装要求。
 - 设置测试环境变量时，优先限定在当前 shell、当前命令或当前测试进程；不能把上一次测试留下的 env 当作隐式前提。
+- 选择 `COCOS_CLI_TEST_ENGINE_ROOT` 前，先从本次测试使用的项目根目录读取 `package.json["cocos-cli"].enginePath`；该路径可以是绝对路径，也可以是相对项目根目录的相对路径。只有测试文档明确说明要覆盖 engine source 时，才允许使用与项目配置不同的 engine root，并必须在结论里说明原因。
 - 真实项目 production 验收前，除非 issue 明确要求，必须清理无关 `COCOS_CLI_TEST_*` env。
 - 记录命令时必须写明工作目录；根目录脚本默认在仓库根目录运行，Vitest 脚本默认通过 `vitests/package.json` 运行。
+
+从项目配置解析测试 engine root 的 PowerShell 模板：
+
+```powershell
+$projectRoot = '<PROJECT_ROOT>'
+$packageJson = Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'package.json') | ConvertFrom-Json
+$enginePath = $packageJson.'cocos-cli'.enginePath
+if ([System.IO.Path]::IsPathRooted($enginePath)) {
+  $env:COCOS_CLI_TEST_ENGINE_ROOT = [System.IO.Path]::GetFullPath($enginePath)
+} else {
+  $env:COCOS_CLI_TEST_ENGINE_ROOT = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $enginePath))
+}
+$env:COCOS_CLI_TEST_PROJECT_ROOT = $projectRoot
+```
 
 ## 测试层级
 
@@ -140,6 +155,7 @@ npm --prefix vitests run test -- <suite-path>
 规则：
 
 - `vitests/vitest.config.ts` 要求 `COCOS_CLI_TEST_ENGINE_ROOT`；这只是 Vitest harness 需要，不代表 production 使用该 env。
+- 如果同时设置了 `COCOS_CLI_TEST_PROJECT_ROOT`，`vitests/vitest.config.ts` 会用该项目 `package.json["cocos-cli"].enginePath` 推导或校验 engine root；两者不一致时测试应直接失败，除非该测试另行文档化覆盖原因。
 - 使用 `COCOS_CLI_TEST_PROJECT_ROOT` 的测试必须说明项目属于主测试项目、历史 reference、临时 fixture 还是真实项目专项。
 - 使用 frozen Editor reference env 时，必须标明其角色：`hard input`、`compatibility baseline`、`test fixture` 或 `not used`。
 
@@ -204,7 +220,7 @@ npm run test:e2e:debug
 | 环境变量 | 允许用途 | 禁止用途 |
 | --- | --- | --- |
 | `COCOS_CLI_TEST_PROJECT_ROOT` | Vitest / Jest / 专项集成测试显式指定测试项目。 | 不能作为 production 默认项目解析依据；不能替代 issue 指定真实项目。 |
-| `COCOS_CLI_TEST_ENGINE_ROOT` | Vitest harness、专项测试覆盖 engine root。 | 不能替代真实项目配置 `package.json["cocos-cli"].enginePath` 的验收。 |
+| `COCOS_CLI_TEST_ENGINE_ROOT` | Vitest harness、专项测试覆盖 engine root；默认应由本次测试项目 `package.json["cocos-cli"].enginePath` 解析得到。 | 不能替代真实项目配置 `package.json["cocos-cli"].enginePath` 的验收；不能在未说明覆盖原因时使用与测试项目配置不一致的 engine root。 |
 | `COCOS_CLI_TEST_EDITOR_LIBRARY_REF` | frozen Editor library reference，作为 baseline 或 fixture。 | 不能注入 production real-project 验收；不能把 frozen output 当 production 输入。 |
 | `COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF` | frozen Editor programming reference，作为 baseline 或 fixture。 | 不能注入 production real-project 验收。 |
 | `COCOS_CLI_SHARED_LIBRARY_OUTPUT` | 明确测试 shared / isolated library output。 | 不能静默切换 production 策略来让测试通过。 |

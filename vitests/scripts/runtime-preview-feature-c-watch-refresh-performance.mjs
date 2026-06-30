@@ -16,9 +16,24 @@ const defaultProjectRoot = 'D:/ps_copy/p6/trunk/Project/GameClient/feature-c';
 const defaultScene = '4c721bfe-0b6e-46c2-97f0-644adfdcba31';
 const probeDirRelative = 'assets/__cocos_cli_watch_probe__';
 const probeDirMetaRelative = 'assets/__cocos_cli_watch_probe__.meta';
-const probeFileRelative = 'assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json';
-const probeFileMetaRelative = 'assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json.meta';
-const probeTarget = 'db://assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json';
+const probeFileBaseRelative = 'assets/__cocos_cli_watch_probe__/runtime-watch-refresh';
+
+function createProbeConfig(kind) {
+  if (kind === 'ts') {
+    return {
+      kind,
+      file: `${probeFileBaseRelative}.ts`,
+      fileMeta: `${probeFileBaseRelative}.ts.meta`,
+      target: 'db://assets/__cocos_cli_watch_probe__/runtime-watch-refresh.ts',
+    };
+  }
+  return {
+    kind: 'json',
+    file: `${probeFileBaseRelative}.json`,
+    fileMeta: `${probeFileBaseRelative}.json.meta`,
+    target: 'db://assets/__cocos_cli_watch_probe__/runtime-watch-refresh.json',
+  };
+}
 
 function toPosix(value) {
   return value.replace(/\\/g, '/');
@@ -48,6 +63,7 @@ function parseArgs(argv) {
     startupTimeoutMs: Number(process.env.COCOS_CLI_FEATURE_C_STARTUP_TIMEOUT_MS ?? 900_000),
     requestTimeoutMs: Number(process.env.COCOS_CLI_FEATURE_C_REFRESH_REQUEST_TIMEOUT_MS ?? 300_000),
     watchTimeoutMs: Number(process.env.COCOS_CLI_FEATURE_C_WATCH_EVENT_TIMEOUT_MS ?? 30_000),
+    probeKind: process.env.COCOS_CLI_FEATURE_C_WATCH_REFRESH_PROBE_KIND ?? 'json',
     output: process.env.COCOS_CLI_FEATURE_C_WATCH_REFRESH_OUTPUT,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -68,6 +84,9 @@ function parseArgs(argv) {
     } else if (arg === '--output') {
       options.output = next;
       index += 1;
+    } else if (arg === '--probe-kind') {
+      options.probeKind = next;
+      index += 1;
     }
   }
   if (!existsSync(options.projectRoot)) {
@@ -79,6 +98,10 @@ function parseArgs(argv) {
   if (!Number.isInteger(options.portStart) || options.portStart < 1) {
     throw new Error('--port-start must be a positive integer');
   }
+  if (!['json', 'ts'].includes(options.probeKind)) {
+    throw new Error('--probe-kind must be json or ts');
+  }
+  options.probe = createProbeConfig(options.probeKind);
   if (!options.output) {
     options.output = path.join(
       options.projectRoot,
@@ -387,12 +410,12 @@ async function gitStatusProbe(projectRoot) {
   return stdout.trim();
 }
 
-async function cleanupProbe(projectRoot) {
+async function cleanupProbe(projectRoot, probe = createProbeConfig(process.env.COCOS_CLI_FEATURE_C_WATCH_REFRESH_PROBE_KIND ?? 'json')) {
   await rm(path.join(projectRoot, probeDirRelative), { recursive: true, force: true });
   await rm(path.join(projectRoot, probeDirMetaRelative), { recursive: true, force: true });
   const probeDirExistsAfterCleanup = existsSync(path.join(projectRoot, probeDirRelative));
   const probeDirMetaExistsAfterCleanup = existsSync(path.join(projectRoot, probeDirMetaRelative));
-  const metaExistsAfterCleanup = existsSync(path.join(projectRoot, probeFileMetaRelative));
+  const metaExistsAfterCleanup = existsSync(path.join(projectRoot, probe.fileMeta));
   const gitStatusAfterCleanup = await gitStatusProbe(projectRoot);
   if (probeDirExistsAfterCleanup || probeDirMetaExistsAfterCleanup || metaExistsAfterCleanup || gitStatusAfterCleanup) {
     throw new Error([
@@ -411,12 +434,15 @@ async function cleanupProbe(projectRoot) {
   };
 }
 
-async function mutateProbe(projectRoot, round) {
-  const filePath = path.join(projectRoot, probeFileRelative);
+async function mutateProbe(projectRoot, round, probe) {
+  const filePath = path.join(projectRoot, probe.file);
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify({
-    marker: `RP_FEATURE_C_WATCH_REFRESH_${round}_${Date.now()}`,
-  }, null, 2)}\n`, 'utf8');
+  const marker = `RP_FEATURE_C_WATCH_REFRESH_${probe.kind.toUpperCase()}_${round}_${Date.now()}`;
+  if (probe.kind === 'ts') {
+    await writeFile(filePath, `export const ${marker} = "${marker}";\n`, 'utf8');
+    return;
+  }
+  await writeFile(filePath, `${JSON.stringify({ marker }, null, 2)}\n`, 'utf8');
 }
 
 function summarize(rounds, selector) {
@@ -460,12 +486,12 @@ async function runMode({ options, mode, port }) {
         let gitStatusAfterMutationBeforeCleanup = '';
         let cleanup = null;
         try {
-          await mutateProbe(options.projectRoot, round);
+          await mutateProbe(options.projectRoot, round, options.probe);
           gitStatusAfterMutationBeforeCleanup = await gitStatusProbe(options.projectRoot);
-          const watcherLog = await waitForWatchTarget(server.logFilePath, probeTarget, options.watchTimeoutMs);
+          const watcherLog = await waitForWatchTarget(server.logFilePath, options.probe.target, options.watchTimeoutMs);
           const rootRound = await measureRootRound(server, round, options.requestTimeoutMs);
           const refreshResult = normalizeRefreshResult(await readLastRuntimeRefreshLog(server.logFilePath));
-          cleanup = await cleanupProbe(options.projectRoot);
+          cleanup = await cleanupProbe(options.projectRoot, options.probe);
           rounds.push({
             ...rootRound,
             refreshResult,
@@ -475,7 +501,7 @@ async function runMode({ options, mode, port }) {
             ...cleanup,
           });
         } catch (error) {
-          cleanup = await cleanupProbe(options.projectRoot);
+          cleanup = await cleanupProbe(options.projectRoot, options.probe);
           rounds.push({
             round,
             error: error instanceof Error ? error.stack || error.message : String(error),
@@ -534,14 +560,14 @@ function assertWatchNoReload(rounds) {
   }
 }
 
-function assertWatchChanged(rounds) {
+function assertWatchChanged(rounds, probe) {
   for (const round of rounds) {
     const refresh = round.refreshResult;
     if (round.rootStatus !== 200 || !refresh || refresh.ok !== true || refresh.target !== 'dirty-set') {
       throw new Error(`watchReloadChanged round ${round.round} did not return ok dirty-set refresh.`);
     }
-    if (!Array.isArray(refresh.targets) || !refresh.targets.includes(probeTarget)) {
-      throw new Error(`watchReloadChanged round ${round.round} did not include ${probeTarget}.`);
+    if (!Array.isArray(refresh.targets) || !refresh.targets.includes(probe.target)) {
+      throw new Error(`watchReloadChanged round ${round.round} did not include ${probe.target}.`);
     }
     if (refresh.rootRefresh) {
       throw new Error(`watchReloadChanged round ${round.round} fell back to db://assets root refresh.`);
@@ -560,7 +586,7 @@ function assertWatchChanged(rounds) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  await cleanupProbe(options.projectRoot);
+  await cleanupProbe(options.projectRoot, options.probe);
   const modes = [
     { name: 'defaultOff', args: [] },
     { name: 'watchNoReload', args: ['--watch-assets'], endpoint: true },
@@ -586,9 +612,10 @@ async function main() {
     probe: {
       directory: probeDirRelative,
       directoryMeta: probeDirMetaRelative,
-      file: probeFileRelative,
-      fileMeta: probeFileMetaRelative,
-      target: probeTarget,
+      kind: options.probe.kind,
+      file: options.probe.file,
+      fileMeta: options.probe.fileMeta,
+      target: options.probe.target,
     },
     modes: {},
     summary: {},
@@ -604,9 +631,9 @@ async function main() {
     }
     assertWatchNoReload(result.modes.watchNoReload.rounds);
     assertWatchNoChange(result.modes.watchReloadNoChange.rounds);
-    assertWatchChanged(result.modes.watchReloadChanged.rounds);
+    assertWatchChanged(result.modes.watchReloadChanged.rounds, options.probe);
   } finally {
-    result.cleanup = await cleanupProbe(options.projectRoot);
+    result.cleanup = await cleanupProbe(options.projectRoot, options.probe);
   }
   result.summary = createSummary(result.modes);
 

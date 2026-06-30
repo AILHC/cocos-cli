@@ -65,6 +65,13 @@ async function wrapToSetImmediateQueue<Target, Args extends any[], Result>(thiz:
     });
 }
 
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+        return error.stack || error.message;
+    }
+    return String(error);
+}
+
 interface BuildResult {
     depsGraph?: Record<string, string[]>;
     err?: null | Error;
@@ -259,7 +266,7 @@ export class PackerDriver {
     /**构建任务的委托，在构建之前会把委托里面的所有内容执行 */
     public readonly beforeEditorBuildDelegate: AsyncDelegate<(changes: ModifiedAssetChange[]) => Promise<void>> = new AsyncDelegate();
     public busy() {
-        return this._building;
+        return this._building || this._queuedBuildCount > 0;
     }
 
     public async updateDbInfos(dbInfo: DBInfo, dbChangeType: DBChangeType) {
@@ -332,6 +339,17 @@ export class PackerDriver {
      * @param taskId 任务ID，用于跟踪任务状态
      */
     public async build(changeInfos?: AssetChangeInfo[], taskId?: string) {
+        this._queuedBuildCount++;
+        const previous = this._buildChain.catch(() => undefined);
+        const current = previous.then(() => {
+            this._queuedBuildCount--;
+            return this._runBuildRequest(changeInfos, taskId);
+        });
+        this._buildChain = current.catch(() => undefined);
+        await current;
+    }
+
+    private async _runBuildRequest(changeInfos?: AssetChangeInfo[], taskId?: string) {
         const logger = this._logger;
 
         logger.debug('Pulling asset-db.');
@@ -461,6 +479,8 @@ export class PackerDriver {
     private _init = false;
     private _features: string[] = [];
     private _currentTaskId: string | null = null;
+    private _buildChain: Promise<void> = Promise.resolve();
+    private _queuedBuildCount = 0;
 
     private constructor(builder: TypeScriptConfigBuilder, targets: PackerDriver['_targets'], statsQuery: StatsQuery, logger: PackerDriverLogger) {
         this._tsBuilder = builder;
@@ -517,47 +537,58 @@ export class PackerDriver {
         this._currentTaskId = taskId || null;
         eventEmitter.emit('compile-start', 'project', taskId);
 
-        this._logger.clear();
-        this._logger.debug(
-            'Build iteration starts.\n' +
-            `Number of accumulated asset changes: ${this._assetChangeQueue.length}\n` +
-            `Feature changed: ${this._featureChanged}` +
-            (taskId ? `\nTask ID: ${taskId}` : ''),
-        );
-        if (this._featureChanged) {
-            this._featureChanged = false;
-            await this._syncEngineFeatures(this._features);
-        }
-        const assetChanges = this._assetChangeQueue;
-        this._assetChangeQueue = [];
-        const beforeTasks = this._beforeBuildTasks.slice();
-        this._beforeBuildTasks.length = 0;
-        for (const beforeTask of beforeTasks) {
-            beforeTask();
-        }
-        await this.beforeEditorBuildDelegate.dispatch(assetChanges.filter(item => item.type === AssetActionEnum.change) as ModifiedAssetChange[]);
-        const nonDTSChanges = assetChanges.filter(item => !item.filePath.endsWith('.d.ts'));
-        
         let err: Error | null = null;
-        for (const [, target] of Object.entries(this._targets)) {
-            if (assetChanges.length !== 0) {
-                await target.applyAssetChanges(nonDTSChanges);
+        try {
+            this._logger.clear();
+            this._logger.debug(
+                'Build iteration starts.\n' +
+                `Number of accumulated asset changes: ${this._assetChangeQueue.length}\n` +
+                `Feature changed: ${this._featureChanged}` +
+                (taskId ? `\nTask ID: ${taskId}` : ''),
+            );
+            if (this._featureChanged) {
+                this._featureChanged = false;
+                await this._syncEngineFeatures(this._features);
             }
-            const buildResult = await target.build();
-            if (buildResult.err) {
-                err = buildResult.err;
-                target.deleteCacheFile((err as any).file);
-                continue;
+            const assetChanges = this._assetChangeQueue;
+            this._assetChangeQueue = [];
+            const beforeTasks = this._beforeBuildTasks.slice();
+            this._beforeBuildTasks.length = 0;
+            for (const beforeTask of beforeTasks) {
+                beforeTask();
             }
-            if (buildResult.depsGraph) {
-                this._depsGraph = buildResult.depsGraph;
-            }
-            this._needUpdateDepsCache = true;
-        }
-        this._building = false;
-        this._currentTaskId = null;
+            await this.beforeEditorBuildDelegate.dispatch(assetChanges.filter(item => item.type === AssetActionEnum.change) as ModifiedAssetChange[]);
+            const nonDTSChanges = assetChanges.filter(item => !item.filePath.endsWith('.d.ts'));
 
-        eventEmitter.emit('compiled', 'project');
+            for (const [targetName, target] of Object.entries(this._targets)) {
+                const targetStartedAt = performance.now();
+                this._logger.debug(`Target(${targetName}) build started.`);
+                try {
+                    if (nonDTSChanges.length !== 0) {
+                        await target.applyAssetChanges(nonDTSChanges);
+                    }
+                    const buildResult = await target.build();
+                    if (buildResult.err) {
+                        err = buildResult.err;
+                        this._logger.error(`Target(${targetName}) build failed, cost: ${performance.now() - targetStartedAt}ms. ${getErrorMessage(err)}`);
+                        target.deleteCacheFile((err as any).file);
+                        continue;
+                    }
+                    this._logger.debug(`Target(${targetName}) ends, cost: ${performance.now() - targetStartedAt}ms.`);
+                    if (buildResult.depsGraph) {
+                        this._depsGraph = buildResult.depsGraph;
+                    }
+                    this._needUpdateDepsCache = true;
+                } catch (error) {
+                    this._logger.error(`Target(${targetName}) build failed, cost: ${performance.now() - targetStartedAt}ms. ${getErrorMessage(error)}`);
+                    throw error;
+                }
+            }
+        } finally {
+            this._building = false;
+            this._currentTaskId = null;
+            eventEmitter.emit('compiled', 'project');
+        }
 
         if (err) {
             throw err;
@@ -705,6 +736,115 @@ export class PackerDriver {
     }
 }
 
+interface PackerDriverTestTarget {
+    readonly quickPackLoaderContext?: QuickPackLoaderContext;
+    readonly ready?: boolean;
+    readonly respectToEngineFeatureSetting: boolean;
+    updateDbInfos(dbInfos: DBInfo[]): void;
+    setAssetDatabaseDomains(assetDatabaseDomains: AssetDatabaseDomain[]): Promise<void>;
+    setEngineIndexModuleSource(source: string): Promise<void>;
+    clearCache(): Promise<void>;
+    applyAssetChanges(changes: readonly AssetChange[]): Promise<void>;
+    deleteCacheFile(filePath: string): void;
+    build(): Promise<BuildResult>;
+}
+
+/**
+ * @internal
+ */
+// Test-only factory. Do not use from production runtime paths.
+export function createPackerDriverForTest(input: {
+    logger?: Pick<PackerDriverLogger, 'clear' | 'debug' | 'error' | 'warn'>;
+    targets: Record<TargetName, PackerDriverTestTarget>;
+    tsBuilder?: TypeScriptConfigBuilder;
+    statsQuery?: StatsQuery;
+}): PackerDriver {
+    return Reflect.construct(PackerDriver, [
+        input.tsBuilder ?? createNoopTypeScriptConfigBuilderForTest(),
+        input.targets as PackerDriver['_targets'],
+        input.statsQuery ?? createNoopStatsQueryForTest(),
+        (input.logger ?? createNoopPackerDriverLoggerForTest()) as PackerDriverLogger,
+    ]) as PackerDriver;
+}
+
+/**
+ * @internal
+ */
+// Test-only factory. Do not use from production runtime paths.
+export function createPackTargetForTest(input: {
+    name?: string;
+    modLo: Pick<ModLo, 'addMemoryModule' | 'setUUID' | 'unsetUUID' | 'setImportMap' | 'setAssetPrefixes'>;
+    quickPack?: Partial<QuickPack>;
+    quickPackLoaderContext?: QuickPackLoaderContext;
+    logger?: Pick<PackerDriverLogger, 'debug' | 'error' | 'warn'>;
+    tentativePrerequisiteImportsMod?: boolean;
+    optimizeEntrySourceCompilation?: boolean;
+}): PackerDriverTestTarget {
+    return new PackTarget({
+        name: input.name ?? 'preview',
+        modLo: input.modLo as ModLo,
+        quickPack: (input.quickPack ?? {}) as QuickPack,
+        quickPackLoaderContext: input.quickPackLoaderContext as QuickPackLoaderContext,
+        logger: (input.logger ?? createNoopPackerDriverLoggerForTest()) as PackerDriverLogger,
+        tentativePrerequisiteImportsMod: input.tentativePrerequisiteImportsMod ?? false,
+        engineIndexModule: {
+            source: '',
+            respectToFeatureSetting: false,
+        },
+        optimizeEntrySourceCompilation: input.optimizeEntrySourceCompilation,
+    });
+}
+
+function createNoopPackerDriverLoggerForTest(): Pick<PackerDriverLogger, 'clear' | 'debug' | 'error' | 'warn'> {
+    const logger = {
+        clear() {},
+        debug() {},
+        error() {
+            return logger as unknown as PackerDriverLogger;
+        },
+        warn() {
+            return logger as unknown as PackerDriverLogger;
+        },
+    };
+    return logger;
+}
+
+function createNoopTypeScriptConfigBuilderForTest(): TypeScriptConfigBuilder {
+    return {
+        setDbURLInfos() {},
+        getTempPath() {
+            return '';
+        },
+        getProjectPath() {
+            return '';
+        },
+        getRealTsConfigPath() {
+            return '';
+        },
+        async getInternalDbURLInfos() {
+            return [];
+        },
+        async getCompilerOptions() {
+            return {};
+        },
+        async generateDeclarations() {},
+    } as unknown as TypeScriptConfigBuilder;
+}
+
+function createNoopStatsQueryForTest(): StatsQuery {
+    return {
+        getFeatures() {
+            return [];
+        },
+        getUnitsOfFeatures() {
+            return [];
+        },
+        evaluateIndexModuleSource() {
+            return '';
+        },
+    } as unknown as StatsQuery;
+}
+
 const engineIndexModURL = 'cce:/internal/x/cc';
 
 type TargetName = string;
@@ -767,8 +907,8 @@ interface ImportMapWithURL {
     url: URL;
 }
 
-// 考虑到这是潜在的收费点，默认关闭入口脚本的优化功能
-const OPTIMIZE_ENTRY_SOURCE_COMPILATION = false;
+// 考虑到这是潜在的收费点，默认关闭入口脚本的优化功能。
+const defaultOptimizeEntrySourceCompilation = false;
 
 class PackTarget {
     constructor(options: {
@@ -793,16 +933,19 @@ class PackTarget {
             respectToFeatureSetting: boolean;
         };
         userImportMap?: ImportMapWithURL;
+        optimizeEntrySourceCompilation?: boolean;
     }) {
         this._name = options.name;
         this._modLo = options.modLo;
         this._quickPack = options.quickPack;
+        this._installQuickPackDiagnostics();
         this._quickPackLoaderContext = options.quickPackLoaderContext;
         this._sourceMaps = options.sourceMaps;
         this._logger = options.logger;
         this._respectToFeatureSetting = options.engineIndexModule.respectToFeatureSetting;
         this._tentativePrerequisiteImportsMod = options.tentativePrerequisiteImportsMod;
         this._userImportMap = options.userImportMap;
+        this._optimizeEntrySourceCompilation = options.optimizeEntrySourceCompilation ?? defaultOptimizeEntrySourceCompilation;
 
         const modLo = this._modLo;
         this._entryMod = modLo.addMemoryModule(prerequisiteImportsModURL,
@@ -814,6 +957,269 @@ class PackTarget {
         // In constructor, there's no build in progress, so we can safely call setAssetDatabaseDomains
         // without waiting. We use a synchronous initialization method.
         this._setAssetDatabaseDomainsSync([]);
+    }
+
+    private _installQuickPackDiagnostics() {
+        const quickPack = this._quickPack as any;
+        if (quickPack.__cocosCliDiagnosticsInstalled) {
+            return;
+        }
+        quickPack.__cocosCliDiagnosticsInstalled = true;
+
+        const originalBuild = quickPack.build?.bind(quickPack);
+        if (originalBuild) {
+            quickPack.build = async (...args: unknown[]) => {
+                const startedAt = performance.now();
+                const specifierCount = Array.isArray(args[0]) ? args[0].length : undefined;
+                this._logger.debug(`QuickPack(${this._name}) build:start specifierCount=${specifierCount}`);
+                try {
+                    const result = await originalBuild(...args);
+                    this._logger.debug(`QuickPack(${this._name}) build:returned cost=${performance.now() - startedAt}ms`);
+                    return result;
+                } catch (err: any) {
+                    this._logger.error(`QuickPack(${this._name}) build:error cost=${performance.now() - startedAt}ms ${err?.stack || err}`);
+                    throw err;
+                }
+            };
+        }
+
+        this._wrapQuickPackRecursiveStage(quickPack, '_instantiateAll', 'instantiate');
+        this._wrapQuickPackStage(quickPack._chunkWriter, 'setEntryChunks', 'setEntryChunks');
+        this._wrapQuickPackStage(quickPack._chunkWriter, 'persistToTempFiles', 'persistTempFiles');
+        this._wrapQuickPackStage(quickPack._chunkWriter, 'renameTempFiles', 'renameTempFiles');
+        this._wrapQuickPackPrerequisiteDiagnostics(quickPack);
+        this._wrapQuickPackStage(quickPack, '_getDepsGraphFromModuleRecords', 'depsGraph', () => {
+            const moduleCount = quickPack._moduleRecords ? Object.keys(quickPack._moduleRecords).length : undefined;
+            return moduleCount === undefined ? '' : ` moduleCount=${moduleCount}`;
+        }, (result) => {
+            const graphCount = result ? Object.keys(result).length : undefined;
+            return graphCount === undefined ? '' : ` graphCount=${graphCount}`;
+        });
+
+        const middleware = quickPack._middleware;
+        const originalLock = middleware?.lock?.bind(middleware);
+        if (originalLock) {
+            middleware.lock = (...args: unknown[]) => {
+                const startedAt = performance.now();
+                this._logger.debug(`QuickPack(${this._name}) lock:start`);
+                try {
+                    const result = originalLock(...args);
+                    if (result && typeof result.then === 'function') {
+                        return result.then(
+                            (release: unknown) => this._wrapQuickPackRelease(release, startedAt),
+                            (err: unknown) => {
+                                this._logger.error(`QuickPack(${this._name}) lock:error cost=${performance.now() - startedAt}ms ${getErrorMessage(err)}`);
+                                throw err;
+                            },
+                        );
+                    }
+                    return this._wrapQuickPackRelease(result, startedAt);
+                } catch (err: any) {
+                    this._logger.error(`QuickPack(${this._name}) lock:error cost=${performance.now() - startedAt}ms ${err?.stack || err}`);
+                    throw err;
+                }
+            };
+        }
+    }
+
+    private _wrapQuickPackPrerequisiteDiagnostics(quickPack: any) {
+        const chunkWriter = quickPack._chunkWriter;
+        if (!chunkWriter) {
+            return;
+        }
+
+        const getPrerequisiteRecord = () => quickPack._moduleRecords?.[prerequisiteImportsModURL];
+        const getChunkImportsCount = (chunkId: unknown): number | undefined => {
+            if (typeof chunkId !== 'string') {
+                return undefined;
+            }
+            const chunk = chunkWriter.getChunk?.(chunkId);
+            const imports = chunk?.imports;
+            return imports ? Object.keys(imports).length : undefined;
+        };
+        const getRecordStats = () => {
+            const record = getPrerequisiteRecord();
+            return {
+                chunkId: record?.chunkId,
+                importsCount: Array.isArray(record?.imports) ? record.imports.length : undefined,
+                resolutionsCount: Array.isArray(record?.resolutions) ? record.resolutions.length : undefined,
+                chunkImportsCount: getChunkImportsCount(record?.chunkId),
+            };
+        };
+        const formatStats = (stats: ReturnType<typeof getRecordStats>) => (
+            ` chunkId=${stats.chunkId ?? 'missing'}`
+            + ` mainImports=${stats.importsCount ?? 'missing'}`
+            + ` mainResolutions=${stats.resolutionsCount ?? 'missing'}`
+            + ` chunkImports=${stats.chunkImportsCount ?? 'missing'}`
+        );
+
+        const originalInspect = quickPack._inspect;
+        if (typeof originalInspect === 'function') {
+            quickPack._inspect = (...args: unknown[]) => {
+                const url = args[0] as { href?: string } | undefined;
+                const isPrerequisite = url?.href === prerequisiteImportsModURL;
+                const result = originalInspect.apply(quickPack, args);
+                if (isPrerequisite) {
+                    this._logger.debug(`QuickPack(${this._name}) prerequisite:inspect${formatStats(getRecordStats())}`);
+                }
+                return result;
+            };
+        }
+
+        const originalLink = quickPack._link;
+        if (typeof originalLink === 'function') {
+            quickPack._link = (...args: unknown[]) => {
+                const url = args[0] as { href?: string } | undefined;
+                const isPrerequisite = url?.href === prerequisiteImportsModURL;
+                if (isPrerequisite) {
+                    this._logger.debug(`QuickPack(${this._name}) prerequisite:link:start${formatStats(getRecordStats())}`);
+                }
+                const result = originalLink.apply(quickPack, args);
+                if (isPrerequisite) {
+                    const depCount = Array.isArray(result) ? result.length : undefined;
+                    this._logger.debug(
+                        `QuickPack(${this._name}) prerequisite:link:done${formatStats(getRecordStats())}`
+                        + ` depCount=${depCount ?? 'missing'}`,
+                    );
+                }
+                return result;
+            };
+        }
+
+        const originalSerializeRecord = chunkWriter.serializeRecord;
+        if (typeof originalSerializeRecord === 'function') {
+            chunkWriter.serializeRecord = (...args: unknown[]) => {
+                this._logger.debug(`QuickPack(${this._name}) prerequisite:serializeRecord:start${formatStats(getRecordStats())}`);
+                const result = originalSerializeRecord.apply(chunkWriter, args);
+                const chunkId = getPrerequisiteRecord()?.chunkId;
+                const serializedChunk = typeof chunkId === 'string' ? result?.chunks?.[chunkId] : undefined;
+                const serializedImportsCount = serializedChunk?.imports ? Object.keys(serializedChunk.imports).length : undefined;
+                this._logger.debug(
+                    `QuickPack(${this._name}) prerequisite:serializeRecord:done${formatStats(getRecordStats())}`
+                    + ` serializedImports=${serializedImportsCount ?? 'missing'}`,
+                );
+                return result;
+            };
+        }
+
+        const originalBuildMaps = chunkWriter._buildMaps;
+        if (typeof originalBuildMaps === 'function') {
+            chunkWriter._buildMaps = (...args: unknown[]) => {
+                this._logger.debug(`QuickPack(${this._name}) prerequisite:buildMaps:start${formatStats(getRecordStats())}`);
+                const result = originalBuildMaps.apply(chunkWriter, args);
+                const prerequisiteChunk = result?.importMap?.imports?.[prerequisiteImportsModURL];
+                const prerequisiteScope = prerequisiteChunk ? result?.importMap?.scopes?.[prerequisiteChunk] : undefined;
+                const scopeImportsCount = prerequisiteScope ? Object.keys(prerequisiteScope).length : undefined;
+                this._logger.debug(
+                    `QuickPack(${this._name}) prerequisite:buildMaps:done${formatStats(getRecordStats())}`
+                    + ` importMapChunk=${prerequisiteChunk ?? 'missing'}`
+                    + ` scopeImports=${scopeImportsCount ?? 'missing'}`,
+                );
+                return result;
+            };
+        }
+    }
+
+    private _wrapQuickPackStage(
+        owner: any,
+        methodName: string,
+        stageName: string,
+        getStartSuffix: () => string = () => '',
+        getDoneSuffix: (result: unknown) => string = () => '',
+    ) {
+        const original = owner?.[methodName];
+        if (typeof original !== 'function') {
+            return;
+        }
+        owner[methodName] = (...args: unknown[]) => {
+            const startedAt = performance.now();
+            this._logger.debug(`QuickPack(${this._name}) ${stageName}:start${getStartSuffix()}`);
+            try {
+                const result = original.apply(owner, args);
+                if (result && typeof result.then === 'function') {
+                    return result.then(
+                        (value: unknown) => {
+                            this._logger.debug(`QuickPack(${this._name}) ${stageName}:done cost=${performance.now() - startedAt}ms${getDoneSuffix(value)}`);
+                            return value;
+                        },
+                        (err: unknown) => {
+                            this._logger.error(`QuickPack(${this._name}) ${stageName}:error cost=${performance.now() - startedAt}ms ${getErrorMessage(err)}`);
+                            throw err;
+                        },
+                    );
+                }
+                this._logger.debug(`QuickPack(${this._name}) ${stageName}:done cost=${performance.now() - startedAt}ms${getDoneSuffix(result)}`);
+                return result;
+            } catch (err: any) {
+                this._logger.error(`QuickPack(${this._name}) ${stageName}:error cost=${performance.now() - startedAt}ms ${err?.stack || err}`);
+                throw err;
+            }
+        };
+    }
+
+    private _wrapQuickPackRecursiveStage(owner: any, methodName: string, stageName: string) {
+        const original = owner?.[methodName];
+        if (typeof original !== 'function') {
+            return;
+        }
+        let depth = 0;
+        let callCount = 0;
+        owner[methodName] = (...args: unknown[]) => {
+            const isRootCall = depth === 0;
+            if (isRootCall) {
+                callCount = 0;
+            }
+            callCount++;
+            depth++;
+            const startedAt = performance.now();
+            if (isRootCall) {
+                this._logger.debug(`QuickPack(${this._name}) ${stageName}:start`);
+            }
+
+            const finish = <T>(value: T): T => {
+                depth--;
+                if (isRootCall) {
+                    this._logger.debug(`QuickPack(${this._name}) ${stageName}:done cost=${performance.now() - startedAt}ms callCount=${callCount}`);
+                }
+                return value;
+            };
+            const fail = (err: unknown): never => {
+                depth--;
+                if (isRootCall) {
+                    this._logger.error(`QuickPack(${this._name}) ${stageName}:error cost=${performance.now() - startedAt}ms callCount=${callCount} ${getErrorMessage(err)}`);
+                }
+                throw err;
+            };
+
+            try {
+                const result = original.apply(owner, args);
+                if (result && typeof result.then === 'function') {
+                    return result.then(finish, fail);
+                }
+                return finish(result);
+            } catch (err: any) {
+                return fail(err);
+            }
+        };
+    }
+
+    private _wrapQuickPackRelease(release: unknown, lockStartedAt: number) {
+        this._logger.debug(`QuickPack(${this._name}) lock:done cost=${performance.now() - lockStartedAt}ms`);
+        if (typeof release !== 'function') {
+            return release;
+        }
+        return async (...args: unknown[]) => {
+            const startedAt = performance.now();
+            this._logger.debug(`QuickPack(${this._name}) unlock:start`);
+            try {
+                const result = await release(...args);
+                this._logger.debug(`QuickPack(${this._name}) unlock:done cost=${performance.now() - startedAt}ms`);
+                return result;
+            } catch (err: any) {
+                this._logger.error(`QuickPack(${this._name}) unlock:error cost=${performance.now() - startedAt}ms ${err?.stack || err}`);
+                throw err;
+            }
+        };
     }
 
     get quickPackLoaderContext() {
@@ -972,7 +1378,7 @@ class PackTarget {
         const source = (this._tentativePrerequisiteImportsMod ? makeTentativePrerequisiteImports : makePrerequisiteImportsMod)(prerequisiteImports);
 
         console.time('update entry mod');
-        if (OPTIMIZE_ENTRY_SOURCE_COMPILATION) {
+        if (this._optimizeEntrySourceCompilation) {
             // 注意：.source 是一个 setter，其内部会更新 timestamp，导致每次都重新编译入口文件，如果项目比较大，入口文件的编译会非常耗时。
             // 这里优化，只有在有差异的情况下才去更新 source
             if (this._entryModSource.length !== source.length || this._entryModSource !== source) {
@@ -1069,6 +1475,7 @@ class PackTarget {
     private _respectToFeatureSetting: boolean;
     private _tentativePrerequisiteImportsMod: boolean;
     private _userImportMap: ImportMapWithURL | undefined;
+    private _optimizeEntrySourceCompilation: boolean;
 
     private async _getPrerequisiteAssetModsWithFilter() {
         const prerequisiteAssetMods = Array.from(this._prerequisiteAssetMods).sort();

@@ -303,6 +303,9 @@ export default class Launcher {
             PreviewSettingsProvider,
             startRuntimePreviewServer,
         } = await import('../runtime-preview');
+        const { createRuntimeAssetStartupSnapshot } = await import(
+            '../runtime-preview/watch/runtime-asset-change-watcher'
+        );
         const useSharedProjectLibrary = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT !== '0';
         const projectLibraryRoot = process.env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF
             || (useSharedProjectLibrary
@@ -363,6 +366,17 @@ export default class Launcher {
                 stageStartedAt.delete(stage);
                 emitRuntimePreviewEvent(`${stage}:error${durationPart} ${message}`);
             },
+        };
+        const readinessState = {
+            settingsReady: false,
+            assetWatcherReady: options.watchAssets !== true,
+            artifactsInspected: false,
+        };
+        const readiness = {
+            isReady: () => readinessState.settingsReady
+                && readinessState.assetWatcherReady
+                && readinessState.artifactsInspected,
+            describe: () => ({ ...readinessState }),
         };
         let preparePreviewSettings: Promise<void> | null = null;
         const ensurePreviewSettingsReady = (runtimeServerUrl: string) => {
@@ -429,6 +443,7 @@ export default class Launcher {
                         `scripts=${scriptCount}`,
                         `bundles=${bundleCount}`,
                     ].join(' '));
+                    readinessState.settingsReady = true;
                     return result;
                 } catch (error) {
                     const message = error instanceof Error ? error.message : String(error);
@@ -443,6 +458,9 @@ export default class Launcher {
                 emitRuntimePreviewEvent(`  ${key}: ${value}`);
             }
         };
+        const assetWatcherStartupSnapshot = options.watchAssets === true
+            ? await createRuntimeAssetStartupSnapshot(join(this.projectPath, 'assets'))
+            : undefined;
 
         const server = await startRuntimePreviewServer({
             projectRoot: this.projectPath,
@@ -460,8 +478,10 @@ export default class Launcher {
             refreshOnReload: options.refreshOnReload === true,
             watchAssets: options.watchAssets === true,
             deferAssetWatcherStart: options.watchAssets === true,
+            assetWatcherStartupSnapshot,
             prepareRuntimePreview: ensurePreviewSettingsReady,
             settingsProvider,
+            readiness,
         });
         serverUrl = server.url;
         writeRuntimePreviewLog = (line) => {
@@ -494,6 +514,7 @@ export default class Launcher {
                 emitRuntimePreviewEvent('asset-db:script-compile:missing');
             }
             await server.startAssetWatcher();
+            readinessState.assetWatcherReady = true;
             try {
                 await inspectRuntimePreviewProgrammingArtifacts({
                     projectRoot: this.projectPath,
@@ -501,6 +522,7 @@ export default class Launcher {
                     programmingRoot: projectProgrammingRoot,
                     emit: emitRuntimePreviewEvent,
                 });
+                readinessState.artifactsInspected = true;
             } catch (error) {
                 if (!assetDbScriptCompileErrorLine) {
                     throw error;
@@ -509,6 +531,10 @@ export default class Launcher {
                 emitRuntimePreviewEvent(
                     `programming:inspection:report-only source=asset-db:script-compile:error error=${message}`,
                 );
+                readinessState.artifactsInspected = true;
+            }
+            if (!readiness.isReady()) {
+                throw new Error('Runtime preview readiness state did not reach ready before preview:ready.');
             }
             emitRuntimePreviewEvent(`preview:ready durationMs=${Date.now() - previewStartedAt}`);
         } catch (error) {

@@ -1,13 +1,51 @@
 import { defineConfig } from 'vitest/config';
-import { dirname, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const root = dirname(fileURLToPath(import.meta.url));
-const engineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT;
+const configuredProjectRoot = process.env.COCOS_CLI_TEST_PROJECT_ROOT;
+const configuredEngineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT;
+
+function readProjectEngineRoot(projectRoot: string): string | undefined {
+  const packageJsonPath = resolve(projectRoot, 'package.json');
+  if (!existsSync(packageJsonPath)) {
+    return undefined;
+  }
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+    'cocos-cli'?: {
+      enginePath?: unknown;
+    };
+  };
+  const enginePath = packageJson['cocos-cli']?.enginePath;
+  if (typeof enginePath !== 'string' || !enginePath.trim()) {
+    return undefined;
+  }
+  return isAbsolute(enginePath)
+    ? resolve(enginePath)
+    : resolve(projectRoot, enginePath);
+}
+
+const projectEngineRoot = configuredProjectRoot
+  ? readProjectEngineRoot(configuredProjectRoot)
+  : undefined;
+const engineRoot = configuredEngineRoot
+  ? resolve(configuredEngineRoot)
+  : projectEngineRoot;
 
 if (!engineRoot) {
-  throw new Error('Missing required environment variable: COCOS_CLI_TEST_ENGINE_ROOT');
+  throw new Error('Missing COCOS_CLI_TEST_ENGINE_ROOT. When a test uses COCOS_CLI_TEST_PROJECT_ROOT, prefer deriving it from that project package.json cocos-cli.enginePath.');
+}
+
+if (projectEngineRoot && configuredEngineRoot && resolve(configuredEngineRoot) !== projectEngineRoot) {
+  throw new Error([
+    'COCOS_CLI_TEST_ENGINE_ROOT does not match COCOS_CLI_TEST_PROJECT_ROOT package.json cocos-cli.enginePath.',
+    `projectRoot=${resolve(configuredProjectRoot!)}`,
+    `projectEngineRoot=${projectEngineRoot}`,
+    `envEngineRoot=${resolve(configuredEngineRoot)}`,
+    'Use the project-configured engine root unless the test explicitly documents an override.',
+  ].join('\n'));
 }
 
 export default defineConfig({

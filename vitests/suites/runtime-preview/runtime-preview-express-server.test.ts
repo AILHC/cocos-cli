@@ -228,6 +228,110 @@ describe('runtime preview express server adapter', () => {
     }
   });
 
+  it('returns deterministic pre-ready responses without dirty refresh before preview ready', async () => {
+    const refresh = vi.fn(async () => createRefreshResult({ reason: 'reload' }));
+    const prepareRuntimePreview = vi.fn(async () => undefined);
+    const loadPreviewSettings = vi.fn(async () => ({
+      settings: {
+        assets: {
+          server: '',
+          importBase: '',
+          nativeBase: '',
+        },
+      },
+      script2library: {},
+      bundleConfigs: [
+        {
+          name: 'resources',
+        },
+      ],
+    }));
+    const readiness = {
+      isReady: vi.fn(() => false),
+      describe: vi.fn(() => ({
+        settingsReady: false,
+        assetWatcherReady: false,
+        artifactsInspected: false,
+      })),
+    };
+    const { server } = await createServerFixture({
+      refreshOnReload: true,
+      refreshCoordinator: { refresh },
+      prepareRuntimePreview,
+      settingsProvider: new PreviewSettingsProvider({ loadPreviewSettings }),
+      readiness,
+    });
+
+    try {
+      const root = await fetch(`${server.url}/`);
+      expect(root.status).toBe(503);
+      expect(root.headers.get('content-type')).toContain('text/plain');
+      expect(await root.text()).toContain('Runtime preview is preparing');
+      expect(refresh).not.toHaveBeenCalled();
+      expect(prepareRuntimePreview).not.toHaveBeenCalled();
+
+      const settings = await fetch(`${server.url}/settings.js`);
+      expect(settings.status).toBe(503);
+      expect(settings.headers.get('content-type')).toContain('text/plain');
+      expect(await settings.text()).toContain('Runtime preview is preparing');
+
+      const bundleConfig = await fetch(`${server.url}/assets/resources/config.json`);
+      expect(bundleConfig.status).toBe(503);
+      expect(bundleConfig.headers.get('content-type')).toContain('text/plain');
+      expect(await bundleConfig.text()).toContain('Runtime preview is preparing');
+      expect(loadPreviewSettings).not.toHaveBeenCalled();
+
+      const endpointRefresh = await fetch(`${server.url}/__runtime-preview/refresh`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(endpointRefresh.status).toBe(503);
+      expect(endpointRefresh.headers.get('content-type')).toContain('text/plain');
+      expect(await endpointRefresh.text()).toContain('Runtime preview is preparing');
+      expect(refresh).not.toHaveBeenCalled();
+      expect(prepareRuntimePreview).not.toHaveBeenCalled();
+
+      const getRefresh = await fetch(`${server.url}/__runtime-preview/refresh`);
+      expect(getRefresh.status).toBe(503);
+      expect(getRefresh.headers.get('content-type')).toContain('text/plain');
+      expect(await getRefresh.text()).toContain('Runtime preview is preparing');
+      expect(refresh).not.toHaveBeenCalled();
+      expect(prepareRuntimePreview).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('serves readiness status and health before preview ready', async () => {
+    const readiness = {
+      isReady: vi.fn(() => false),
+      describe: vi.fn(() => ({
+        settingsReady: true,
+        assetWatcherReady: false,
+        artifactsInspected: false,
+      })),
+    };
+    const { server } = await createServerFixture({ readiness });
+
+    try {
+      const status = await fetch(`${server.url}/__runtime-preview/status`);
+      expect(status.status).toBe(200);
+      expect(status.headers.get('content-type')).toContain('application/json');
+      expect(await status.json()).toEqual({
+        ready: false,
+        settingsReady: true,
+        assetWatcherReady: false,
+        artifactsInspected: false,
+      });
+
+      const health = await fetch(`${server.url}/__runtime-preview/health`);
+      expect(health.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('handles runtime refresh endpoint before generic routing', async () => {
     const refresh = vi.fn(async () => createRefreshResult());
     const { server } = await createServerFixture({
@@ -541,6 +645,7 @@ describe('runtime preview express server adapter', () => {
       refreshTarget,
       assetDirtyStoreFactory: () => ({
         recordFileEvent: vi.fn(),
+        recordDirtyTarget: vi.fn(),
         drainDirtyTargets: () => ({ targets: [], entries: [], eventCount: 0, drainedAt: Date.now() }),
         requeueTargets: vi.fn(),
         peekDirtyTargets: () => [],

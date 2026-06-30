@@ -1,6 +1,7 @@
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createRuntimeAssetDirtyStore } from '@runtime-preview/watch/runtime-asset-dirty-store';
+import { createRuntimeAssetChangeWatcher } from '@runtime-preview/watch/runtime-asset-change-watcher';
 
 describe('runtime asset dirty store', () => {
   const projectRoot = 'E:/project';
@@ -108,5 +109,97 @@ describe('runtime asset dirty store', () => {
     store.recordFileEvent({ type: 'update', path: join(assetsRoot, 'a.json') });
     expect(store.peekDirtyTargets(1)).toEqual(['db://assets/a.json']);
     expect(store.drainDirtyTargets().targets).toEqual(['db://assets/a.json', 'db://assets/b.json']);
+  });
+
+  it('records synthetic dirty targets through the same drain ordering contract', () => {
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    store.recordDirtyTarget({
+      target: 'db://assets/scripts/damage_system.ts',
+      eventType: 'update',
+      assetEventCount: 1,
+    });
+    store.recordFileEvent({ type: 'update', path: join(assetsRoot, 'a.json') });
+
+    expect(store.peekDirtyTargets(5)).toEqual([
+      'db://assets/a.json',
+      'db://assets/scripts/damage_system.ts',
+    ]);
+    expect(store.drainDirtyTargets().entries).toEqual([
+      {
+        target: 'db://assets/a.json',
+        eventTypes: ['update'],
+        assetEventCount: 1,
+        metaEventCount: 0,
+      },
+      {
+        target: 'db://assets/scripts/damage_system.ts',
+        eventTypes: ['update'],
+        assetEventCount: 1,
+        metaEventCount: 0,
+      },
+    ]);
+  });
+
+  it('records startup baseline source diffs as dirty targets and counts meta diffs separately', async () => {
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    const unsubscribe = vi.fn();
+    const watcher = createRuntimeAssetChangeWatcher({
+      projectRoot,
+      dirtyStore: store,
+      startupSnapshot: {
+        files: new Map([
+          ['scripts/damage_system.ts', { mtimeMs: 1, size: 100 }],
+          ['scripts/damage_system.ts.meta', { mtimeMs: 1, size: 10 }],
+        ]),
+      },
+      snapshotFiles: async () => ({
+        files: new Map([
+          ['scripts/damage_system.ts', { mtimeMs: 2, size: 101 }],
+          ['scripts/damage_system.ts.meta', { mtimeMs: 2, size: 11 }],
+        ]),
+      }),
+      subscribe: async () => ({ unsubscribe }),
+    });
+
+    await watcher.start();
+
+    expect(store.peekDirtyTargets()).toEqual(['db://assets/scripts/damage_system.ts']);
+    expect(watcher.getStatus()).toMatchObject({
+      startupDirtyTargetCount: 1,
+      startupIgnoredMetaOnlyCount: 1,
+      startupSampleTargets: ['db://assets/scripts/damage_system.ts'],
+      startupIgnoredMetaOnlySample: ['scripts/damage_system.ts.meta'],
+    });
+  });
+
+  it('does not record startup baseline meta-only changes as dirty targets', async () => {
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    const watcher = createRuntimeAssetChangeWatcher({
+      projectRoot,
+      dirtyStore: store,
+      startupSnapshot: {
+        files: new Map([
+          ['scripts/damage_system.ts', { mtimeMs: 1, size: 100 }],
+          ['scripts/damage_system.ts.meta', { mtimeMs: 1, size: 10 }],
+        ]),
+      },
+      snapshotFiles: async () => ({
+        files: new Map([
+          ['scripts/damage_system.ts', { mtimeMs: 1, size: 100 }],
+          ['scripts/damage_system.ts.meta', { mtimeMs: 2, size: 11 }],
+        ]),
+      }),
+      subscribe: async () => ({ unsubscribe: vi.fn() }),
+    });
+
+    await watcher.start();
+
+    expect(store.peekDirtyTargets()).toEqual([]);
+    expect(watcher.getStatus()).toMatchObject({
+      startupDirtyTargetCount: 0,
+      startupIgnoredMetaOnlyCount: 1,
+      startupSampleTargets: [],
+      startupIgnoredMetaOnlySample: ['scripts/damage_system.ts.meta'],
+    });
   });
 });

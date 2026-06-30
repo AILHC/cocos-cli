@@ -23,6 +23,12 @@ export interface RuntimeAssetDirtyEntry {
 
 export interface RuntimeAssetDirtyStore {
     recordFileEvent(event: RuntimeAssetWatchEvent): void;
+    recordDirtyTarget(input: {
+        target: string;
+        eventType: RuntimeAssetWatchEventType;
+        assetEventCount?: number;
+        metaEventCount?: number;
+    }): void;
     drainDirtyTargets(): RuntimeAssetDirtyBatch;
     requeueTargets(targets: string[]): void;
     peekDirtyTargets(limit?: number): string[];
@@ -60,6 +66,24 @@ export function createRuntimeAssetDirtyStore(options: {
     }>();
     let eventCount = 0;
 
+    const updateTarget = (
+        target: string,
+        eventType: RuntimeAssetWatchEventType,
+        assetEventCount: number,
+        metaEventCount: number,
+    ): void => {
+        const entry = targets.get(target) ?? {
+            eventTypes: new Set<RuntimeAssetWatchEventType>(),
+            assetEventCount: 0,
+            metaEventCount: 0,
+        };
+        entry.eventTypes.add(eventType);
+        entry.assetEventCount += assetEventCount;
+        entry.metaEventCount += metaEventCount;
+        targets.set(target, entry);
+        eventCount += assetEventCount + metaEventCount;
+    };
+
     const normalizeTarget = (filePath: string): string | null => {
         const sourcePath = resolve(sourcePathForAssetEvent(filePath));
         if (!isInsideOrSameRoot(sourcePath, assetsRoot)) {
@@ -77,19 +101,20 @@ export function createRuntimeAssetDirtyStore(options: {
                 return;
             }
 
-            eventCount += 1;
-            const entry = targets.get(target) ?? {
-                eventTypes: new Set<RuntimeAssetWatchEventType>(),
-                assetEventCount: 0,
-                metaEventCount: 0,
-            };
-            entry.eventTypes.add(event.type);
             if (event.path.endsWith('.meta')) {
-                entry.metaEventCount += 1;
+                updateTarget(target, event.type, 0, 1);
             } else {
-                entry.assetEventCount += 1;
+                updateTarget(target, event.type, 1, 0);
             }
-            targets.set(target, entry);
+        },
+        recordDirtyTarget(input): void {
+            if (input.target !== 'db://assets' && !input.target.startsWith('db://assets/')) {
+                return;
+            }
+
+            const assetEventCount = input.assetEventCount ?? 1;
+            const metaEventCount = input.metaEventCount ?? 0;
+            updateTarget(input.target, input.eventType, assetEventCount, metaEventCount);
         },
         drainDirtyTargets(): RuntimeAssetDirtyBatch {
             const entries = Array.from(targets.entries())

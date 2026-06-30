@@ -66,12 +66,19 @@ E:\own_space\engines\cocos-test-projects
 
 ```powershell
 $env:COCOS_CLI_TEST_PROJECT_ROOT='E:\own_space\engines\cocos-test-projects'
-$env:COCOS_CLI_TEST_ENGINE_ROOT='D:\workspace\engines\cocos\3.8.6'
+$packageJson = Get-Content -Raw -LiteralPath (Join-Path $env:COCOS_CLI_TEST_PROJECT_ROOT 'package.json') | ConvertFrom-Json
+$enginePath = $packageJson.'cocos-cli'.enginePath
+if ([System.IO.Path]::IsPathRooted($enginePath)) {
+  $env:COCOS_CLI_TEST_ENGINE_ROOT = [System.IO.Path]::GetFullPath($enginePath)
+} else {
+  $env:COCOS_CLI_TEST_ENGINE_ROOT = [System.IO.Path]::GetFullPath((Join-Path $env:COCOS_CLI_TEST_PROJECT_ROOT $enginePath))
+}
 npm --prefix vitests run test -- suites/runtime-preview/main-test-project-cli-integration.test.ts
 ```
 
 要求：
 
+- 主测试项目的 `COCOS_CLI_TEST_ENGINE_ROOT` 必须从主测试项目 `package.json["cocos-cli"].enginePath` 解析得到；不要凭目录名、版本号或历史命令手工挑选 engine 目录。
 - 不需要 frozen Editor reference 的测试，不得设置 `COCOS_CLI_TEST_EDITOR_LIBRARY_REF` 或 `COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF`。
 - 如果测试目标是 production CLI path，应确认测试 helper 没有注入 reference env。
 - 主测试项目通过不代表特定真实业务项目问题已闭环。
@@ -134,7 +141,7 @@ E:\own_space\cocos_work_lab_38x
 | 环境变量 | 允许用途 | 禁止用途 |
 | --- | --- | --- |
 | `COCOS_CLI_TEST_PROJECT_ROOT` | Vitest fixture / 专项集成测试显式指定项目根。 | 不能作为 production 默认项目解析依据；不能替代 issue 指定的真实项目。 |
-| `COCOS_CLI_TEST_ENGINE_ROOT` | Vitest fixture / 专项测试覆盖 engine root。 | 不能替代真实 production 项目配置 `package.json["cocos-cli"].enginePath` 的验收。 |
+| `COCOS_CLI_TEST_ENGINE_ROOT` | Vitest fixture / 专项测试覆盖 engine root；对项目绑定测试，应从该项目 `package.json["cocos-cli"].enginePath` 解析得到。 | 不能替代真实 production 项目配置 `package.json["cocos-cli"].enginePath` 的验收；不能在未说明覆盖原因时使用与项目配置不一致的 engine root。 |
 | `COCOS_CLI_TEST_EDITOR_LIBRARY_REF` | frozen Editor library reference，作为 compatibility baseline 或 test fixture。 | 不能注入 production real-project 验收；不能把 frozen output 当 production runtime 输入。 |
 | `COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF` | frozen Editor programming reference，作为 compatibility baseline 或 test fixture。 | 不能注入 production real-project 验收；不能掩盖 `temp/cli/programming` 或 shared programming 问题。 |
 | `COCOS_CLI_SHARED_LIBRARY_OUTPUT` | 明确测试 shared / isolated project library output 策略。`0` 表示回退 isolated output；未设置时当前 production 默认是 shared output。 | 不能为了让测试通过静默切换 output 策略；每个测试必须说明为何设置。 |

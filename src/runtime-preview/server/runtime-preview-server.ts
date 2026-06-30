@@ -16,6 +16,8 @@ import { PreviewSettingsProvider } from '../settings/preview-settings-provider';
 import {
     createRuntimeAssetChangeWatcher,
     type RuntimeAssetChangeWatcher,
+    createRuntimeAssetStartupSnapshot,
+    type RuntimeAssetStartupSnapshot,
 } from '../watch/runtime-asset-change-watcher';
 import {
     createRuntimeAssetDirtyStore,
@@ -47,15 +49,25 @@ export interface RuntimePreviewServerOptions {
     refreshOnReload?: boolean;
     watchAssets?: boolean;
     deferAssetWatcherStart?: boolean;
+    assetWatcherStartupSnapshot?: RuntimeAssetStartupSnapshot;
     assetDirtyStoreFactory?: (input: { projectRoot: string }) => RuntimeAssetDirtyStore;
     assetChangeWatcherFactory?: (input: {
         projectRoot: string;
         dirtyStore: RuntimeAssetDirtyStore;
         logger: RuntimePreviewLogger;
+        startupSnapshot?: RuntimeAssetStartupSnapshot;
     }) => RuntimeAssetChangeWatcher;
     refreshTarget?: (target: string) => Promise<number | null | undefined>;
     refreshCoordinator?: Pick<RuntimeRefreshCoordinator, 'refresh'>;
     prepareRuntimePreview?: (serverUrl: string) => Promise<void>;
+    readiness?: {
+        isReady(): boolean;
+        describe(): {
+            settingsReady: boolean;
+            assetWatcherReady: boolean;
+            artifactsInspected: boolean;
+        };
+    };
 }
 
 export interface StartedRuntimePreviewServer {
@@ -115,6 +127,7 @@ async function listenOnFetchReachablePort(server: Server, port: number, host: st
 
 const maxPreviewErrorBodyBytes = 64 * 1024;
 const maxRuntimeRefreshBodyBytes = 64 * 1024;
+const runtimePreviewPreparingText = 'Runtime preview is preparing. Reload after preview:ready.';
 
 function sendRuntimePreviewResponse(
     response: Response,
@@ -181,6 +194,16 @@ function isRuntimeRefreshJsonObject(body: unknown): body is { target?: unknown }
     return !!body && typeof body === 'object' && !Array.isArray(body);
 }
 
+function requiresRuntimePreviewReadiness(pathname: string): boolean {
+    if (pathname === '/' || pathname === '/settings.js') {
+        return true;
+    }
+    if (/^\/(?:assets|remote)\/[^/]+\/(?:config(?:\.[^/.]+)?\.json|index(?:\.[^/.]+)?\.js)$/.test(pathname)) {
+        return true;
+    }
+    return pathname.startsWith('/plugins/');
+}
+
 export async function startRuntimePreviewServer(options: RuntimePreviewServerOptions): Promise<StartedRuntimePreviewServer> {
     const host = options.host ?? '127.0.0.1';
     const requestedPort = options.port ?? 19530;
@@ -203,8 +226,22 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
             ?? createRuntimeAssetDirtyStore({ projectRoot: context.projectRoot }))
         : undefined;
     const assetWatcher = dirtyStore
-        ? (options.assetChangeWatcherFactory?.({ projectRoot: context.projectRoot, dirtyStore, logger })
-            ?? createRuntimeAssetChangeWatcher({ projectRoot: context.projectRoot, dirtyStore, logger, failSoft: true }))
+        ? (options.assetChangeWatcherFactory?.({
+            projectRoot: context.projectRoot,
+            dirtyStore,
+            logger,
+            startupSnapshot: options.assetWatcherStartupSnapshot,
+        })
+            ?? createRuntimeAssetChangeWatcher({
+                projectRoot: context.projectRoot,
+                dirtyStore,
+                logger,
+                failSoft: true,
+                startupSnapshot: options.assetWatcherStartupSnapshot,
+                snapshotFiles: options.assetWatcherStartupSnapshot
+                    ? createRuntimeAssetStartupSnapshot
+                    : undefined,
+            }))
         : undefined;
     let assetWatcherStarted = false;
     const startAssetWatcher = async (): Promise<void> => {
@@ -236,6 +273,19 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
             });
         }
         return settingsProvider;
+    };
+    const isPreviewReady = (): boolean => options.readiness?.isReady() ?? true;
+    const describeReadiness = () => {
+        const detail = options.readiness?.describe();
+        return {
+            ready: isPreviewReady(),
+            settingsReady: detail?.settingsReady ?? true,
+            assetWatcherReady: detail?.assetWatcherReady ?? true,
+            artifactsInspected: detail?.artifactsInspected ?? true,
+        };
+    };
+    const sendPreparingResponse = (response: Response): void => {
+        response.status(503).type('text/plain').send(runtimePreviewPreparingText);
     };
     let refreshCoordinator = options.refreshCoordinator;
     const getRefreshCoordinator = (): Pick<RuntimeRefreshCoordinator, 'refresh'> => {
@@ -296,6 +346,10 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
     app.all(
         '/__runtime-preview/refresh',
         async (request: Request, response: Response, next: NextFunction) => {
+            if (!isPreviewReady()) {
+                sendPreparingResponse(response);
+                return;
+            }
             if (request.method !== 'POST') {
                 response.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' });
                 response.end('Runtime refresh endpoint only supports POST.');
@@ -349,6 +403,16 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                     cliProgrammingRoot: context.cliProgrammingRoot,
                     logFilePath: logger.logFilePath,
                 }));
+                return;
+            }
+            if (pathname === '/__runtime-preview/status') {
+                response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+                response.end(JSON.stringify(describeReadiness()));
+                return;
+            }
+
+            if (requiresRuntimePreviewReadiness(pathname) && !isPreviewReady()) {
+                sendPreparingResponse(response);
                 return;
             }
 
