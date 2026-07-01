@@ -466,6 +466,8 @@ describe('runtime refresh coordinator', () => {
 
   it('refreshes dirty targets instead of root when a dirty provider is available', async () => {
     const refreshTarget = vi.fn(async () => 1);
+    const withDeferredScriptCompile = vi.fn(async <T>(operation: () => Promise<T>) => operation());
+    const flushDeferredScriptCompile = vi.fn(async () => undefined);
     let dirtyTargetCount = 2;
     let drained = false;
     const dirtyProvider = {
@@ -501,6 +503,8 @@ describe('runtime refresh coordinator', () => {
       waitForIdle: vi.fn(async () => undefined),
       invalidateSettings: vi.fn(),
       clearImportReplacement: vi.fn(),
+      withDeferredScriptCompile,
+      flushDeferredScriptCompile,
       dirtyProvider,
     });
 
@@ -511,16 +515,22 @@ describe('runtime refresh coordinator', () => {
     expect(result.targets).toEqual(['db://assets/a.json', 'db://assets/b.json']);
     expect(refreshTarget).toHaveBeenCalledTimes(2);
     expect(refreshTarget).not.toHaveBeenCalledWith('db://assets');
+    expect(withDeferredScriptCompile).toHaveBeenCalledTimes(2);
+    expect(flushDeferredScriptCompile).toHaveBeenCalledTimes(1);
   });
 
   it('skips refresh when watcher is running and dirty-set is empty', async () => {
     const refreshTarget = vi.fn(async () => 1);
+    const withDeferredScriptCompile = vi.fn(async <T>(operation: () => Promise<T>) => operation());
+    const flushDeferredScriptCompile = vi.fn(async () => undefined);
     const coordinator = createRuntimeRefreshCoordinator({
       projectRoot: 'E:/project',
       refreshTarget,
       waitForIdle: vi.fn(async () => undefined),
       invalidateSettings: vi.fn(),
       clearImportReplacement: vi.fn(),
+      withDeferredScriptCompile,
+      flushDeferredScriptCompile,
       dirtyProvider: {
         drainDirtyTargets: () => ({ targets: [], entries: [], eventCount: 0, drainedAt: 1000 }),
         requeueTargets: vi.fn(),
@@ -542,6 +552,8 @@ describe('runtime refresh coordinator', () => {
     expect(result.target).toBe('dirty-set');
     expect(result.targets).toEqual([]);
     expect(refreshTarget).not.toHaveBeenCalled();
+    expect(withDeferredScriptCompile).not.toHaveBeenCalled();
+    expect(flushDeferredScriptCompile).not.toHaveBeenCalled();
   });
 
   it('requeues dirty targets that fail to refresh', async () => {

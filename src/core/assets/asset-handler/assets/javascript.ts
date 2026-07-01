@@ -11,6 +11,16 @@ type AssetDbStartupScriptImportingGlobal = typeof globalThis & {
     __cocosCliAssetDbStartupScriptImporting?: boolean;
 };
 
+function dispatchScriptAssetChange(asset: Asset | VirtualAsset, type: AssetActionEnum): void {
+    scripting.dispatchAssetChange({
+        type,
+        uuid: asset.uuid,
+        filePath: asset.source,
+        importer: asset.meta.importer,
+        userData: asset.meta.userData,
+    });
+}
+
 export const JavascriptHandler: AssetHandlerBase = {
     // Handler 的名字，用于指定 Handler as 等
     name: 'javascript',
@@ -47,6 +57,11 @@ export const JavascriptHandler: AssetHandlerBase = {
                     if ((globalThis as AssetDbStartupScriptImportingGlobal).__cocosCliAssetDbStartupScriptImporting === true) {
                         return true;
                     }
+                    if (scripting.isAssetDbScriptCompileDeferred()) {
+                        dispatchScriptAssetChange(asset, asset.action);
+                        scripting.markDeferredAssetDbScriptChange();
+                        return true;
+                    }
                     await scripting.compileScripts([{
                         type: asset.action,
                         uuid: asset.uuid,
@@ -64,19 +79,17 @@ export const JavascriptHandler: AssetHandlerBase = {
     },
 
     async destroy(asset: Asset | VirtualAsset) {
-        scripting.dispatchAssetChange({
-            type: AssetActionEnum.delete,
-            uuid: asset.uuid,
-            filePath: asset.source,
-            importer: asset.meta.importer,
-            userData: asset.meta.userData,
-        });
+        dispatchScriptAssetChange(asset, AssetActionEnum.delete);
+        if (scripting.isAssetDbScriptCompileDeferred()) {
+            scripting.markDeferredAssetDbScriptChange();
+            return;
+        }
         try {
             await scripting.compileScripts();
         } catch {
             //
-        } 
-        
+        }
+
     },
 };
 

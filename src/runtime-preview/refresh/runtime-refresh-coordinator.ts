@@ -82,6 +82,8 @@ export interface RuntimeRefreshCoordinatorOptions {
     getCompileFailureGeneration?: () => MaybePromise<number>;
     clearLastCompileFailure?: () => MaybePromise<void>;
     verifyProgrammingOutput?: () => Promise<void>;
+    withDeferredScriptCompile?: <T>(operation: () => Promise<T>) => Promise<T>;
+    flushDeferredScriptCompile?: () => Promise<unknown>;
     dirtyProvider?: RuntimeRefreshDirtyProvider;
     maxDirtyRefreshPasses?: number;
     logger?: { write: (line: string) => Promise<void> | void };
@@ -486,6 +488,7 @@ export function createRuntimeRefreshCoordinator(
         const scriptStartedAt = now();
         let scriptCompile: RuntimeRefreshScriptCompileResult;
         try {
+            await options.flushDeferredScriptCompile?.();
             await options.waitForIdle({ sinceFailureGeneration: failureGenerationBeforeRefresh });
             scriptCompile = {
                 status: 'done',
@@ -590,6 +593,7 @@ export function createRuntimeRefreshCoordinator(
         const scriptStartedAt = now();
         let scriptCompile: RuntimeRefreshScriptCompileResult;
         try {
+            await options.flushDeferredScriptCompile?.();
             await options.waitForIdle({ sinceFailureGeneration: failureGenerationBeforeRefresh });
             scriptCompile = {
                 status: 'done',
@@ -682,6 +686,14 @@ export function createRuntimeRefreshCoordinator(
         if (!dirtyProvider) {
             throw new Error('Runtime dirty refresh requested without dirty provider.');
         }
+        const withDeferredScriptCompile = options.withDeferredScriptCompile;
+        const shouldDeferScriptCompile = !!withDeferredScriptCompile
+            && dirtyProvider.getStatus().dirtyTargetCount > 0;
+        const refreshDirtyTarget = (target: string): Promise<number | null | undefined> => (
+            shouldDeferScriptCompile
+                ? withDeferredScriptCompile(() => options.refreshTarget(target))
+                : options.refreshTarget(target)
+        );
 
         const maxPasses = options.maxDirtyRefreshPasses ?? 3;
         const allTargets: string[] = [];
@@ -730,7 +742,7 @@ export function createRuntimeRefreshCoordinator(
             for (const target of passTargets) {
                 allTargets.push(target);
                 try {
-                    const changed = await options.refreshTarget(target);
+                    const changed = await refreshDirtyTarget(target);
                     successfulTargets.push(target);
                     successfulTargetSet.add(target);
                     if (typeof changed === 'number') {
@@ -754,7 +766,7 @@ export function createRuntimeRefreshCoordinator(
                             }
                             allTargets.push(parentTarget);
                             try {
-                                const changed = await options.refreshTarget(parentTarget);
+                                const changed = await refreshDirtyTarget(parentTarget);
                                 successfulTargets.push(parentTarget);
                                 successfulTargetSet.add(parentTarget);
                                 if (typeof changed === 'number') {

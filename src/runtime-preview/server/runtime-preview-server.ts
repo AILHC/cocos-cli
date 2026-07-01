@@ -418,6 +418,14 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                         sinceFailureGeneration: waitOptions?.sinceFailureGeneration,
                     });
                 },
+                withDeferredScriptCompile: async (operation) => {
+                    const scripting = await getScripting();
+                    return scripting.withDeferredAssetDbScriptCompile(operation);
+                },
+                flushDeferredScriptCompile: async () => {
+                    const scripting = await getScripting();
+                    return scripting.flushDeferredAssetDbScriptChanges();
+                },
                 getLastCompileFailure: async (failureOptions) => {
                     const scripting = await getScripting();
                     const failure = scripting.getLastCompileFailure(failureOptions);

@@ -37,6 +37,11 @@ export interface WaitForScriptIdleOptions {
     sinceFailureGeneration?: number;
 }
 
+type AssetDbScriptCompileDeferralGlobal = typeof globalThis & {
+    __cocosCliAssetDbScriptCompileDeferred?: boolean;
+    __cocosCliAssetDbDeferredScriptChanges?: boolean;
+};
+
 class ScriptManager {
 
     on(type: EventType, listener: (arg: any) => void): CustomEvent { return eventEmitter.on(type, listener); }
@@ -118,6 +123,36 @@ class ScriptManager {
         PackerDriver.getInstance().dispatchAssetChanges(assetChange);
     }
 
+    isAssetDbScriptCompileDeferred(): boolean {
+        return (globalThis as AssetDbScriptCompileDeferralGlobal).__cocosCliAssetDbScriptCompileDeferred === true;
+    }
+
+    markDeferredAssetDbScriptChange(): void {
+        (globalThis as AssetDbScriptCompileDeferralGlobal).__cocosCliAssetDbDeferredScriptChanges = true;
+    }
+
+    async withDeferredAssetDbScriptCompile<T>(operation: () => Promise<T>): Promise<T> {
+        const runtimeGlobal = globalThis as AssetDbScriptCompileDeferralGlobal;
+        const previousDeferred = runtimeGlobal.__cocosCliAssetDbScriptCompileDeferred;
+        runtimeGlobal.__cocosCliAssetDbScriptCompileDeferred = true;
+        try {
+            return await operation();
+        } finally {
+            runtimeGlobal.__cocosCliAssetDbScriptCompileDeferred = previousDeferred;
+        }
+    }
+
+    async flushDeferredAssetDbScriptChanges(): Promise<boolean> {
+        const runtimeGlobal = globalThis as AssetDbScriptCompileDeferralGlobal;
+        if (runtimeGlobal.__cocosCliAssetDbDeferredScriptChanges !== true) {
+            return false;
+        }
+
+        runtimeGlobal.__cocosCliAssetDbDeferredScriptChanges = false;
+        await this.compileScripts();
+        return true;
+    }
+
     /**
      * 调用方需要捕获异常，无异常则编译成功
      * 编译脚本文件
@@ -135,7 +170,7 @@ class ScriptManager {
     }
 
     /**
-     * 
+     *
      * @param delay 延迟时间，单位为毫秒, 同一时间只能有一个延迟编译任务，如果存在则返回已有的任务ID
      * @returns 延迟编译任务的ID，如果存在则返回已有的任务ID
      */
@@ -144,11 +179,11 @@ class ScriptManager {
         if (this._pendingCompileTimer) {
             clearTimeout(this._pendingCompileTimer);
         }
-        
+
         // 如果已有任务ID，继续使用它；否则生成新的
         const taskId = this._pendingCompileTaskId || uuid();
         this._pendingCompileTaskId = taskId;
-        
+
         // 创建新的延迟任务
         this._pendingCompileTimer = setTimeout(async () => {
             if (this.isCompiling()) {
@@ -175,7 +210,7 @@ class ScriptManager {
                 }
             });
         }, delay);
-        
+
         return taskId;
     }
 
@@ -331,7 +366,7 @@ class ScriptManager {
                     quickPackLoaderContext,
                     cceModuleMap,
                 });
-                 
+
                 globalThis.self = window;
                 executor.addPolyfillFile(require.resolve('@cocos/build-polyfills/prebuilt/editor/bundle'));
             }
