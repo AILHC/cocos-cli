@@ -12,6 +12,11 @@ import {
     type RuntimeRefreshCoordinator,
     type RuntimeRefreshResult,
 } from '../refresh/runtime-refresh-coordinator';
+import {
+    createRuntimeAssetPathCanonicalizer,
+    type RuntimeAssetPathCanonicalizer,
+    type RuntimeAssetPathCanonicalizerFs,
+} from '../path/runtime-asset-path-canonicalizer';
 import { PreviewSettingsProvider } from '../settings/preview-settings-provider';
 import {
     createRuntimeAssetChangeWatcher,
@@ -49,11 +54,16 @@ export interface RuntimePreviewServerOptions {
     refreshOnReload?: boolean;
     watchAssets?: boolean;
     deferAssetWatcherStart?: boolean;
+    assetPathCanonicalizerFs?: RuntimeAssetPathCanonicalizerFs;
     assetWatcherStartupSnapshot?: RuntimeAssetStartupSnapshot;
-    assetDirtyStoreFactory?: (input: { projectRoot: string }) => RuntimeAssetDirtyStore;
+    assetDirtyStoreFactory?: (input: {
+        projectRoot: string;
+        pathCanonicalizer: RuntimeAssetPathCanonicalizer;
+    }) => RuntimeAssetDirtyStore;
     assetChangeWatcherFactory?: (input: {
         projectRoot: string;
         dirtyStore: RuntimeAssetDirtyStore;
+        pathCanonicalizer: RuntimeAssetPathCanonicalizer;
         logger: RuntimePreviewLogger;
         startupSnapshot?: RuntimeAssetStartupSnapshot;
     }) => RuntimeAssetChangeWatcher;
@@ -316,6 +326,19 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
     const host = options.host ?? '127.0.0.1';
     const requestedPort = options.port ?? 19530;
     const logger = await createRuntimePreviewLogger(options.projectRoot);
+    let canonicalizeLogCount = 0;
+    const pathCanonicalizer = createRuntimeAssetPathCanonicalizer({
+        projectRoot: options.projectRoot,
+        fs: options.assetPathCanonicalizerFs,
+        onCanonicalize: ({ input, target, reason }) => {
+            if (canonicalizeLogCount >= 5) {
+                return;
+            }
+            canonicalizeLogCount += 1;
+            void logger.write(`runtime-path-canonicalize input=${input} target=${target} reason=${reason}`)
+                .catch(() => undefined);
+        },
+    });
     const context = createRuntimePreviewContext({
         projectRoot: options.projectRoot,
         engineRoot: options.engineRoot,
@@ -330,13 +353,14 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
     });
     const importReplacementExtensionResolver = createImportReplacementExtensionResolver(context);
     const dirtyStore = options.watchAssets === true
-        ? (options.assetDirtyStoreFactory?.({ projectRoot: context.projectRoot })
-            ?? createRuntimeAssetDirtyStore({ projectRoot: context.projectRoot }))
+        ? (options.assetDirtyStoreFactory?.({ projectRoot: context.projectRoot, pathCanonicalizer })
+            ?? createRuntimeAssetDirtyStore({ projectRoot: context.projectRoot, pathCanonicalizer }))
         : undefined;
     const assetWatcher = dirtyStore
         ? (options.assetChangeWatcherFactory?.({
             projectRoot: context.projectRoot,
             dirtyStore,
+            pathCanonicalizer,
             logger,
             startupSnapshot: options.assetWatcherStartupSnapshot,
         })
@@ -449,6 +473,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 verifyProgrammingOutput: options.verifyProgrammingOutput,
                 invalidateSettings: () => getSettingsProvider().invalidate(),
                 clearImportReplacement: () => importReplacementExtensionResolver.clear(),
+                pathCanonicalizer,
                 dirtyProvider: dirtyStore && assetWatcher
                     ? {
                         drainDirtyTargets: () => dirtyStore.drainDirtyTargets(),

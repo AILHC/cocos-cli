@@ -4,6 +4,7 @@ import {
   createRuntimeRefreshCoordinator,
   type RuntimeRefreshCoordinatorOptions,
 } from '@runtime-preview/refresh/runtime-refresh-coordinator';
+import { createRuntimeAssetPathCanonicalizer } from '@runtime-preview/path/runtime-asset-path-canonicalizer';
 import type { ScriptCompileDiagnostic } from '../../../src/core/scripting/compile-error-diagnostics';
 
 function createDeferred<T>() {
@@ -68,6 +69,30 @@ function createCoordinatorFixture(
   };
 }
 
+function createShortPathCanonicalizer(projectRoot = 'C:/project') {
+  const existingPaths = new Set([
+    `${projectRoot}/assets`,
+    `${projectRoot}/assets/resources`,
+    `${projectRoot}/assets/resources/cfg`,
+    `${projectRoot}/assets/RESOUR~1`,
+    `${projectRoot}/assets/RESOUR~1/cfg`,
+  ]);
+  const realpathMap = new Map([
+    [`${projectRoot}/assets`, `${projectRoot}/assets`],
+    [`${projectRoot}/assets/resources`, `${projectRoot}/assets/resources`],
+    [`${projectRoot}/assets/resources/cfg`, `${projectRoot}/assets/resources/cfg`],
+    [`${projectRoot}/assets/RESOUR~1`, `${projectRoot}/assets/resources`],
+    [`${projectRoot}/assets/RESOUR~1/cfg`, `${projectRoot}/assets/resources/cfg`],
+  ]);
+  return createRuntimeAssetPathCanonicalizer({
+    projectRoot,
+    fs: {
+      existsSync: (path) => existingPaths.has(path.replace(/\\/g, '/')),
+      realpathSyncNative: (path) => realpathMap.get(path.replace(/\\/g, '/')) ?? path,
+    },
+  });
+}
+
 describe('runtime refresh coordinator', () => {
   it('refreshes db://assets when target is omitted', async () => {
     const { coordinator, refreshTarget } = createCoordinatorFixture();
@@ -93,6 +118,36 @@ describe('runtime refresh coordinator', () => {
     expect(result.ok).toBe(true);
     expect(result.target).toBe('db://assets/resources/config.json');
     expect(refreshTarget).toHaveBeenCalledWith('db://assets/resources/config.json');
+  });
+
+  it('canonicalizes absolute short path refresh targets before refreshing AssetDB', async () => {
+    const { coordinator, refreshTarget } = createCoordinatorFixture({
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+
+    const result = await coordinator.refresh({
+      reason: 'endpoint',
+      target: 'C:/project/assets/RESOUR~1/cfg/a.json',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.target).toBe('db://assets/resources/cfg/a.json');
+    expect(refreshTarget).toHaveBeenCalledWith('db://assets/resources/cfg/a.json');
+  });
+
+  it('canonicalizes db short path refresh targets before refreshing AssetDB', async () => {
+    const { coordinator, refreshTarget } = createCoordinatorFixture({
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+
+    const result = await coordinator.refresh({
+      reason: 'endpoint',
+      target: 'db://assets/RESOUR~1/cfg/a.json',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.target).toBe('db://assets/resources/cfg/a.json');
+    expect(refreshTarget).toHaveBeenCalledWith('db://assets/resources/cfg/a.json');
   });
 
   it('rejects paths outside project assets without refreshing', async () => {
@@ -146,6 +201,20 @@ describe('runtime refresh coordinator', () => {
     }
     expect(refreshTarget).not.toHaveBeenCalled();
     expect(waitForIdle).not.toHaveBeenCalled();
+  });
+
+  it('keeps dot segment rejection when a path canonicalizer is present', async () => {
+    const { coordinator, refreshTarget } = createCoordinatorFixture({
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+
+    for (const target of ['db://assets/../x', 'db://assets/foo/../../x']) {
+      const result = await coordinator.refresh({ reason: 'endpoint', target });
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('dot segment');
+    }
+    expect(refreshTarget).not.toHaveBeenCalled();
   });
 
   it('dedupes reload refresh shortly after endpoint success', async () => {
@@ -517,6 +586,91 @@ describe('runtime refresh coordinator', () => {
     expect(refreshTarget).not.toHaveBeenCalledWith('db://assets');
     expect(withDeferredScriptCompile).toHaveBeenCalledTimes(2);
     expect(flushDeferredScriptCompile).toHaveBeenCalledTimes(1);
+  });
+
+  it('canonicalizes drained dirty targets again before refreshing AssetDB', async () => {
+    const refreshTarget = vi.fn(async () => 1);
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'C:/project',
+      pathCanonicalizer: createShortPathCanonicalizer(),
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn()
+          .mockReturnValueOnce({
+            targets: [
+              'db://assets/RESOUR~1/cfg/a.json',
+              'db://assets/resources/cfg/a.json',
+            ],
+            entries: [
+              { target: 'db://assets/RESOUR~1/cfg/a.json', eventTypes: ['update'], assetEventCount: 1, metaEventCount: 0 },
+              { target: 'db://assets/resources/cfg/a.json', eventTypes: ['update'], assetEventCount: 0, metaEventCount: 1 },
+            ],
+            eventCount: 2,
+            drainedAt: 1000,
+          })
+          .mockReturnValueOnce({ targets: [], entries: [], eventCount: 0, drainedAt: 1001 }),
+        requeueTargets: vi.fn(),
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'C:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.targets).toEqual(['db://assets/resources/cfg/a.json']);
+    expect(result.passes?.[0]?.targets).toEqual(['db://assets/resources/cfg/a.json']);
+    expect(refreshTarget).toHaveBeenCalledTimes(1);
+    expect(refreshTarget).toHaveBeenCalledWith('db://assets/resources/cfg/a.json');
+  });
+
+  it('fails invalid drained dirty targets without refreshing AssetDB', async () => {
+    const refreshTarget = vi.fn(async () => 1);
+    const requeueTargets = vi.fn();
+    const coordinator = createRuntimeRefreshCoordinator({
+      projectRoot: 'C:/project',
+      pathCanonicalizer: createShortPathCanonicalizer(),
+      refreshTarget,
+      waitForIdle: vi.fn(async () => undefined),
+      invalidateSettings: vi.fn(),
+      clearImportReplacement: vi.fn(),
+      dirtyProvider: {
+        drainDirtyTargets: vi.fn().mockReturnValueOnce({
+          targets: ['db://assets/../x'],
+          entries: [{ target: 'db://assets/../x', eventTypes: ['update'] }],
+          eventCount: 1,
+          drainedAt: 1000,
+        }),
+        requeueTargets,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'C:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      },
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(false);
+    expect(result.failedTargets).toEqual([{
+      target: 'db://assets/../x',
+      error: 'Runtime refresh target must not contain dot segments: db://assets/../x',
+    }]);
+    expect(refreshTarget).not.toHaveBeenCalled();
+    expect(requeueTargets).not.toHaveBeenCalled();
   });
 
   it('skips refresh when watcher is running and dirty-set is empty', async () => {

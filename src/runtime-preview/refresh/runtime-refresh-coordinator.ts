@@ -1,10 +1,13 @@
-import { isAbsolute, relative, resolve } from 'node:path';
 import {
     createScriptCompileDiagnostic,
     formatScriptCompileDiagnosticSummary,
     type RuntimePreviewOutputState,
     type ScriptCompileDiagnostic,
 } from '../../core/scripting/compile-error-diagnostics';
+import {
+    createRuntimeAssetPathCanonicalizer,
+    type RuntimeAssetPathCanonicalizer,
+} from '../path/runtime-asset-path-canonicalizer';
 
 export type RuntimeRefreshReason = 'endpoint' | 'reload';
 export type RuntimeRefreshScriptCompileStatus = 'done' | 'skipped' | 'failed';
@@ -86,6 +89,7 @@ export interface RuntimeRefreshCoordinatorOptions {
     flushDeferredScriptCompile?: () => Promise<unknown>;
     dirtyProvider?: RuntimeRefreshDirtyProvider;
     maxDirtyRefreshPasses?: number;
+    pathCanonicalizer?: RuntimeAssetPathCanonicalizer;
     logger?: { write: (line: string) => Promise<void> | void };
     now?: () => number;
     reloadDedupeMs?: number;
@@ -119,19 +123,6 @@ export interface RuntimeRefreshDirtyEntry {
     metaEventCount?: number;
 }
 
-interface NormalizedRefreshTarget {
-    ok: true;
-    target: string;
-}
-
-interface InvalidRefreshTarget {
-    ok: false;
-    target: string;
-    error: string;
-}
-
-type TargetNormalizationResult = NormalizedRefreshTarget | InvalidRefreshTarget;
-
 const defaultReloadDedupeMs = 500;
 const defaultRefreshTarget = 'db://assets';
 const dirtySetRefreshTarget = 'dirty-set';
@@ -140,70 +131,6 @@ const parentPathSeparator = '/';
 
 function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
-}
-
-function isInsideOrSameRoot(filePath: string, root: string): boolean {
-    const relativePath = relative(resolve(root), resolve(filePath));
-    return !relativePath || (!relativePath.startsWith('..') && !isAbsolute(relativePath));
-}
-
-function normalizePathForDbUrl(path: string): string {
-    return path.replace(/\\/g, '/').replace(/^\/+/, '');
-}
-
-function normalizeRefreshTarget(projectRoot: string, target: unknown): TargetNormalizationResult {
-    if (target === undefined || target === '') {
-        return { ok: true, target: defaultRefreshTarget };
-    }
-
-    if (typeof target !== 'string') {
-        return {
-            ok: false,
-            target: defaultRefreshTarget,
-            error: 'Runtime refresh target must be a string or undefined.',
-        };
-    }
-
-    const trimmedTarget = target.trim();
-    if (!trimmedTarget) {
-        return { ok: true, target: defaultRefreshTarget };
-    }
-
-    if (trimmedTarget === 'db://assets' || trimmedTarget.startsWith('db://assets/')) {
-        const relativeDbPath = trimmedTarget.slice('db://assets/'.length);
-        if (relativeDbPath.split('/').some((segment) => segment === '.' || segment === '..')) {
-            return {
-                ok: false,
-                target: defaultRefreshTarget,
-                error: `Runtime refresh target must not contain dot segments: ${trimmedTarget}`,
-            };
-        }
-
-        return { ok: true, target: trimmedTarget };
-    }
-
-    if (!isAbsolute(trimmedTarget)) {
-        return {
-            ok: false,
-            target: defaultRefreshTarget,
-            error: `Runtime refresh target is not under db://assets: ${trimmedTarget}`,
-        };
-    }
-
-    const assetsRoot = resolve(projectRoot, 'assets');
-    if (!isInsideOrSameRoot(trimmedTarget, assetsRoot)) {
-        return {
-            ok: false,
-            target: defaultRefreshTarget,
-            error: `Runtime refresh target is outside project assets root: ${trimmedTarget}`,
-        };
-    }
-
-    const relativeAssetPath = normalizePathForDbUrl(relative(assetsRoot, resolve(trimmedTarget)));
-    return {
-        ok: true,
-        target: relativeAssetPath ? `db://assets/${relativeAssetPath}` : defaultRefreshTarget,
-    };
 }
 
 function dirnameForDbAssetTarget(target: string): string | null {
@@ -249,9 +176,17 @@ function shouldSettleMissingDirtyTarget(
     return eventTypes.includes('delete') || (eventTypes.includes('create') && eventTypes.includes('delete'));
 }
 
-function hasChildTarget(parentTarget: string, targets: string[]): boolean {
-    const prefix = `${parentTarget}/`;
-    return targets.some((target) => target.startsWith(prefix));
+function getTargetsWithChildren(targets: string[]): Set<string> {
+    const sortedTargets = [...targets].sort();
+    const targetsWithChildren = new Set<string>();
+    for (let index = 0; index < sortedTargets.length - 1; index += 1) {
+        const target = sortedTargets[index];
+        const nextTarget = sortedTargets[index + 1];
+        if (nextTarget.startsWith(`${target}/`)) {
+            targetsWithChildren.add(target);
+        }
+    }
+    return targetsWithChildren;
 }
 
 function optimizeDirtyBatchTargets(
@@ -259,13 +194,18 @@ function optimizeDirtyBatchTargets(
     entries: RuntimeRefreshDirtyEntry[] | undefined,
     successfulTargets: Set<string>,
 ): string[] {
+    const entriesByTarget = new Map(
+        (entries ?? []).map((entry) => [entry.target, entry]),
+    );
+    const targetsWithChildren = getTargetsWithChildren(targets);
+
     return targets.filter((target) => {
-        const entry = entries?.find((item) => item.target === target);
+        const entry = entriesByTarget.get(target);
         const eventTypes = entry?.eventTypes ?? [];
         const isDelete = eventTypes.includes('delete');
         const isPureDelete = isDelete && eventTypes.length === 1;
 
-        if (!isPureDelete && hasChildTarget(target, targets)) {
+        if (!isPureDelete && targetsWithChildren.has(target)) {
             return false;
         }
 
@@ -282,6 +222,61 @@ function optimizeDirtyBatchTargets(
 
         return true;
     });
+}
+
+function mergeDirtyEntry(
+    entriesByTarget: Map<string, RuntimeRefreshDirtyEntry>,
+    target: string,
+    entry: RuntimeRefreshDirtyEntry | undefined,
+): void {
+    const existing = entriesByTarget.get(target) ?? {
+        target,
+        eventTypes: [],
+        assetEventCount: 0,
+        metaEventCount: 0,
+    };
+    const eventTypes = new Set(existing.eventTypes);
+    for (const eventType of entry?.eventTypes ?? ['update']) {
+        eventTypes.add(eventType);
+    }
+    existing.eventTypes = Array.from(eventTypes).sort();
+    existing.assetEventCount = (existing.assetEventCount ?? 0) + (entry?.assetEventCount ?? 1);
+    existing.metaEventCount = (existing.metaEventCount ?? 0) + (entry?.metaEventCount ?? 0);
+    entriesByTarget.set(target, existing);
+}
+
+function canonicalizeDirtyBatchTargets(
+    pathCanonicalizer: RuntimeAssetPathCanonicalizer,
+    targets: string[],
+    entries: RuntimeRefreshDirtyEntry[] | undefined,
+): {
+    targets: string[];
+    entries: RuntimeRefreshDirtyEntry[];
+    failedTargets: RuntimeRefreshFailedTarget[];
+} {
+    const entriesByTarget = new Map<string, RuntimeRefreshDirtyEntry>();
+    const entriesByOriginalTarget = new Map(
+        (entries ?? []).map((entry) => [entry.target, entry]),
+    );
+    const failedTargets: RuntimeRefreshFailedTarget[] = [];
+
+    for (const target of targets) {
+        const normalized = pathCanonicalizer.refreshTargetToDbTarget(target, 'dirty-target');
+        if (!normalized.ok) {
+            failedTargets.push({ target, error: normalized.message });
+            continue;
+        }
+        const entry = entriesByOriginalTarget.get(target);
+        mergeDirtyEntry(entriesByTarget, normalized.canonicalTarget, entry);
+    }
+
+    const canonicalEntries = Array.from(entriesByTarget.values())
+        .sort((left, right) => left.target.localeCompare(right.target));
+    return {
+        targets: canonicalEntries.map((entry) => entry.target),
+        entries: canonicalEntries,
+        failedTargets,
+    };
 }
 
 type RuntimeRefreshResultPatch = Partial<Pick<
@@ -301,6 +296,8 @@ export function createRuntimeRefreshCoordinator(
 ): RuntimeRefreshCoordinator {
     const now = options.now ?? Date.now;
     const reloadDedupeMs = options.reloadDedupeMs ?? defaultReloadDedupeMs;
+    const pathCanonicalizer = options.pathCanonicalizer
+        ?? createRuntimeAssetPathCanonicalizer({ projectRoot: options.projectRoot });
     const inFlight = new Map<string, Promise<RuntimeRefreshResult>>();
     let nextId = 1;
     let lastEndpointSuccess: { target: string; completedAt: number } | null = null;
@@ -725,14 +722,17 @@ export function createRuntimeRefreshCoordinator(
                 break;
             }
 
-            const passTargets = optimizeDirtyBatchTargets(batch.targets, batch.entries, successfulTargetSet);
+            const canonicalBatch = canonicalizeDirtyBatchTargets(pathCanonicalizer, batch.targets, batch.entries);
+            const passInitialFailedTargets = canonicalBatch.failedTargets;
+
+            const passTargets = optimizeDirtyBatchTargets(canonicalBatch.targets, canonicalBatch.entries, successfulTargetSet);
             const passTargetSet = new Set(passTargets);
-            if (passTargets.length === 0) {
+            if (passTargets.length === 0 && passInitialFailedTargets.length === 0) {
                 break;
             }
 
             const successfulTargets: string[] = [];
-            const failedTargets: RuntimeRefreshFailedTarget[] = [];
+            const failedTargets: RuntimeRefreshFailedTarget[] = [...passInitialFailedTargets];
             const settledTargets: RuntimeRefreshSettledTarget[] = [];
             const parentFallbackTargets: string[] = [];
             let rootFallback = false;
@@ -750,7 +750,7 @@ export function createRuntimeRefreshCoordinator(
                     }
                 } catch (error) {
                     const errorMessage = getErrorMessage(error);
-                    if (shouldSettleMissingDirtyTarget(batch.entries, target, errorMessage)) {
+                    if (shouldSettleMissingDirtyTarget(canonicalBatch.entries, target, errorMessage)) {
                         settledTargets.push({ target, error: errorMessage });
                         const parentTarget = dirnameForDbAssetTarget(target);
                         if (
@@ -799,8 +799,14 @@ export function createRuntimeRefreshCoordinator(
                 durationMs: now() - passStartedAt,
             });
 
-            if (failedTargets.length > 0) {
-                dirtyProvider.requeueTargets(failedTargets.map((item) => item.target));
+            const refreshFailedTargets = failedTargets.filter(
+                (item) => !passInitialFailedTargets.some((failed) => failed.target === item.target),
+            );
+            if (refreshFailedTargets.length > 0) {
+                dirtyProvider.requeueTargets(refreshFailedTargets.map((item) => item.target));
+                break;
+            }
+            if (passInitialFailedTargets.length > 0) {
                 break;
             }
         }
@@ -937,15 +943,15 @@ export function createRuntimeRefreshCoordinator(
                 return refreshPromise;
             }
 
-            const normalized = normalizeRefreshTarget(options.projectRoot, input.target);
+            const normalized = pathCanonicalizer.refreshTargetToDbTarget(input.target, 'refresh-target');
 
             if (!normalized.ok) {
-                const result = createSkippedResult(refreshId, normalized.target, input.reason, startedAt, normalized.error);
+                const result = createSkippedResult(refreshId, defaultRefreshTarget, input.reason, startedAt, normalized.message);
                 await writeResult(result);
                 return result;
             }
 
-            const target = normalized.target;
+            const target = normalized.canonicalTarget;
             if (
                 input.reason === 'reload'
                 && lastEndpointSuccess?.target === target

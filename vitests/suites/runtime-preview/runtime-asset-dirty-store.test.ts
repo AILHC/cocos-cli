@@ -2,6 +2,35 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createRuntimeAssetDirtyStore } from '@runtime-preview/watch/runtime-asset-dirty-store';
 import { createRuntimeAssetChangeWatcher } from '@runtime-preview/watch/runtime-asset-change-watcher';
+import { createRuntimeAssetPathCanonicalizer } from '@runtime-preview/path/runtime-asset-path-canonicalizer';
+
+function createShortPathCanonicalizer() {
+  const existingPaths = new Set([
+    'E:/project',
+    'E:/project/assets',
+    'E:/project/assets/resources',
+    'E:/project/assets/resources/cfg',
+    'E:/project/assets/RESOUR~1',
+    'E:/project/assets/RESOUR~1/cfg',
+    'E:/project/outside',
+  ]);
+  const realpathMap = new Map([
+    ['E:/project/assets', 'E:/project/assets'],
+    ['E:/project/assets/resources', 'E:/project/assets/resources'],
+    ['E:/project/assets/resources/cfg', 'E:/project/assets/resources/cfg'],
+    ['E:/project/assets/RESOUR~1', 'E:/project/assets/resources'],
+    ['E:/project/assets/RESOUR~1/cfg', 'E:/project/assets/resources/cfg'],
+    ['E:/project/outside', 'E:/project/outside'],
+  ]);
+
+  return createRuntimeAssetPathCanonicalizer({
+    projectRoot: 'E:/project',
+    fs: {
+      existsSync: (path) => existingPaths.has(path.replace(/\\/g, '/')),
+      realpathSyncNative: (path) => realpathMap.get(path.replace(/\\/g, '/')) ?? path,
+    },
+  });
+}
 
 describe('runtime asset dirty store', () => {
   const projectRoot = 'E:/project';
@@ -91,6 +120,129 @@ describe('runtime asset dirty store', () => {
     const store = createRuntimeAssetDirtyStore({ projectRoot });
     store.recordFileEvent({ type: 'update', path: join(projectRoot, 'library', 'x.json') });
     expect(store.drainDirtyTargets().targets).toEqual([]);
+  });
+
+  it('canonicalizes short path watcher events before recording dirty targets', () => {
+    const store = createRuntimeAssetDirtyStore({
+      projectRoot,
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+
+    store.recordFileEvent({ type: 'update', path: 'E:/project/assets/RESOUR~1/cfg/a.json' });
+
+    expect(store.drainDirtyTargets().targets).toEqual(['db://assets/resources/cfg/a.json']);
+  });
+
+  it('canonicalizes .meta short path watcher events to the source target', () => {
+    const store = createRuntimeAssetDirtyStore({
+      projectRoot,
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+
+    store.recordFileEvent({ type: 'update', path: 'E:/project/assets/RESOUR~1/cfg/a.json.meta' });
+
+    expect(store.drainDirtyTargets().entries).toEqual([{
+      target: 'db://assets/resources/cfg/a.json',
+      eventTypes: ['update'],
+      assetEventCount: 0,
+      metaEventCount: 1,
+    }]);
+  });
+
+  it('counts short .meta filename events as meta events for the canonical source target', () => {
+    const canonicalizer = createRuntimeAssetPathCanonicalizer({
+      projectRoot,
+      fs: {
+        existsSync: (path) => [
+          'E:/project/assets',
+          'E:/project/assets/resources',
+          'E:/project/assets/resources/cfg',
+          'E:/project/assets/RESOUR~1',
+          'E:/project/assets/RESOUR~1/cfg',
+          'E:/project/assets/RESOUR~1/cfg/ACCUM_~1.MET',
+        ].includes(path.replace(/\\/g, '/')),
+        realpathSyncNative: (path) => new Map([
+          ['E:/project/assets', 'E:/project/assets'],
+          ['E:/project/assets/resources', 'E:/project/assets/resources'],
+          ['E:/project/assets/resources/cfg', 'E:/project/assets/resources/cfg'],
+          ['E:/project/assets/RESOUR~1', 'E:/project/assets/resources'],
+          ['E:/project/assets/RESOUR~1/cfg', 'E:/project/assets/resources/cfg'],
+          ['E:/project/assets/RESOUR~1/cfg/ACCUM_~1.MET', 'E:/project/assets/resources/cfg/accum_recharge_act.json.meta'],
+        ]).get(path.replace(/\\/g, '/')) ?? path,
+      },
+    });
+    const store = createRuntimeAssetDirtyStore({ projectRoot, pathCanonicalizer: canonicalizer });
+
+    store.recordFileEvent({ type: 'update', path: 'E:/project/assets/RESOUR~1/cfg/ACCUM_~1.MET' });
+
+    expect(store.drainDirtyTargets().entries).toEqual([{
+      target: 'db://assets/resources/cfg/accum_recharge_act.json',
+      eventTypes: ['update'],
+      assetEventCount: 0,
+      metaEventCount: 1,
+    }]);
+  });
+
+  it('dedupes long and short path events after canonicalization while preserving counts', () => {
+    const store = createRuntimeAssetDirtyStore({
+      projectRoot,
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+
+    store.recordFileEvent({ type: 'update', path: 'E:/project/assets/resources/cfg/a.json' });
+    store.recordFileEvent({ type: 'delete', path: 'E:/project/assets/RESOUR~1/cfg/a.json.meta' });
+
+    expect(store.drainDirtyTargets().entries).toEqual([{
+      target: 'db://assets/resources/cfg/a.json',
+      eventTypes: ['delete', 'update'],
+      assetEventCount: 1,
+      metaEventCount: 1,
+    }]);
+  });
+
+  it('ignores events that canonicalize outside the assets root', () => {
+    const canonicalizer = createRuntimeAssetPathCanonicalizer({
+      projectRoot,
+      fs: {
+        existsSync: (path) => ['E:/project/assets', 'E:/project/assets/link']
+          .includes(path.replace(/\\/g, '/')),
+        realpathSyncNative: (path) => (
+          path.replace(/\\/g, '/') === 'E:/project/assets/link'
+            ? 'E:/outside/shared'
+            : path
+        ),
+      },
+    });
+    const store = createRuntimeAssetDirtyStore({ projectRoot, pathCanonicalizer: canonicalizer });
+
+    store.recordFileEvent({ type: 'update', path: 'E:/project/assets/link/a.json' });
+
+    expect(store.drainDirtyTargets().targets).toEqual([]);
+  });
+
+  it('canonicalizes synthetic db dirty targets before recording', () => {
+    const store = createRuntimeAssetDirtyStore({
+      projectRoot,
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+
+    store.recordDirtyTarget({
+      target: 'db://assets/RESOUR~1/cfg/a.json',
+      eventType: 'update',
+    });
+
+    expect(store.drainDirtyTargets().targets).toEqual(['db://assets/resources/cfg/a.json']);
+  });
+
+  it('canonicalizes requeued dirty targets before recording', () => {
+    const store = createRuntimeAssetDirtyStore({
+      projectRoot,
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+
+    store.requeueTargets(['db://assets/RESOUR~1/cfg/a.json']);
+
+    expect(store.drainDirtyTargets().targets).toEqual(['db://assets/resources/cfg/a.json']);
   });
 
   it('drains atomically and can requeue failed targets', () => {

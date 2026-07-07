@@ -1,4 +1,7 @@
-import { isAbsolute, relative, resolve } from 'node:path';
+import {
+    createRuntimeAssetPathCanonicalizer,
+    type RuntimeAssetPathCanonicalizer,
+} from '../path/runtime-asset-path-canonicalizer';
 
 export type RuntimeAssetWatchEventType = 'create' | 'update' | 'delete';
 
@@ -36,29 +39,18 @@ export interface RuntimeAssetDirtyStore {
     getEventCount(): number;
 }
 
-function isInsideOrSameRoot(filePath: string, root: string): boolean {
-    const relativePath = relative(resolve(root), resolve(filePath));
-    return !relativePath || (!relativePath.startsWith('..') && !isAbsolute(relativePath));
-}
-
-function toDbPath(path: string): string {
-    return path.replace(/\\/g, '/').replace(/^\/+/, '');
-}
-
-function sourcePathForAssetEvent(path: string): string {
-    return path.endsWith('.meta') ? path.slice(0, -'.meta'.length) : path;
-}
-
 function compareTargets(left: string, right: string): number {
     return left.localeCompare(right);
 }
 
 export function createRuntimeAssetDirtyStore(options: {
     projectRoot: string;
+    pathCanonicalizer?: RuntimeAssetPathCanonicalizer;
     now?: () => number;
 }): RuntimeAssetDirtyStore {
     const now = options.now ?? Date.now;
-    const assetsRoot = resolve(options.projectRoot, 'assets');
+    const pathCanonicalizer = options.pathCanonicalizer
+        ?? createRuntimeAssetPathCanonicalizer({ projectRoot: options.projectRoot });
     const targets = new Map<string, {
         eventTypes: Set<RuntimeAssetWatchEventType>;
         assetEventCount: number;
@@ -84,37 +76,28 @@ export function createRuntimeAssetDirtyStore(options: {
         eventCount += assetEventCount + metaEventCount;
     };
 
-    const normalizeTarget = (filePath: string): string | null => {
-        const sourcePath = resolve(sourcePathForAssetEvent(filePath));
-        if (!isInsideOrSameRoot(sourcePath, assetsRoot)) {
-            return null;
-        }
-
-        const relativeAssetPath = toDbPath(relative(assetsRoot, sourcePath));
-        return relativeAssetPath ? `db://assets/${relativeAssetPath}` : 'db://assets';
-    };
-
     return {
         recordFileEvent(event: RuntimeAssetWatchEvent): void {
-            const target = normalizeTarget(event.path);
-            if (!target) {
+            const eventTarget = pathCanonicalizer.fileEventPathToDbTargetInfo(event.path);
+            if (!eventTarget) {
                 return;
             }
 
-            if (event.path.endsWith('.meta')) {
-                updateTarget(target, event.type, 0, 1);
+            if (eventTarget.isMetaEvent) {
+                updateTarget(eventTarget.target, event.type, 0, 1);
             } else {
-                updateTarget(target, event.type, 1, 0);
+                updateTarget(eventTarget.target, event.type, 1, 0);
             }
         },
         recordDirtyTarget(input): void {
-            if (input.target !== 'db://assets' && !input.target.startsWith('db://assets/')) {
+            const normalized = pathCanonicalizer.refreshTargetToDbTarget(input.target, 'dirty-target');
+            if (!normalized.ok) {
                 return;
             }
 
             const assetEventCount = input.assetEventCount ?? 1;
             const metaEventCount = input.metaEventCount ?? 0;
-            updateTarget(input.target, input.eventType, assetEventCount, metaEventCount);
+            updateTarget(normalized.canonicalTarget, input.eventType, assetEventCount, metaEventCount);
         },
         drainDirtyTargets(): RuntimeAssetDirtyBatch {
             const entries = Array.from(targets.entries())
@@ -138,11 +121,13 @@ export function createRuntimeAssetDirtyStore(options: {
             };
         },
         requeueTargets(failedTargets: string[]): void {
-            for (const target of failedTargets) {
-                if (target !== 'db://assets' && !target.startsWith('db://assets/')) {
+            for (const failedTarget of failedTargets) {
+                const normalized = pathCanonicalizer.refreshTargetToDbTarget(failedTarget, 'dirty-target');
+                if (!normalized.ok) {
                     continue;
                 }
 
+                const target = normalized.canonicalTarget;
                 const entry = targets.get(target) ?? {
                     eventTypes: new Set<RuntimeAssetWatchEventType>(),
                     assetEventCount: 0,

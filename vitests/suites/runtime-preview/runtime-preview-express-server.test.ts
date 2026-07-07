@@ -1035,6 +1035,85 @@ describe('runtime preview express server adapter', () => {
     }
   });
 
+  it('shares one path canonicalizer across dirty-store and watcher factories', async () => {
+    let dirtyStoreCanonicalizer: unknown;
+    let watcherCanonicalizer: unknown;
+    const { server } = await createServerFixture({
+      watchAssets: true,
+      deferAssetWatcherStart: true,
+      assetDirtyStoreFactory: ({ pathCanonicalizer }) => {
+        dirtyStoreCanonicalizer = pathCanonicalizer;
+        return {
+          recordFileEvent: vi.fn(),
+          recordDirtyTarget: vi.fn(),
+          drainDirtyTargets: () => ({ targets: [], entries: [], eventCount: 0, drainedAt: Date.now() }),
+          requeueTargets: vi.fn(),
+          peekDirtyTargets: () => [],
+          getDirtyTargetCount: () => 0,
+          getEventCount: () => 0,
+        };
+      },
+      assetChangeWatcherFactory: ({ pathCanonicalizer }) => ({
+        start: async () => {
+          watcherCanonicalizer = pathCanonicalizer;
+        },
+        stop: async () => undefined,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      }),
+    });
+
+    try {
+      await server.startAssetWatcher();
+      expect(dirtyStoreCanonicalizer).toBe(watcherCanonicalizer);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('bounds runtime path canonicalization log samples per server lifecycle', async () => {
+    const { server } = await createServerFixture({
+      watchAssets: true,
+      assetPathCanonicalizerFs: {
+        existsSync: (path) => /[\\/]assets(?:[\\/]RESOUR~1|[\\/]resources)?$/.test(path.replace(/\\/g, '/')),
+        realpathSyncNative: (path) => path.replace(/\\/g, '/').replace('/assets/RESOUR~1', '/assets/resources'),
+      },
+      assetDirtyStoreFactory: ({ projectRoot, pathCanonicalizer }) => {
+        for (let index = 0; index < 10; index += 1) {
+          pathCanonicalizer.refreshTargetToDbTarget(
+            `db://assets/RESOUR~1/file-${index}.json`,
+            'dirty-target',
+          );
+        }
+        return {
+          recordFileEvent: vi.fn(),
+          recordDirtyTarget: vi.fn(),
+          drainDirtyTargets: () => ({ targets: [], entries: [], eventCount: 0, drainedAt: Date.now() }),
+          requeueTargets: vi.fn(),
+          peekDirtyTargets: () => [],
+          getDirtyTargetCount: () => 0,
+          getEventCount: () => 0,
+        };
+      },
+    });
+
+    try {
+      const logSource = await readFile(server.logFilePath, 'utf8');
+      const loggerWrites = logSource.split(/\r?\n/);
+      const canonicalLogs = loggerWrites.filter((line) => line.includes('runtime-path-canonicalize'));
+      expect(canonicalLogs).toHaveLength(5);
+      expect(canonicalLogs[0]).toContain('reason=dirty-target');
+    } finally {
+      await server.close();
+    }
+  });
+
   it('injects watcher start failure into root html without failing root', async () => {
     const { server } = await createServerFixture({
       watchAssets: true,
