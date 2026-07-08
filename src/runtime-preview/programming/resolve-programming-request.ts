@@ -107,7 +107,7 @@ function toProgrammingRouteTarget(requestPath: string): ProgrammingRouteTarget |
 export function createRuntimePreviewGlobalImportMap(): PreviewImportMap {
     return {
         imports: {
-            cc: 'q-bundled:///virtual/cc.js',
+            cc: 'cce:/internal/x/cc',
             'cc/env': 'cc/editor/populate-internal-constants',
             'cce.env': 'cc/editor/populate-internal-constants',
             'cc/userland/macro': './userland/macro',

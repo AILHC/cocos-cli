@@ -142,20 +142,25 @@ describe('runtime preview script import map and dependScripts linkage', () => {
     expect(existsSync(macroFile!.absolutePath)).toBe(true);
   });
 
-  it('uses the current CLI ProgrammingFacet static import map contract for global scripting imports', () => {
+  it('uses the preview target cc entry for runtime preview global scripting imports', () => {
     const importMap = createRuntimePreviewGlobalImportMap();
 
-    expect(importMap.imports?.cc).toBe('q-bundled:///virtual/cc.js');
+    expect(importMap.imports?.cc).toBe('cce:/internal/x/cc');
     expect(importMap.imports?.['cc/env']).toBe('cc/editor/populate-internal-constants');
     expect(importMap.imports?.['cce.env']).toBe(importMap.imports?.['cc/env']);
     expect(importMap.imports?.['cc/userland/macro']).toBe('./userland/macro');
-    expect(importMap.imports?.cc).not.toBe('cce:/internal/x/cc');
+    expect(importMap.imports?.cc).not.toBe('q-bundled:///virtual/cc.js');
     expect(importMap.imports?.['@tbmp/mp-cloud-sdk']).toBeUndefined();
   });
 
-  it('keeps global scripting imports traceable to current CLI ProgrammingFacet source', async () => {
+  it('keeps runtime preview cc imports independent from the non-runtime ProgrammingFacet cc entry', async () => {
+    const runtimePreviewSource = await readFile(
+      join(process.cwd(), '..', 'src', 'runtime-preview', 'programming', 'resolve-programming-request.ts'),
+      'utf8',
+    );
     const facetSource = await readFile(join(process.cwd(), '..', 'src', 'core', 'scripting', 'programming', 'Facet.ts'), 'utf8');
 
+    expect(runtimePreviewSource).toContain("cc: 'cce:/internal/x/cc'");
     expect(facetSource).toContain("imports['cc'] = 'q-bundled:///virtual/cc.js'");
     expect(facetSource).toContain("imports['cc/env'] = 'cc/editor/populate-internal-constants'");
     expect(facetSource).toContain("imports['cce.env'] = imports['cc/env']");

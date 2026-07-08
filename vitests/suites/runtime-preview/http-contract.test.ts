@@ -172,7 +172,7 @@ describe('runtime preview HTTP route contract', () => {
     expect(importMapGlobalResponse.statusCode).toBe(200);
     expect(importMapGlobalResponse.headers['content-type']).toBe('application/json; charset=utf-8');
     const globalImportMap = await responseBodyJson(importMapGlobalResponse);
-    expect(globalImportMap.imports.cc).toBe('q-bundled:///virtual/cc.js');
+    expect(globalImportMap.imports.cc).toBe('cce:/internal/x/cc');
     expect(globalImportMap.imports['cc/env']).toBe('cc/editor/populate-internal-constants');
     expect(globalImportMap.imports['cc/userland/macro']).toBe('./userland/macro');
 
