@@ -145,7 +145,8 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
          * 有 nodeType 说明是内置资源创建的，需要移除 prefab info
          * createByAsset 时，如果 assetType 不是 cc.Prefab 或者 unlinkPrefab 为 true，也需要移除
          */
-        if ('nodeType' in params || assetType !== 'cc.Prefab' || params.unlinkPrefab) {
+        const shouldUnlinkPrefab = 'nodeType' in params || assetType !== 'cc.Prefab' || params.unlinkPrefab;
+        if (shouldUnlinkPrefab) {
             Service.Prefab.removePrefabInfoFromNode(resultNode, true);
         }
 
@@ -177,6 +178,11 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
         const name = path.split('/').pop();
         if (name && resultNode.name !== name) {
             resultNode.name = name;
+        }
+        // 挂到 prefab instance 下时，setParent 相关流程可能重新补回模板 prefab 信息。
+        // 但在 prefab asset 编辑器中，新节点需要保留 setParent 补齐的 prefab 元数据。
+        if (shouldUnlinkPrefab && Service.Editor.getCurrentEditorType() !== 'prefab') {
+            Service.Prefab.removePrefabInfoFromNode(resultNode, true);
         }
         if (checkUITransform) {
             nodeMgr.ensureUITransformComponent(resultNode);
