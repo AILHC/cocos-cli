@@ -5261,6 +5261,7 @@ import type { Vec3 as Vec3_2 } from 'cc';
 export declare interface AnimationClipAssetUserData {
     name: string;
 }
+export declare type AnimationEditorType = 'scene' | 'prefab' | 'unknown';
 export declare interface AnimationImportSetting {
     name: string;
     duration: number;
@@ -5285,6 +5286,9 @@ export declare interface AnimationImportSetting {
         };
     }>;
 }
+export declare type AnimationMode = 'general' | 'prefab' | 'animation' | 'preview' | 'unknown';
+export declare type AnimationPlayOperation = 'play' | 'pause' | 'resume' | 'stop';
+export declare type AnimationPlayState_2 = 'stop' | 'playing' | 'pause';
 export declare const ASSET_HANDLER_TYPES: string[];
 export declare type AssetHandlerType = typeof ASSET_HANDLER_TYPES[number] | 'database';
 export declare interface AssetUserDataMap {
@@ -5473,6 +5477,431 @@ export declare interface IAddComponentOptions {
     nodePath: string;
     component: string;
 }
+export declare interface IAnimationAuxiliaryCurveDump {
+    keyframes: IAnimationAuxiliaryKeyDump[];
+    preExtrap: number;
+    postExtrap: number;
+}
+export declare interface IAnimationAuxiliaryKeyDump extends IAnimationCurveKeyData {
+    frame: number;
+    value: number;
+}
+export declare interface IAnimationClipDump {
+    name: string;
+    duration: number;
+    sample: number;
+    speed: number;
+    wrapMode: number;
+    curves: IAnimationCurveDump[];
+    events: IAnimationEventDump[];
+    embeddedPlayers: IAnimationEmbeddedPlayerDump[];
+    embeddedPlayerGroups: IAnimationEmbeddedPlayerGroup[];
+    auxiliaryCurves: Record<string, IAnimationAuxiliaryCurveDump>;
+    time: number;
+    isLock: boolean;
+    isSkeleton: boolean;
+    useBakedAnimation: boolean;
+}
+export declare interface IAnimationClipMenuItem {
+    uuid: string;
+    name: string;
+}
+export declare interface IAnimationClipsInfo extends IAnimationRootResult {
+    clipsMenu: IAnimationClipMenuItem[];
+    defaultClip: string;
+}
+export declare interface IAnimationCurveChannelDump {
+    key: string;
+    displayName?: string;
+    type?: IAnimationPropertyType;
+    keyframes: IAnimationCurveKeyDump[];
+}
+export declare interface IAnimationCurveDump {
+    nodePath: string;
+    key: string;
+    keyframes: IAnimationCurveKeyDump[] | null;
+    channels?: IAnimationCurveChannelDump[];
+    category?: string;
+    type?: IAnimationPropertyType;
+    displayName?: string;
+    name?: string;
+    comp?: string;
+    menuName?: string;
+    preExtrap?: number;
+    postExtrap?: number;
+    isCurveSupport?: boolean;
+    parentPropKey?: string;
+    partKeys?: string[];
+}
+export declare interface IAnimationCurveKeyData {
+    inTangent?: number;
+    inTangentWeight?: number;
+    outTangent?: number;
+    outTangentWeight?: number;
+    interpMode?: number;
+    tangentWeightMode?: number;
+    tangentMode?: number;
+    easingMethod?: number;
+    broken?: boolean;
+}
+export declare interface IAnimationCurveKeyDump extends IAnimationCurveKeyData {
+    frame: number;
+    dump: IAnimationKeyValueDump;
+    imgUrl?: string;
+}
+export declare interface IAnimationEditClipOptions {
+    clipUuid: string;
+}
+export declare type IAnimationEmbeddedPlayable = {
+    type: 'animation-clip';
+    clip?: string;
+    path?: string;
+} | {
+    type: 'particle-system';
+    path?: string;
+};
+export declare interface IAnimationEmbeddedPlayerDump {
+    begin: number;
+    end: number;
+    reconciledSpeed: boolean;
+    playable?: IAnimationEmbeddedPlayable;
+    group: string;
+    displayName?: string;
+}
+export declare interface IAnimationEmbeddedPlayerGroup {
+    key: string;
+    name: string;
+    type: string;
+}
+export declare interface IAnimationEnterOptions {
+    rootPath?: string;
+    rootUuid?: string;
+    clipUuid?: string;
+    restoreSelectionOnExit?: boolean;
+}
+export declare interface IAnimationEventDump {
+    frame: number;
+    func: string;
+    params: IAnimationValue[];
+}
+export declare interface IAnimationExitOptions {
+    save?: boolean;
+    restoreSelection?: boolean;
+    restoreSampledSceneState?: boolean;
+}
+export declare interface IAnimationKeyValueDump {
+    value: IAnimationValue;
+    default?: IAnimationValue;
+    extends?: string[];
+    readonly?: boolean;
+    type?: string;
+    visible?: boolean;
+}
+export declare type IAnimationOperation = {
+    type: 'changeSample';
+    clipUuid: string;
+    sample: number;
+} | {
+    type: 'changeSpeed';
+    clipUuid: string;
+    speed: number;
+} | {
+    type: 'changeWrapMode';
+    clipUuid: string;
+    wrapMode: number;
+} | {
+    type: 'addPropertyCurve';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    value?: IAnimationValue;
+} | {
+    type: 'createPropertyKey';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    frame: number;
+    value?: IAnimationValue;
+    channel?: string;
+    keyData?: IAnimationCurveKeyData;
+    curveData?: IAnimationCurveKeyData;
+} | {
+    type: 'updatePropertyKey';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    frame: number;
+    value?: IAnimationValue;
+    channel?: string;
+    keyData?: IAnimationCurveKeyData;
+    curveData?: IAnimationCurveKeyData;
+} | {
+    type: 'updatePropertyKeyData';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    frame: number;
+    channel?: string;
+    keyData?: IAnimationCurveKeyData;
+    curveData?: IAnimationCurveKeyData;
+} | {
+    type: 'removePropertyCurve';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+} | {
+    type: 'removePropertyKey';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    frames: number[];
+    channel?: string;
+} | {
+    type: 'removePropertyKeys';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    frames: number[];
+    channel?: string;
+} | {
+    type: 'movePropertyKeys';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    frames: number[];
+    offset: number;
+    channel?: string;
+} | {
+    type: 'copyPropertyKeysTo';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    frames: number[];
+    dstFrame: number;
+    channel?: string;
+} | {
+    type: 'setPropertyCurveExtrapolation';
+    clipUuid: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    preExtrap?: number;
+    postExtrap?: number;
+} | {
+    type: 'addEvent';
+    clipUuid: string;
+    frame: number;
+    func: string;
+    params?: IAnimationValue[];
+} | {
+    type: 'deleteEvent';
+    clipUuid: string;
+    frames: number[];
+} | {
+    type: 'updateEvent';
+    clipUuid: string;
+    frames: number[];
+    events: IAnimationEventDump[];
+} | {
+    type: 'moveEvents';
+    clipUuid: string;
+    frames: number[];
+    offset: number;
+} | {
+    type: 'copyEventsTo';
+    clipUuid: string;
+    frames: number[];
+    dstFrame: number;
+} | {
+    type: 'addEmbeddedPlayer';
+    clipUuid: string;
+    embeddedPlayer: IAnimationEmbeddedPlayerDump;
+} | {
+    type: 'deleteEmbeddedPlayer';
+    clipUuid: string;
+    embeddedPlayer: IAnimationEmbeddedPlayerDump;
+} | {
+    type: 'updateEmbeddedPlayer';
+    clipUuid: string;
+    embeddedPlayer: IAnimationEmbeddedPlayerDump;
+    newEmbeddedPlayer: IAnimationEmbeddedPlayerDump;
+} | {
+    type: 'clearEmbeddedPlayer';
+    clipUuid: string;
+    group?: string;
+} | {
+    type: 'addEmbeddedPlayerGroup';
+    clipUuid: string;
+    group: IAnimationEmbeddedPlayerGroup;
+} | {
+    type: 'removeEmbeddedPlayerGroup';
+    clipUuid: string;
+    key: string;
+} | {
+    type: 'clearEmbeddedPlayerGroup';
+    clipUuid: string;
+    key: string;
+} | {
+    type: 'addAuxiliaryCurve';
+    clipUuid: string;
+    name: string;
+} | {
+    type: 'removeAuxiliaryCurve';
+    clipUuid: string;
+    name: string;
+} | {
+    type: 'renameAuxiliaryCurve';
+    clipUuid: string;
+    name: string;
+    newName: string;
+} | {
+    type: 'createAuxKey';
+    clipUuid: string;
+    name: string;
+    frame: number;
+    value: number;
+    keyData?: IAnimationCurveKeyData;
+    curveData?: IAnimationCurveKeyData;
+} | {
+    type: 'removeAuxKey';
+    clipUuid: string;
+    name: string;
+    frame: number;
+} | {
+    type: 'moveAuxKeys';
+    clipUuid: string;
+    name: string;
+    frames: number[];
+    offset: number;
+} | {
+    type: 'copyAuxKey';
+    clipUuid: string;
+    name: string;
+    frame: number;
+    dstFrame: number;
+} | {
+    type: 'updateAuxKeyData';
+    clipUuid: string;
+    name: string;
+    frame: number;
+    keyData?: IAnimationCurveKeyData;
+    curveData?: IAnimationCurveKeyData;
+};
+export declare interface IAnimationOperationOptions {
+    operations: IAnimationOperation[];
+    recordUndo?: boolean;
+    absorbPreviousScenePropertyUndo?: boolean;
+}
+export declare interface IAnimationOperationResult {
+    state: 'success' | 'failure';
+    result: boolean;
+    reason?: string;
+}
+export declare interface IAnimationPlayStateOptions {
+    operate: AnimationPlayOperation;
+    clipUuid?: string;
+}
+export declare interface IAnimationPropertyInfo {
+    name: string;
+    key: string;
+    displayName: string;
+    type: IAnimationPropertyType;
+    menuName: string;
+    comp?: string;
+    category?: string;
+}
+export declare interface IAnimationPropertyType {
+    value: string;
+    extends?: string[];
+    enumList?: Array<{
+        name: string;
+        value: number;
+    }>;
+}
+export declare interface IAnimationQueryAuxiliaryCurveValueAtFrameOptions {
+    clipUuid?: string;
+    name: string;
+    frame: number;
+}
+export declare interface IAnimationQueryClipOptions extends IAnimationTargetOptions {
+    clipUuid?: string;
+}
+export declare interface IAnimationQueryPropertyValueAtFrameOptions {
+    clipUuid?: string;
+    nodePath?: string;
+    nodeUuid?: string;
+    propKey: string;
+    frame: number;
+}
+export declare interface IAnimationRootInfo extends IAnimationClipsInfo {
+    nodeTreeDump: INodeTreeItem | null;
+    clipDump: IAnimationClipDump | null;
+    time: number;
+    state: AnimationPlayState_2;
+    useBakedAnimation: boolean;
+}
+export declare interface IAnimationRootResult {
+    rootUuid: string;
+    rootPath: string;
+}
+export declare interface IAnimationSaveOptions {
+    saveScene?: boolean;
+}
+export declare interface IAnimationService extends IServiceEvents {
+    enter(options: IAnimationEnterOptions): Promise<IAnimationStateInfo>;
+    exit(options: IAnimationExitOptions): Promise<IAnimationStateInfo>;
+    queryState(): Promise<IAnimationStateInfo>;
+    queryRoot(options: IAnimationTargetOptions): Promise<IAnimationRootResult>;
+    queryRootInfo(options: IAnimationTargetOptions): Promise<IAnimationRootInfo>;
+    queryClip(options: IAnimationQueryClipOptions): Promise<IAnimationClipDump>;
+    queryClips(options: IAnimationTargetOptions): Promise<IAnimationClipsInfo>;
+    queryProperties(options: IAnimationTargetOptions): Promise<IAnimationPropertyInfo[]>;
+    queryTime(options: IAnimationTimeOptions): Promise<number>;
+    queryPropertyValueAtFrame(options: IAnimationQueryPropertyValueAtFrameOptions): Promise<IAnimationValue>;
+    queryAuxiliaryCurveValueAtFrame(options: IAnimationQueryAuxiliaryCurveValueAtFrameOptions): Promise<IAnimationKeyValueDump | null>;
+    setTime(options: IAnimationSetTimeOptions): Promise<boolean>;
+    changePlayState(options: IAnimationPlayStateOptions): Promise<boolean>;
+    changeEditClip(options: IAnimationEditClipOptions): Promise<boolean>;
+    applyOperations(options: IAnimationOperationOptions): Promise<IAnimationOperationResult>;
+    save(options?: IAnimationSaveOptions): Promise<boolean>;
+}
+export declare interface IAnimationSetTimeOptions {
+    time: number;
+}
+export declare interface IAnimationStateInfo {
+    active: boolean;
+    editorType: AnimationEditorType;
+    mode: AnimationMode;
+    rootUuid: string;
+    rootPath: string;
+    clipUuid: string;
+    time: number;
+    playState: AnimationPlayState_2;
+    dirty: boolean;
+    selection: string[];
+    restoreSelectionOnExit: boolean;
+}
+export declare interface IAnimationTargetOptions {
+    nodePath?: string;
+    nodeUuid?: string;
+    rootPath?: string;
+    rootUuid?: string;
+}
+export declare interface IAnimationTimeOptions {
+    clipUuid?: string;
+}
+export declare type IAnimationValue = string | number | boolean | null | undefined | IAnimationValue[] | {
+    [key: string]: IAnimationValue;
+};
 export declare interface IApplyPrefabChangesParams {
     nodePath: string;
 }
@@ -5714,6 +6143,8 @@ export declare interface IEngineService extends IServiceEvents {
     init(): Promise<void>;
     repaintInEditMode(): Promise<void>;
     initCustomLayer(layers?: ICustomLayerConfig[]): Promise<void>;
+    enterAnimationMode(): void;
+    exitAnimationMode(): void;
 }
 export declare interface IExecuteComponentMethodOptions {
     path: string;
@@ -5991,8 +6422,8 @@ export declare interface IRedirectInfo {
     uuid: string;
 }
 export declare interface IRedoService {
-    redo(): Promise<IUndoRedoResult>;
-    canRedo(): boolean;
+    redo(options?: IUndoOperationOptions): Promise<IUndoRedoResult>;
+    canRedo(options?: IUndoOperationOptions): boolean;
 }
 export declare interface IReloadOptions {
     urlOrUUID?: string;
@@ -6127,6 +6558,7 @@ export declare interface IServiceManager {
     Script: IScriptService;
     Asset: IAssetService;
     Engine: IEngineService;
+    Animation: IAnimationService;
     Prefab: IPrefabService;
     Selection: ISelectionService;
     Operation: IOperationService;
@@ -6179,7 +6611,12 @@ export declare interface IUIService {
 export declare interface IUndoBeginOptions {
     label?: string;
     tag?: string;
+    scope?: IUndoScope;
     customCommand?: IUndoCommand;
+}
+export declare interface IUndoCheckpoint {
+    commandId: string | null;
+    generation: number;
 }
 export declare interface IUndoCommand {
     meta: IUndoCommandMeta;
@@ -6196,6 +6633,16 @@ export declare interface IUndoCommandMeta {
 export declare interface IUndoGroupOptions {
     label?: string;
 }
+export declare interface IUndoOperationOptions {
+    scope?: Partial<IUndoScope>;
+}
+export declare interface IUndoPushWithPreviousOptions {
+    label?: string;
+    type: string;
+    scope: IUndoScope;
+    previousScope?: Partial<IUndoScope>;
+    previousTypes?: string[];
+}
 export declare interface IUndoRedoResult {
     success: boolean;
     commandId?: string;
@@ -6205,6 +6652,8 @@ export declare interface IUndoRedoResult {
 export declare interface IUndoScope {
     assetUuid?: string;
     assetUrl?: string;
+    nodePath?: string;
+    propPath?: string;
     editorType?: 'scene' | 'prefab' | 'animation' | string;
     mode?: 'general' | 'prefab' | 'animation' | 'preview' | string;
 }
@@ -6212,18 +6661,22 @@ export declare interface IUndoService {
     beginRecording(uuids: string[], options?: IUndoBeginOptions): string;
     endRecording(commandId: string): Promise<void>;
     cancelRecording(commandId: string): void;
-    undo(): Promise<IUndoRedoResult>;
-    redo(): Promise<IUndoRedoResult>;
+    undo(options?: IUndoOperationOptions): Promise<IUndoRedoResult>;
+    redo(options?: IUndoOperationOptions): Promise<IUndoRedoResult>;
     beginGroup(options?: IUndoGroupOptions): string;
     endGroup(groupId: string): IUndoRedoResult;
     cancelGroup(groupId: string): IUndoRedoResult;
     isGroupActive(): boolean;
     push(command: IUndoCommand): void;
+    pushWithPrevious(command: IUndoCommand, options: IUndoPushWithPreviousOptions): void;
     reset(): void;
     clearHistory(): void;
     isDirty(): boolean;
-    canUndo(): boolean;
-    canRedo(): boolean;
+    createCheckpoint(): IUndoCheckpoint;
+    hasScopedDifference(checkpoint: IUndoCheckpoint, scope: Partial<IUndoScope>): boolean;
+    hasDifferenceOutsideScope(checkpoint: IUndoCheckpoint, scope: Partial<IUndoScope>): boolean;
+    canUndo(options?: IUndoOperationOptions): boolean;
+    canRedo(options?: IUndoOperationOptions): boolean;
     markSaved(): void;
     hasActiveRecording(uuid?: string): boolean;
     isApplying(): boolean;

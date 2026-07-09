@@ -1,6 +1,8 @@
 export interface IUndoScope {
     assetUuid?: string;
     assetUrl?: string;
+    nodePath?: string;
+    propPath?: string;
     editorType?: 'scene' | 'prefab' | 'animation' | string;
     mode?: 'general' | 'prefab' | 'animation' | 'preview' | string;
 }
@@ -20,6 +22,23 @@ export interface IUndoRedoResult {
     reason?: string;
 }
 
+export interface IUndoOperationOptions {
+    scope?: Partial<IUndoScope>;
+}
+
+export interface IUndoCheckpoint {
+    commandId: string | null;
+    generation: number;
+}
+
+export interface IUndoPushWithPreviousOptions {
+    label?: string;
+    type: string;
+    scope: IUndoScope;
+    previousScope?: Partial<IUndoScope>;
+    previousTypes?: string[];
+}
+
 export interface IUndoCommand {
     meta: IUndoCommandMeta;
     undo(): Promise<IUndoRedoResult>;
@@ -36,6 +55,8 @@ export interface IUndoBeginOptions {
     label?: string;
     /** 兼容旧调用点的别名，后续逐步迁移到 label。 */
     tag?: string;
+    /** 可选的命令作用域；用于上层在提交后做 scoped undo/吸收判断。 */
+    scope?: IUndoScope;
     /**
      * 自定义可撤销命令，内部自带 undo()/redo() 逻辑。
      * 传入后会跳过默认的属性快照模式，直接使用这个命令。
@@ -62,10 +83,10 @@ export interface IUndoService {
     cancelRecording(commandId: string): void;
 
     /** 撤销最近一条可撤销命令。 */
-    undo(): Promise<IUndoRedoResult>;
+    undo(options?: IUndoOperationOptions): Promise<IUndoRedoResult>;
 
     /** 重做最近撤销的一条命令。 */
-    redo(): Promise<IUndoRedoResult>;
+    redo(options?: IUndoOperationOptions): Promise<IUndoRedoResult>;
 
     beginGroup(options?: IUndoGroupOptions): string;
 
@@ -78,6 +99,9 @@ export interface IUndoService {
     /** 业务 service 显式推入可撤销命令的内部入口。 */
     push(command: IUndoCommand): void;
 
+    /** 将新命令与紧邻栈顶的连续匹配命令合并；栈顶不匹配时退化为普通 push，不跨过不匹配命令搜索历史栈。 */
+    pushWithPrevious(command: IUndoCommand, options: IUndoPushWithPreviousOptions): void;
+
     /** 清空整个 undo/redo 栈，内部生命周期 API。 */
     reset(): void;
 
@@ -87,11 +111,20 @@ export interface IUndoService {
     /** 当前场景有未保存变更时返回 true。 */
     isDirty(): boolean;
 
+    /** 记录当前 undo cursor，用于业务层判断某个编辑 session 内的 scoped dirty。 */
+    createCheckpoint(): IUndoCheckpoint;
+
+    /** 当前 cursor 和 checkpoint 之间存在匹配 scope 的命令差异时返回 true。 */
+    hasScopedDifference(checkpoint: IUndoCheckpoint, scope: Partial<IUndoScope>): boolean;
+
+    /** 当前 cursor 和 checkpoint 之间存在不匹配 scope 的命令差异时返回 true。 */
+    hasDifferenceOutsideScope(checkpoint: IUndoCheckpoint, scope: Partial<IUndoScope>): boolean;
+
     /** 至少有一条可撤销命令时返回 true。 */
-    canUndo(): boolean;
+    canUndo(options?: IUndoOperationOptions): boolean;
 
     /** 至少有一条可重做命令时返回 true。 */
-    canRedo(): boolean;
+    canRedo(options?: IUndoOperationOptions): boolean;
 
     /**
      * 将当前 undo 栈位置标记为已保存状态。
@@ -111,10 +144,10 @@ export interface IUndoService {
 
 export interface IRedoService {
     /** 重做最近撤销的一条命令。 */
-    redo(): Promise<IUndoRedoResult>;
+    redo(options?: IUndoOperationOptions): Promise<IUndoRedoResult>;
 
     /** 至少有一条可重做命令时返回 true。 */
-    canRedo(): boolean;
+    canRedo(options?: IUndoOperationOptions): boolean;
 }
 
 /** 给外部代理过滤层使用的公开接口，只保留对外 API，刻意排除内部修改辅助方法。 */
@@ -122,6 +155,7 @@ export type IPublicUndoService = Omit<
     IUndoService,
     | 'reset'
     | 'push'
+    | 'pushWithPrevious'
     | 'isApplying'
     | 'redo'
     | 'canRedo'

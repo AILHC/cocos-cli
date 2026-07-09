@@ -15,6 +15,10 @@ type EventMap = {
 // 仅需 messageManager 转发、无服务方法扇出的事件
 const MESSAGE_ONLY_EVENTS = [
     'dirty:changed',
+    'animation:state-changed',
+    'animation:time-changed',
+    'animation:clip-changed',
+    'animation:property-committed',
     'gizmo:coordinate-changed',
     'gizmo:pivot-changed',
     'gizmo:view-mode-changed',

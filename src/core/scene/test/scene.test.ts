@@ -15,6 +15,8 @@ beforeAll(async () => {
     console.log('创建场景测试目录:', SceneTestEnv.cacheDirectory);
     const TestUtils = await import('../../test/global-setup');
     await TestUtils.globalSetup();
+    const { assetManager } = await import('../../assets');
+    await assetManager.refreshAsset(SceneTestEnv.cacheDirectory);
     const { loadSceneI18n } = await import('../index');
     await loadSceneI18n();
 });
@@ -34,4 +36,5 @@ import './prefab-proxy.testcase';
 import './script-proxy.testcase';
 import './engine-proxy.testcase';
 import './undo-redo.testcase';
+import './animation-service.testcase';
 import './scene-exit.testcase';
