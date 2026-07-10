@@ -4,6 +4,10 @@ const mockAssetManager = {
     querySerializedData: jest.fn(),
     saveSerializedData: jest.fn(),
     queryPropertySchema: jest.fn(),
+    queryMaterialAllEffects: jest.fn(),
+    queryMaterialEffect: jest.fn(),
+    queryMaterial: jest.fn(),
+    saveMaterial: jest.fn(),
 };
 
 jest.mock('../../src/core/assets', () => ({
@@ -86,6 +90,42 @@ describe('lib assets api', () => {
         await expect(Assets.serializedData.save('test-uuid', {})).resolves.toEqual(result);
         expect(mockAssetManager.querySerializedData).toHaveBeenCalledWith('test-uuid');
         expect(mockAssetManager.saveSerializedData).toHaveBeenCalledWith('test-uuid', {});
+    });
+
+    it('exposes material namespace and delegates query/save to assetManager', async () => {
+        const effects = {
+            'effect-uuid': {
+                uuid: 'effect-uuid',
+                name: 'builtin-standard',
+                hideInEditor: false,
+                assetPath: 'db://internal/effects/builtin-standard.effect',
+            },
+        };
+        const effectDump = [{ name: 'default', passes: [] }];
+        const materialDump = {
+            effect: 'effect-uuid',
+            technique: 0,
+            data: effectDump,
+        };
+        mockAssetManager.queryMaterialAllEffects.mockResolvedValue(effects);
+        mockAssetManager.queryMaterialEffect.mockResolvedValue(effectDump);
+        mockAssetManager.queryMaterial.mockResolvedValue(materialDump);
+        mockAssetManager.saveMaterial.mockResolvedValue(undefined);
+
+        expect(Assets.material.query).toEqual(expect.any(Function));
+        expect(Assets.material.queryEffect).toEqual(expect.any(Function));
+        expect(Assets.material.queryAllEffects).toEqual(expect.any(Function));
+        expect(Assets.material.save).toEqual(expect.any(Function));
+
+        await expect(Assets.material.queryAllEffects()).resolves.toEqual(effects);
+        await expect(Assets.material.queryEffect('effect-uuid')).resolves.toEqual(effectDump);
+        await expect(Assets.material.query('material-uuid')).resolves.toEqual(materialDump);
+        await expect(Assets.material.save('material-uuid', materialDump)).resolves.toBeUndefined();
+
+        expect(mockAssetManager.queryMaterialAllEffects).toHaveBeenCalledWith();
+        expect(mockAssetManager.queryMaterialEffect).toHaveBeenCalledWith('effect-uuid');
+        expect(mockAssetManager.queryMaterial).toHaveBeenCalledWith('material-uuid');
+        expect(mockAssetManager.saveMaterial).toHaveBeenCalledWith('material-uuid', materialDump);
     });
 
     it('exposes queryPropertySchema and delegates to assetManager', async () => {

@@ -176,7 +176,7 @@ function encodeComponentAsset(
     return value;
 }
 
-function encodeSerializedObject(
+export function encodeSerializedObject(
     object: any,
     attributes: any,
     owner: any = null,
@@ -796,7 +796,7 @@ function createValueForDumpItem(itemDump: IProperty) {
     return getDefaultValueByType(itemDump.type);
 }
 
-function getDefaultValueByType(type: string, data?: any) {
+export function getDefaultValueByType(type: string, data?: any) {
     switch (type) {
         case 'Boolean':
             return data ? data[0] : false;

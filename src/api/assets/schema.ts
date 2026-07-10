@@ -186,6 +186,37 @@ export const SchemaSerializedAssetPatch = z.union([
     z.record(z.string(), z.any()),
 ]).describe('Serialized asset patch. Prefer IProperty or full dump patches; raw value maps are accepted only for convenience.');
 
+// Material API related // Material API 相关
+export const SchemaMaterialEffectNameOrUuid = z.string().min(1).describe('Effect UUID, asset URL/path, or effect name');
+export const SchemaMaterialEffectInfo = z.object({
+    uuid: z.string().min(1).describe('Effect asset UUID'),
+    name: z.string().describe('Effect name'),
+    hideInEditor: z.boolean().optional().describe('Whether this effect should be hidden in editor UI'),
+    assetPath: z.string().describe('Effect asset file path or URL'),
+}).describe('Material effect list item');
+
+export const SchemaMaterialPassDump = z.object({
+    index: z.number().int().nonnegative().describe('Pass index'),
+    name: z.string().optional().describe('Pass name'),
+    phase: z.string().optional().describe('Render phase'),
+    switch: SchemaSerializedAssetProperty.optional().describe('Pass switch define dump'),
+    propertyIndex: SchemaSerializedAssetProperty.describe('Property source pass index dump'),
+    props: z.array(SchemaSerializedAssetProperty).describe('Material property dumps'),
+    defines: z.array(SchemaSerializedAssetProperty).describe('Material define dumps'),
+    states: SchemaSerializedAssetProperty.describe('Pipeline state dump'),
+}).describe('Material pass dump');
+
+export const SchemaMaterialTechniqueDump = z.object({
+    name: z.string().optional().describe('Technique name'),
+    passes: z.array(SchemaMaterialPassDump).describe('Technique pass dumps'),
+}).describe('Material technique dump');
+
+export const SchemaMaterialDump = z.object({
+    effect: z.string().min(1).describe('Referenced effect UUID'),
+    technique: z.number().int().nonnegative().describe('Selected technique index'),
+    data: z.array(SchemaMaterialTechniqueDump).describe('Technique dump list'),
+}).describe('Creator-compatible Material dump');
+
 // Return value Schema // 返回值 Schema
 export const SchemaAssetInfoResult = SchemaAssetInfo.nullable().describe('Asset detailed information object, including name, type, path, UUID, etc.'); // 资源详细信息对象，包含名称、类型、路径、UUID 等字段
 export const SchemaAssetMetaResult = SchemaAssetMeta.nullable().describe('Asset metadata object, including import configuration, user data, etc.'); // 资源元数据对象，包含导入配置、用户数据等
@@ -203,6 +234,9 @@ export const SchemaSerializedAssetResult = z.object({
     importer: z.string().describe('Asset importer name'), // 资源导入器名称
     dump: SchemaSerializedAssetDump.describe('Creator-compatible raw dump'), // Creator 兼容 raw dump
 }).nullable().describe('Serialized asset query/save result'); // 序列化资源 query/save 结果
+export const SchemaMaterialEffectsResult = z.record(z.string(), SchemaMaterialEffectInfo).describe('Available material effects keyed by effect UUID');
+export const SchemaMaterialEffectResult = z.array(SchemaMaterialTechniqueDump).describe('Material effect technique dump list');
+export const SchemaMaterialResult = SchemaMaterialDump.describe('Material dump result');
 export const SchemaRefreshDirResult = z.null().describe('Refresh asset directory result'); // 刷新资源目录结果
 export const SchemaUUIDResult = z.string().nullable().describe('Unique identifier UUID of the asset'); // 资源的唯一标识符 UUID
 export const SchemaPathResult = z.string().nullable().describe('File system path of the asset'); // 资源的文件系统路径
@@ -275,6 +309,8 @@ export type TAssetOperationOption = z.infer<typeof SchemaAssetOperationOption> |
 export type TSourcePath = z.infer<typeof SchemaSourcePath>;
 export type TAssetData = z.infer<typeof SchemaAssetData>;
 export type TSerializedAssetPatch = z.infer<typeof SchemaSerializedAssetPatch>;
+export type TMaterialEffectNameOrUuid = z.infer<typeof SchemaMaterialEffectNameOrUuid>;
+export type TMaterialDump = z.infer<typeof SchemaMaterialDump>;
 export type TAssetInfoResult = z.infer<typeof SchemaAssetInfoResult>;
 export type TAssetMetaResult = z.infer<typeof SchemaAssetMetaResult>;
 export type TCreateMapResult = z.infer<typeof SchemaCreateMapResult>;
@@ -287,6 +323,9 @@ export type TImportedAssetResult = z.infer<typeof SchemaImportedAssetResult>;
 export type TReimportResult = z.infer<typeof SchemaAssetInfoResult>;
 export type TSaveAssetResult = z.infer<typeof SchemaSaveAssetResult>;
 export type TSerializedAssetResult = z.infer<typeof SchemaSerializedAssetResult>;
+export type TMaterialEffectsResult = z.infer<typeof SchemaMaterialEffectsResult>;
+export type TMaterialEffectResult = z.infer<typeof SchemaMaterialEffectResult>;
+export type TMaterialResult = z.infer<typeof SchemaMaterialResult>;
 export type TRefreshDirResult = z.infer<typeof SchemaRefreshDirResult>;
 export type TUUIDResult = z.infer<typeof SchemaUUIDResult>;
 export type TPathResult = z.infer<typeof SchemaPathResult>;

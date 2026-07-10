@@ -14,6 +14,11 @@ import {
     SchemaAssetData,
     SchemaSerializedAssetPatch,
     SchemaSerializedAssetResult,
+    SchemaMaterialEffectNameOrUuid,
+    SchemaMaterialDump,
+    SchemaMaterialEffectsResult,
+    SchemaMaterialEffectResult,
+    SchemaMaterialResult,
     TUrlOrUUIDOrPath,
     TSaveAssetPath,
     TDataKeys,
@@ -23,6 +28,11 @@ import {
     TAssetData,
     TSerializedAssetPatch,
     TSerializedAssetResult,
+    TMaterialEffectNameOrUuid,
+    TMaterialDump,
+    TMaterialEffectsResult,
+    TMaterialEffectResult,
+    TMaterialResult,
     SchemaAssetInfoResult,
     SchemaAssetMetaResult,
     SchemaCreateMapResult,
@@ -540,6 +550,109 @@ export class AssetsApi {
         } catch (e) {
             ret.code = getCommonErrorStatus(e);
             console.error('save animation mask fail:', e instanceof Error ? e.message : String(e));
+            ret.reason = e instanceof Error ? e.message : String(e);
+        }
+
+        return ret;
+    }
+
+    /**
+     * Query All Material Effects // 查询所有材质 Effect
+     */
+    @tool('assets-material-query-all-effects')
+    @title('Query Material Effects')
+    @description('Query all available cc.EffectAsset entries for assets.material.queryAllEffects. Returns effect UUID, name, hideInEditor flag, and asset path. Use UUID as the stable key when building material effect selectors.')
+    @result(SchemaMaterialEffectsResult)
+    async queryMaterialAllEffects(): Promise<CommonResultType<TMaterialEffectsResult>> {
+        const ret: CommonResultType<TMaterialEffectsResult> = {
+            code: COMMON_STATUS.SUCCESS,
+            data: {},
+        };
+
+        try {
+            ret.data = await assetManager.queryMaterialAllEffects();
+        } catch (e) {
+            ret.code = getCommonErrorStatus(e);
+            console.error('query material effects fail:', e instanceof Error ? e.message : String(e));
+            ret.reason = e instanceof Error ? e.message : String(e);
+        }
+
+        return ret;
+    }
+
+    /**
+     * Query Material Effect // 查询单个材质 Effect
+     */
+    @tool('assets-material-query-effect')
+    @title('Query Material Effect')
+    @description('Query one material Effect by UUID, asset URL/path, or effect name. Returns Creator-compatible technique/pass/property dump data for generating the material inspector UI.')
+    @result(SchemaMaterialEffectResult)
+    async queryMaterialEffect(
+        @param(SchemaMaterialEffectNameOrUuid) effectNameOrUuid: TMaterialEffectNameOrUuid
+    ): Promise<CommonResultType<TMaterialEffectResult>> {
+        const ret: CommonResultType<TMaterialEffectResult> = {
+            code: COMMON_STATUS.SUCCESS,
+            data: [],
+        };
+
+        try {
+            ret.data = await assetManager.queryMaterialEffect(effectNameOrUuid);
+        } catch (e) {
+            ret.code = getCommonErrorStatus(e);
+            console.error('query material effect fail:', e instanceof Error ? e.message : String(e));
+            ret.reason = e instanceof Error ? e.message : String(e);
+        }
+
+        return ret;
+    }
+
+    /**
+     * Query Material // 查询材质
+     */
+    @tool('assets-material-query')
+    @title('Query Material')
+    @description('Query a cc.Material asset and return Creator-compatible material dump data. The dump merges effect defaults with values saved in the .mtl file and can be used as the input for assets-material-save.')
+    @result(SchemaMaterialResult)
+    async queryMaterial(
+        @param(SchemaUrlOrUUIDOrPath) uuidOrUrlOrPath: TUrlOrUUIDOrPath
+    ): Promise<CommonResultType<TMaterialResult | null>> {
+        const ret: CommonResultType<TMaterialResult | null> = {
+            code: COMMON_STATUS.SUCCESS,
+            data: null,
+        };
+
+        try {
+            ret.data = await assetManager.queryMaterial(uuidOrUrlOrPath);
+        } catch (e) {
+            ret.code = getCommonErrorStatus(e);
+            console.error('query material fail:', e instanceof Error ? e.message : String(e));
+            ret.reason = e instanceof Error ? e.message : String(e);
+        }
+
+        return ret;
+    }
+
+    /**
+     * Save Material // 保存材质
+     */
+    @tool('assets-material-save')
+    @title('Save Material')
+    @description('Save Creator-compatible material dump data to a cc.Material asset. The implementation writes only modified values, then reimports through AssetDB to keep the database state consistent.')
+    @result(SchemaVoidResult)
+    async saveMaterial(
+        @param(SchemaUrlOrUUIDOrPath) uuidOrUrlOrPath: TUrlOrUUIDOrPath,
+        @param(SchemaMaterialDump) dump: TMaterialDump
+    ): Promise<CommonResultType<TVoidResult>> {
+        const ret: CommonResultType<TVoidResult> = {
+            code: COMMON_STATUS.SUCCESS,
+            data: null,
+        };
+
+        try {
+            await assetManager.saveMaterial(uuidOrUrlOrPath, dump as any);
+        } catch (e) {
+            ret.code = getCommonErrorStatus(e);
+            console.error('save material fail:', e instanceof Error ? e.message : String(e));
             ret.reason = e instanceof Error ? e.message : String(e);
         }
 

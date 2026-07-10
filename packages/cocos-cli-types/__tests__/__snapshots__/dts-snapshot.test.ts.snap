@@ -636,6 +636,37 @@ export declare interface Mat4 {
     m14: number;
     m15: number;
 }
+export declare const material: {
+    query: typeof queryMaterial;
+    queryEffect: typeof queryMaterialEffect;
+    queryAllEffects: typeof queryMaterialAllEffects;
+    save: typeof saveMaterial;
+};
+export declare interface MaterialDump {
+    effect: string;
+    technique: number;
+    data: MaterialTechniqueDump[];
+}
+export declare interface MaterialEffectInfo {
+    uuid: string;
+    name: string;
+    hideInEditor?: boolean;
+    assetPath: string;
+}
+export declare interface MaterialPassDump {
+    index: number;
+    name?: string;
+    phase?: string;
+    switch?: IProperty;
+    propertyIndex: IProperty;
+    props: IProperty[];
+    defines: IProperty[];
+    states: IProperty;
+}
+export declare interface MaterialTechniqueDump {
+    name?: string;
+    passes: MaterialPassDump[];
+}
 export declare interface MeshClusterOptions {
     enable: boolean;
     coneCluster?: boolean;
@@ -758,6 +789,9 @@ export declare type QueryAssetType = 'asset' | 'script' | 'all';
 export declare function queryAssetUserDataConfig(urlOrUuidOrPath: string): Promise<false | Record<string, IUerDataConfigItem> | undefined>;
 export declare function queryAssetUsers(uuidOrUrl: string, type?: QueryAssetType): Promise<string[]>;
 export declare function queryCreateMap(): Promise<ICreateMenuInfo[]>;
+export declare function queryMaterial(uuidOrUrlOrPath: string): Promise<MaterialDump>;
+export declare function queryMaterialAllEffects(): Promise<Record<string, MaterialEffectInfo>>;
+export declare function queryMaterialEffect(effectNameOrUuid: string): Promise<MaterialTechniqueDump[]>;
 export declare function queryPath(urlOrUuid: string): Promise<string>;
 export declare function queryPropertySchema(importer: string): Promise<AssetPropertySchemaMap>;
 export declare function querySerializedData(uuidOrUrlOrPath: string): Promise<SerializedAssetQueryResult>;
@@ -778,6 +812,7 @@ export declare interface RtSpriteFrameAssetUserData {
     height?: number;
 }
 export declare function saveAsset(pathOrUrlOrUUID: string, data: string | Buffer): Promise<IAssetInfo>;
+export declare function saveMaterial(uuidOrUrlOrPath: string, dump: MaterialDump): Promise<void>;
 export declare function saveSerializedData(uuidOrUrlOrPath: string, patch: SerializedAssetPatch): Promise<SerializedAssetQueryResult>;
 export declare interface ScriptModuleUserData {
     isPlugin: false;
@@ -7513,6 +7548,10 @@ export declare namespace Assets {
         saveAsset,
         querySerializedData,
         saveSerializedData,
+        queryMaterialAllEffects,
+        queryMaterialEffect,
+        queryMaterial,
+        saveMaterial,
         queryUUID,
         queryPath,
         queryUrl,
@@ -7544,6 +7583,7 @@ export declare namespace Assets {
         animationGraphVariant,
         animationMask,
         serializedData,
+        material,
         IProperty,
         IAssetDeleteOptions,
         IAssetFileSystemProvider,
@@ -7556,6 +7596,10 @@ export declare namespace Assets {
         SerializedAssetDump,
         SerializedAssetPatch,
         SerializedAssetQueryResult,
+        MaterialEffectInfo,
+        MaterialPassDump,
+        MaterialTechniqueDump,
+        MaterialDump,
         AssetPropertySchemaType,
         AssetPropertySchemaOption,
         AssetPropertySchema,
@@ -8472,6 +8516,37 @@ export declare interface Mat4 {
     m14: number;
     m15: number;
 }
+export declare const material: {
+    query: typeof queryMaterial;
+    queryEffect: typeof queryMaterialEffect;
+    queryAllEffects: typeof queryMaterialAllEffects;
+    save: typeof saveMaterial;
+};
+export declare interface MaterialDump {
+    effect: string;
+    technique: number;
+    data: MaterialTechniqueDump[];
+}
+export declare interface MaterialEffectInfo {
+    uuid: string;
+    name: string;
+    hideInEditor?: boolean;
+    assetPath: string;
+}
+export declare interface MaterialPassDump {
+    index: number;
+    name?: string;
+    phase?: string;
+    switch?: IProperty;
+    propertyIndex: IProperty;
+    props: IProperty[];
+    defines: IProperty[];
+    states: IProperty;
+}
+export declare interface MaterialTechniqueDump {
+    name?: string;
+    passes: MaterialPassDump[];
+}
 export declare namespace Mcp {
     export {
         register,
@@ -8719,6 +8794,9 @@ export declare function queryLayerBuiltin(): Promise<{
     name: string;
     value: number;
 }[]>;
+export declare function queryMaterial(uuidOrUrlOrPath: string): Promise<MaterialDump>;
+export declare function queryMaterialAllEffects(): Promise<Record<string, MaterialEffectInfo>>;
+export declare function queryMaterialEffect(effectNameOrUuid: string): Promise<MaterialTechniqueDump[]>;
 export declare function queryPath(urlOrUuid: string): Promise<string>;
 export declare function queryPropertySchema(importer: string): Promise<AssetPropertySchemaMap>;
 export declare function querySerializedData(uuidOrUrlOrPath: string): Promise<SerializedAssetQueryResult>;
@@ -8745,6 +8823,7 @@ export declare interface RtSpriteFrameAssetUserData {
 }
 export declare function save(force?: boolean): Promise<void>;
 export declare function saveAsset(pathOrUrlOrUUID: string, data: string | Buffer): Promise<IAssetInfo>;
+export declare function saveMaterial(uuidOrUrlOrPath: string, dump: MaterialDump): Promise<void>;
 export declare function saveSerializedData(uuidOrUrlOrPath: string, patch: SerializedAssetPatch): Promise<SerializedAssetQueryResult>;
 export declare namespace Scene {
     export {

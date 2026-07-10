@@ -9,6 +9,7 @@ import assetOperation from './operation';
 import assetHandlerManager from './asset-handler';
 import animationGraphVariant from '../animation-graph-variant';
 import * as serializedData from '../serialized-data';
+import * as materialService from '../material-service';
 
 /**
  * 对外暴露一系列的资源查询、操作接口等
@@ -51,6 +52,10 @@ class AssetManager extends EventEmitter {
     updateUserDataByPath = assetOperation.updateUserDataByPath.bind(assetOperation);
     querySerializedData = serializedData.querySerializedData;
     saveSerializedData = serializedData.saveSerializedData;
+    queryMaterial = materialService.queryMaterial;
+    queryMaterialEffect = materialService.queryEffect;
+    queryMaterialAllEffects = materialService.queryAllEffects;
+    saveMaterial = materialService.saveMaterial;
 
     // ---------- animation graph variant ---------
     queryAnimationGraphVariant = animationGraphVariant.query.bind(animationGraphVariant);
@@ -366,6 +371,10 @@ export interface TypedAssetManager extends EventEmitter {
     updateUserDataByPath: typeof assetOperation.updateUserDataByPath;
     querySerializedData: typeof serializedData.querySerializedData;
     saveSerializedData: typeof serializedData.saveSerializedData;
+    queryMaterial: typeof materialService.queryMaterial;
+    queryMaterialEffect: typeof materialService.queryEffect;
+    queryMaterialAllEffects: typeof materialService.queryAllEffects;
+    saveMaterial: typeof materialService.saveMaterial;
 
     queryAnimationGraphVariant: typeof animationGraphVariant.query;
     changeAnimationGraphVariant: typeof animationGraphVariant.change;
