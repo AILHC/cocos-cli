@@ -1,10 +1,10 @@
 # `adapter-to-386` 合并官方 `origin/main` 执行计划
 
-> 本计划只执行已确认的 `C-01` 到 `C-08`。执行时逐项勾选并记录命令结果；任何 stop condition 命中时保留现场，返回合并前报告重新决策。
+> 本计划执行旧 target 下已确认的 `C-01` 到 `C-08`；新 target 要求重新确认 `C-01` / `C-02` / `C-07` 补充边界和新增 `C-09` 到 `C-12`。执行时逐项勾选并记录命令结果；任何 stop condition 命中时保留现场，返回合并前报告重新决策。
 
-**Goal:** 将 `origin/main@610c6b3d5f8608680a7374970bad99262ff25e02` 以 merge commit 合入长期分支 `adapter-to-386`，完整吸收官方 preview、builder、assets API 和修复，同时保留 adapter 的 runtime preview、3.8.6 engine / AssetDB、project extension、wechatgame 和 vendored dependency 目标。
+**Goal:** 将 `origin/main@d373afbca8c519bc75f6e68c1526b3d7f6a2536b` 以 merge commit 合入长期分支 `adapter-to-386`，完整吸收官方 preview、PreviewService、builder、assets API、scene service 和修复，同时保留 adapter 的 runtime preview、3.8.6 engine / AssetDB、project extension、wechatgame 和 vendored dependency 目标。
 
-**Architecture:** 使用长期 `.worktrees/official-sync`，每轮从当前 `adapter-to-386` 新建独立 `SYNC_BRANCH`。先 `git merge --no-ff --no-commit origin/main`，按已确认业务主题解决直接与 semantic conflict，完成分层验证后创建单一 merge commit。随后补复盘文档 commit，最终让 `adapter-to-386` 通过 `ff-only` 接收结果。
+**Architecture:** 使用长期 `.worktrees/official-sync`，每轮从当前 `adapter-to-386` 新建独立 `SYNC_BRANCH`。先 `git merge --no-ff --no-commit d373afbca8c519bc75f6e68c1526b3d7f6a2536b`，按已确认业务主题解决直接与 semantic conflict，完成分层验证后创建单一 merge commit。随后补复盘文档 commit，最终让 `adapter-to-386` 通过 `ff-only` 接收结果。
 
 **Tech Stack:** Git worktree、TypeScript、Jest、Vitest、Express preview server、Cocos AssetDB / builder / scene process、MCP assets API、DTS generator。
 
@@ -14,10 +14,10 @@
 | --- | --- |
 | `BASE` | `c71c446428da66b77ae8e8c6714c9cc35ac094d2` |
 | `ANALYZED_ADAPTER` | `8f52bece43b2512590d28870d7c3f05031299235` |
-| `TARGET` | `610c6b3d5f8608680a7374970bad99262ff25e02` |
+| `TARGET` | `d373afbca8c519bc75f6e68c1526b3d7f6a2536b` |
 | `target ref` | `origin/main`，且分析时与 `upstream/main` 相等 |
 | `SYNC_WORKTREE` | `E:\own_space\engines\cocos-cli\.worktrees\official-sync` |
-| `SYNC_BRANCH` | `codex/official-sync-20260710-610c6b3d` |
+| `SYNC_BRANCH` | `codex/official-sync-20260710-d373afbc` |
 | 合并前报告 | `docs/dev/reports/official-sync/adapter-to-386-origin-main-premerge-analysis-20260709.md` |
 | 流程规范 | `docs/dev/architecture/official-sync-workflow.md` |
 
@@ -25,7 +25,7 @@
 
 ## 已确认范围
 
-- 执行 `C-01` 到 `C-08` 的修订方案。
+- 执行旧 target 下 `C-01` 到 `C-08` 的已确认方案；重新确认受新 target 影响的既有边界和 `C-09` 到 `C-12` 后才能进入 merge。
 - 默认 `preview`、`--build`、`--scene-editor`、`--runtime` 保持不同 mode；不在本次合并中实现 normal/runtime/scene editor/MCP 同实例新架构。
 - 接收官方 Material query/save，但不把它描述为并发安全事务或 prefab / scene / component 通用编辑 API。
 - `@cocos/asset-db` 本次不升级，继续使用 `file:./packages/asset-db`。
@@ -42,9 +42,9 @@
 - 官方 builder、assets、extensionless import-map tests 和跨 owner heartbeat lifecycle tests。
 - 唯一一次 DTS generation、固定 types package version、cached dependency diff 和 pack dry-run。
 
-本计划修订后已完成短复审。Task 0 可用于提交并清理当前 docs-only dirty 状态；Task 1 及后续 merge 阶段必须等待用户确认本计划。
+旧 `TARGET=610c6b3d` 的最终短复审结果为两名 reviewer 均 `approved`；官方 head 前进到 `d373afbc` 后该批准失效。针对当前固定 target 的多轮对抗审查先后要求拆分 `C-09` 到 `C-12`，补 PreviewService / effect / bootstrap、dump editing、animation、DTS generator、CI typecheck、prefab restart persistence、browser realm / MCP child worker isolation 和可审计用户确认 gate，均已回填。
 
-最终短复审结果：两名 reviewer 均为 `approved`。最后一项修订是将 types package 审计命令改为 `npm --prefix packages/cocos-cli-types pack --dry-run --json`，与 Task 8 的 root package vendored `asset-db` 审计分开。
+2026-07-10 最终短复审结果为两名 reviewer 均 `approved`。Task 0 可用于提交并清理当前 docs-only dirty 状态；Task 0.5 的最终用户确认及其记录 commit 尚未完成，Task 1 及后续 merge 阶段仍被禁止。
 
 ## 全局 Stop Conditions
 
@@ -59,9 +59,9 @@
 
 ## Task 0：提交并冻结计划前文档
 
-当前 dirty 状态只有本轮文档，按两个意图明确的 commits 提交，禁止 `git add -A`。
+当前 dirty 状态只有本轮文档，按意图明确的 commits 提交，禁止 `git add -A`。
 
-- [ ] 提交统一 preview / MCP session 需求记录：
+- [x] 提交统一 preview / MCP session 需求记录：`682e31837a6b6ba5eac386c21e95af08d40bc495`
 
 ```powershell
 rtk git add -- docs/dev/runtime-preview/issues.md docs/dev/runtime-preview/facts/unified-preview-mcp-runtime-session-20260709.md
@@ -70,7 +70,7 @@ rtk git diff --cached --check
 rtk git commit -m "docs(runtime-preview): record unified preview MCP session goal"
 ```
 
-- [ ] 提交官方同步流程、报告和执行计划：
+- [x] 提交官方同步流程、报告和旧 target 执行计划：`4c328921e345b574eae49ebe54a712007a12b05d`
 
 ```powershell
 rtk git add -- docs/dev/README.md docs/dev/architecture/official-sync-workflow.md docs/dev/reports/README.md docs/dev/reports/official-sync/README.md docs/dev/reports/official-sync/adapter-to-386-origin-main-premerge-analysis-20260709.md docs/superpowers/plans/2026-07-10-adapter-to-386-official-merge.md
@@ -80,6 +80,30 @@ rtk git commit -m "docs: define executable official sync workflow"
 ```
 
 Expected：每次 cached diff 只能包含命令列出的文档；提交前必须阅读 cached diff 内容，不以 `docs/**` 路径代替内容审查。
+
+- [ ] target 漂移到 `d373afbc` 后，提交刷新后的流程 gate、报告和计划：
+
+```powershell
+rtk git add -- docs/dev/architecture/official-sync-workflow.md docs/dev/reports/official-sync/adapter-to-386-origin-main-premerge-analysis-20260709.md docs/superpowers/plans/2026-07-10-adapter-to-386-official-merge.md
+rtk git diff --cached --name-status
+rtk git diff --cached --check
+rtk git commit -m "docs: finalize official sync plan for d373afbc"
+```
+
+## Task 0.5：记录最终用户确认
+
+- [ ] 向用户展示固定 `TARGET=d373afbc` 的合并前摘要、`C-01` / `C-02` / `C-07` 补充边界、`C-09` 到 `C-12`、最终计划 revision 和 residual risks，并获得明确批准。只确认旧 target、旧 plan 或笼统说“按流程执行”不满足本 gate。
+- [ ] 在合并前报告中记录确认日期、target、计划 revision 和覆盖的 `C-ID`，把上述 7 项状态从 `proposed` 更新为 `approved`；在本计划中勾选本 Task。确认后若再次修改 target、业务语义、验收标准或 stop condition，立即把状态退回 `proposed` 并重新审查 / 确认。
+- [ ] 以独立 docs commit 提交确认记录：
+
+```powershell
+rtk git add -- docs/dev/reports/official-sync/adapter-to-386-origin-main-premerge-analysis-20260709.md docs/superpowers/plans/2026-07-10-adapter-to-386-official-merge.md
+rtk git diff --cached --name-status
+rtk git diff --cached --check
+rtk git commit -m "docs: approve official sync plan for d373afbc"
+```
+
+Expected：cached diff 只有两份确认记录文档；报告明确列出 7 个 approved decision IDs，计划记录用户确认 gate 已完成。该 commit 完成前禁止执行 Task 1。
 
 - [ ] 确认主工作区 clean，并记录提交后的 `START_ADAPTER`：
 
@@ -102,46 +126,47 @@ rtk git rev-parse origin/main upstream/main adapter-to-386
 rtk git worktree list --porcelain
 ```
 
-Expected：两个远端 main 和本地 tracking refs 都是 `610c6b3d5f8608680a7374970bad99262ff25e02`。
+Expected：两个远端 main 和本地 tracking refs 都是 `d373afbca8c519bc75f6e68c1526b3d7f6a2536b`。
 
 - [ ] 如果长期 worktree 不存在，创建它：
 
 ```powershell
-rtk git worktree add .worktrees/official-sync -b codex/official-sync-20260710-610c6b3d adapter-to-386
+rtk git worktree add .worktrees/official-sync -b codex/official-sync-20260710-d373afbc adapter-to-386
 ```
 
 - [ ] 如果长期 worktree 已存在，必须检查当前 branch、最近复盘、工作区状态和本轮 branch 是否已存在。clean 不等于已归档；不得覆盖或复用同名分支：
 
 ```powershell
 rtk git -C .worktrees/official-sync status --short --branch --untracked-files=all
-rtk git branch --list codex/official-sync-20260710-610c6b3d
-rtk git -C .worktrees/official-sync switch -c codex/official-sync-20260710-610c6b3d adapter-to-386
+rtk git branch --list codex/official-sync-20260710-d373afbc
+rtk git -C .worktrees/official-sync switch -c codex/official-sync-20260710-d373afbc adapter-to-386
 ```
 
 Expected：`git branch --list` 无输出，worktree 位于新建的本轮 `SYNC_BRANCH`，HEAD 等于 `START_ADAPTER`。不得删除或 reset 上一轮未归档状态。
 
-- [ ] 冻结测试项目和 3.8.6 engine commits，在 temp 下分别创建 detached worktrees。先记录两个 SHA 为 `FIXTURE_PROJECT_COMMIT`、`FIXTURE_ENGINE_COMMIT`，再执行：
+- [ ] 冻结测试项目和 3.8.6 engine commits，在 temp 下创建一个只读验收 project worktree、一个允许测试落盘的 mutable project worktree，以及一个 engine worktree。先记录两个 SHA 为 `FIXTURE_PROJECT_COMMIT`、`FIXTURE_ENGINE_COMMIT`，再执行：
 
 ```powershell
 rtk git -C E:\own_space\engines\cocos-test-projects rev-parse HEAD
 rtk git -C D:\workspace\engines\cocos\3.8.6 rev-parse HEAD
-rtk pwsh -NoProfile -Command '$root=Join-Path $env:TEMP "cocos-cli-official-sync-610c6b3d"; if (Test-Path $root) { throw "Fixture root already exists: $root" }; New-Item -ItemType Directory -Path $root | Out-Null'
-rtk git -C E:\own_space\engines\cocos-test-projects worktree add --detach $env:TEMP\cocos-cli-official-sync-610c6b3d\cocos-test-projects <FIXTURE_PROJECT_COMMIT>
-rtk git -C D:\workspace\engines\cocos\3.8.6 worktree add --detach $env:TEMP\cocos-cli-official-sync-610c6b3d\engine-3.8.6 <FIXTURE_ENGINE_COMMIT>
+rtk pwsh -NoProfile -Command '$root=Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc"; if (Test-Path $root) { throw "Fixture root already exists: $root" }; New-Item -ItemType Directory -Path $root | Out-Null'
+rtk git -C E:\own_space\engines\cocos-test-projects worktree add --detach $env:TEMP\cocos-cli-official-sync-d373afbc\cocos-test-projects <FIXTURE_PROJECT_COMMIT>
+rtk git -C E:\own_space\engines\cocos-test-projects worktree add --detach $env:TEMP\cocos-cli-official-sync-d373afbc\cocos-test-projects-mutable <FIXTURE_PROJECT_COMMIT>
+rtk git -C D:\workspace\engines\cocos\3.8.6 worktree add --detach $env:TEMP\cocos-cli-official-sync-d373afbc\engine-3.8.6 <FIXTURE_ENGINE_COMMIT>
 ```
 
 - [ ] 在隔离 engine config 中把确定存在的 HTML5 override `pal/system-info/web/system-info.ts` 改为 extensionless `pal/system-info/web/system-info`，并把隔离项目 `package.json["cocos-cli"].enginePath` 指向该 engine fixture：
 
 ```powershell
-rtk pwsh -NoProfile -Command '$root=Join-Path $env:TEMP "cocos-cli-official-sync-610c6b3d"; $engine=Join-Path $root "engine-3.8.6"; $engineConfigPath=Join-Path $engine "cc.config.json"; $config=Get-Content -Raw -LiteralPath $engineConfigPath | ConvertFrom-Json; $html5=$config.moduleOverrides | Where-Object { $_.test -eq "context.buildTimeConstants && context.buildTimeConstants.HTML5" }; if ($html5.overrides."pal/system-info" -ne "pal/system-info/web/system-info.ts") { throw "Unexpected pal/system-info override" }; $html5.overrides."pal/system-info"="pal/system-info/web/system-info"; $config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $engineConfigPath -Encoding utf8NoBOM; $projectPackagePath=Join-Path $root "cocos-test-projects\package.json"; $package=Get-Content -Raw -LiteralPath $projectPackagePath | ConvertFrom-Json; $package."cocos-cli".enginePath=$engine; $package | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $projectPackagePath -Encoding utf8NoBOM'
+rtk pwsh -NoProfile -Command '$root=Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc"; $engine=Join-Path $root "engine-3.8.6"; $engineConfigPath=Join-Path $engine "cc.config.json"; $config=Get-Content -Raw -LiteralPath $engineConfigPath | ConvertFrom-Json; $html5=$config.moduleOverrides | Where-Object { $_.test -eq "context.buildTimeConstants && context.buildTimeConstants.HTML5" }; if ($html5.overrides."pal/system-info" -ne "pal/system-info/web/system-info.ts") { throw "Unexpected pal/system-info override" }; $html5.overrides."pal/system-info"="pal/system-info/web/system-info"; $config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $engineConfigPath -Encoding utf8NoBOM; foreach ($projectName in @("cocos-test-projects","cocos-test-projects-mutable")) { $projectPackagePath=Join-Path $root "$projectName\package.json"; $package=Get-Content -Raw -LiteralPath $projectPackagePath | ConvertFrom-Json; $package."cocos-cli".enginePath=$engine; $package | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $projectPackagePath -Encoding utf8NoBOM }'
 ```
 
-Expected：engine fixture 只修改 `cc.config.json`，project fixture 只修改 `package.json`；`pal/system-info/web/system-info.ts` source 确实存在。这个确定性 fixture 用于所有 project-bound Vitest、CLI 和 browser tests，extensionless 候选数必须大于 0。
+Expected：engine fixture 只修改 `cc.config.json`，两个 project fixtures 初始都只修改 `package.json`；`pal/system-info/web/system-info.ts` source 确实存在。只读 project fixture 用于 project-bound Vitest、CLI 和不落盘 browser tests；mutable fixture 仅用于 MCP save / restart / realm-isolation 验收，必须逐项记录预期资产变化并在验收后恢复。extensionless 候选数必须大于 0。
 
 - [ ] 为长期 worktree 建立独立可运行环境。不得链接或复用主工作区 `node_modules`：
 
 ```powershell
-rtk pwsh -NoProfile -Command '$worktree="E:\own_space\engines\cocos-cli\.worktrees\official-sync"; $projectRoot=Join-Path $env:TEMP "cocos-cli-official-sync-610c6b3d\cocos-test-projects"; $packageJson=Get-Content -Raw -LiteralPath (Join-Path $projectRoot "package.json") | ConvertFrom-Json; $enginePath=$packageJson."cocos-cli".enginePath; $engineLink=Join-Path $worktree "packages\engine"; if (Test-Path -LiteralPath $engineLink) { $item=Get-Item -LiteralPath $engineLink -Force; if ($item.LinkType -ne "Junction" -or $item.Target -notcontains $enginePath) { throw "Unexpected packages/engine link: $($item.Target)" } } else { New-Item -ItemType Junction -Path $engineLink -Target $enginePath | Out-Null }; $enginePath'
+rtk pwsh -NoProfile -Command '$worktree="E:\own_space\engines\cocos-cli\.worktrees\official-sync"; $projectRoot=Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc\cocos-test-projects"; $packageJson=Get-Content -Raw -LiteralPath (Join-Path $projectRoot "package.json") | ConvertFrom-Json; $enginePath=$packageJson."cocos-cli".enginePath; $engineLink=Join-Path $worktree "packages\engine"; if (Test-Path -LiteralPath $engineLink) { $item=Get-Item -LiteralPath $engineLink -Force; if ($item.LinkType -ne "Junction" -or $item.Target -notcontains $enginePath) { throw "Unexpected packages/engine link: $($item.Target)" } } else { New-Item -ItemType Junction -Path $engineLink -Target $enginePath | Out-Null }; $enginePath'
 rtk npm ci
 rtk npm --prefix vitests ci
 rtk node -e "console.log(require.resolve('@cocos/asset-db')); console.log(require.resolve('@parcel/watcher')); console.log(require.resolve('jest'));"
@@ -155,7 +180,7 @@ Working directory：`SYNC_WORKTREE`。Expected：engine Junction 指向测试项
 - [ ] 在 `SYNC_WORKTREE` 启动不提交的 merge：
 
 ```powershell
-rtk git merge --no-ff --no-commit 610c6b3d5f8608680a7374970bad99262ff25e02
+rtk git merge --no-ff --no-commit d373afbca8c519bc75f6e68c1526b3d7f6a2536b
 rtk git status --short --untracked-files=all
 rtk git diff --name-only --diff-filter=U
 ```
@@ -199,7 +224,7 @@ src/core/scene/scene.scripting.middleware.ts
 Focused verification：
 
 ```powershell
-rtk pwsh -NoProfile -Command '$projectRoot=Join-Path $env:TEMP "cocos-cli-official-sync-610c6b3d\cocos-test-projects"; $packageJson=Get-Content -Raw -LiteralPath (Join-Path $projectRoot "package.json") | ConvertFrom-Json; $enginePath=$packageJson."cocos-cli".enginePath; $env:COCOS_CLI_TEST_PROJECT_ROOT=$projectRoot; $env:COCOS_CLI_TEST_ENGINE_ROOT=[System.IO.Path]::GetFullPath($enginePath); npm --prefix vitests run test -- suites/runtime-preview/cli-startup.test.ts suites/runtime-preview/launcher-runtime-preview.test.ts'
+rtk pwsh -NoProfile -Command '$projectRoot=Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc\cocos-test-projects"; $packageJson=Get-Content -Raw -LiteralPath (Join-Path $projectRoot "package.json") | ConvertFrom-Json; $enginePath=$packageJson."cocos-cli".enginePath; $env:COCOS_CLI_TEST_PROJECT_ROOT=$projectRoot; $env:COCOS_CLI_TEST_ENGINE_ROOT=[System.IO.Path]::GetFullPath($enginePath); npm --prefix vitests run test -- suites/runtime-preview/cli-startup.test.ts suites/runtime-preview/launcher-runtime-preview.test.ts'
 ```
 
 Expected：mode 和参数矩阵全部通过；runtime path 不启动 scene RPC；缺省 path 不调用 runtime launcher。
@@ -212,36 +237,115 @@ rtk git diff --name-only --diff-filter=U -- src/commands/preview.ts src/core/lau
 rtk git diff --cached --check
 ```
 
-## Task 4：`C-02` Scene editor 与共享 scripting routes
+## Task 4：`C-02`、`C-09` Scene editor、PreviewService 与共享 scripting routes
 
 **Production files:**
 
 - `src/core/scene/scene.scripting.middleware.ts`
 - `src/core/preview/scripting-routes.ts`
+- `src/core/scene/common/preview.ts`
+- `src/core/scene/scene-process/service/preview/**`
+- `src/core/scene/scene-process/engine-bootstrap.ts`
+- `src/core/assets/asset-handler/assets/effect.ts`
+- `src/core/assets/asset-handler/index.ts`
+- `static/web/preview.ejs`
+- `static/web/preview-app.js`
 
 **Tests:**
 
 - 新增或扩展 `src/core/preview/test/scripting-routes.spec.ts`
+- 新增 `src/core/scene/test/preview-service.test.ts`
+- 新增 `src/core/scene/test/engine-bootstrap-preview.test.ts`
+- 新增 `src/core/assets/test/effect-prebuilt-fallback.test.ts`
+- 新增 `src/core/preview/test/scripting-routes-security.spec.ts`
 - `src/core/scene/test/prefab-editor-preview-canvas.test.ts`
 
 - [ ] 采用官方精简 scene middleware 和共享 `scriptingRoutes`，不恢复旧路由复制。
 - [ ] 仅将 effect settings 指向 `temp/cli/asset-db/effect/effect.bin`。
 - [ ] normal / scene QuickPack 保持 `temp/programming`；runtime 保持自己的 `temp/cli/programming` 和 routes。
 - [ ] 证明 route 注册顺序不会让 scene wildcard 抢占 `/` 或 shared scripting routes。
+- [ ] 完整接收官方 PreviewService、scene engine bootstrap、effect fallback、public types 和 static resource preview page；`/preview` 只在 scene-enabled server stack（`--scene-editor` 和 `start-mcp-server`）可用，不接入 default game、legacy build 或 runtime server。每个 browser tab 自建独立 scene realm，不能描述为复用 MCP child scene worker。
+- [ ] PreviewService focused tests 覆盖 supported material/model/mesh/prefab/skeleton/spine type resolution、unsupported type、`open()` active preview lifecycle、thumbnail 和 camera cleanup。测试只证明 scene service，不宣称资产编辑落盘。
+- [ ] 不保留官方“整个 project root 可读”的宽边界。`/engine/read-file-sync` 只允许 canonical engine roots 和 AssetDB 实际 `library` roots；请求文件与 roots 都用 `realpath` 校验。安全 tests 必须覆盖合法 project / extension library file、`..`、percent-encoded traversal、prefix sibling 和 library 内 junction 指向外部文件；后四者返回 403。
+- [ ] Engine bootstrap tests 覆盖 3.8.6：暂停 built-in loop、service init 前后 pause/resume、EffectAsset JSON / CCONB 注册、`loadAny()` fallback、camera / scene cleanup；不能用 `/preview` HTTP 200 替代。
+- [ ] Effect tests 覆盖完整 imported records 和只有 prebuilt internal `.effect.meta` / library 两条路径，均必须生成非空 `temp/cli/asset-db/effect/effect.bin`。缺失或生成失败必须让 PreviewService acceptance 失败，不能只因 production 打印 warning 而通过。
 
 Focused verification：
 
 ```powershell
-rtk npx jest src/core/preview/test/scripting-routes.spec.ts src/core/scene/test/prefab-editor-preview-canvas.test.ts --runInBand
+rtk npx jest src/core/preview/test/scripting-routes.spec.ts src/core/preview/test/scripting-routes-security.spec.ts src/core/scene/test/preview-service.test.ts src/core/scene/test/engine-bootstrap-preview.test.ts src/core/assets/test/effect-prebuilt-fallback.test.ts src/core/scene/test/prefab-editor-preview-canvas.test.ts --runInBand
 ```
 
-Expected：`/`、`/scene-editor/`、effect-settings、import-map 和 QuickPack 路径合同通过；normal / scene 不读取 runtime programming root。
+Expected：`/`、`/scene-editor/`、`/preview`、两个 effect endpoints、import-map 和 QuickPack 路径合同通过；PreviewService / bootstrap 在 3.8.6 上通过；normal / scene 不读取 runtime programming root；file route 不能越出 canonical engine / AssetDB library roots；effect.bin 非空。
 
 - [ ] Stage 并确认本主题 direct conflict 已解除：
 
 ```powershell
-rtk git add -- src/core/scene/scene.scripting.middleware.ts src/core/preview/scripting-routes.ts src/core/preview/test/scripting-routes.spec.ts src/core/scene/test/prefab-editor-preview-canvas.test.ts
+rtk git add -- src/core/scene/scene.scripting.middleware.ts src/core/preview/scripting-routes.ts src/core/preview/test/scripting-routes.spec.ts src/core/preview/test/scripting-routes-security.spec.ts src/core/scene/test/preview-service.test.ts src/core/scene/test/engine-bootstrap-preview.test.ts src/core/assets/test/effect-prebuilt-fallback.test.ts src/core/scene/test/prefab-editor-preview-canvas.test.ts
 rtk git diff --name-only --diff-filter=U -- src/core/scene/scene.scripting.middleware.ts
+rtk git diff --cached --check
+```
+
+## Task 4A：`C-10` Dump service 与 prefab/component 落盘回归
+
+**Production files:**
+
+- `src/core/scene/scene-process/service/dump/service-access.ts`
+- `src/core/scene/scene-process/service/dump/decode.ts`
+- `src/core/scene/scene-process/service/dump/encode.ts`
+- `src/core/scene/scene-process/service/node/index.ts`
+- `src/core/scene/scene-process/service/component/index.ts`
+
+**Tests:**
+
+- 新增 `src/core/scene/test/dump-service-access.test.ts`
+- 既有 node / component / prefab scene tests
+- Task 9 的 MCP node/component/prefab E2E 与 dedicated restart persistence E2E
+
+- [ ] 完整接收官方 `service-access` 解环结构，不恢复 Node / Component / Dump 的静态 circular imports。
+- [ ] focused tests 在 child-worker 风格 service bundle 和 browser scene bundle 两种初始化顺序下验证 accessors 已注册；覆盖 node 删除 / 排序、component add / remove / recycle、component path encode 和节点引用恢复。
+- [ ] 明确 PreviewService 打开的 prefab 是预览副本，不参与 Undo、dirty 或 save；真正落盘继续由 MCP scene editing -> `scene-save` 链路完成。
+
+Focused verification：
+
+```powershell
+rtk npx jest src/core/scene/test/dump-service-access.test.ts --runInBand
+```
+
+Expected：两种 realm 初始化无 circular import undefined access；dump encode/decode 和引用恢复通过。重启后的真实落盘由 Task 9 的 `prefab-restart-persistence.e2e.test.ts` 证明。
+
+- [ ] 对本任务新增 / 修改 tests 精确 stage；官方 auto-merged production files 保持现有 index，除非实际修订后逐路径 stage：
+
+```powershell
+rtk git add -- src/core/scene/test/dump-service-access.test.ts
+rtk git diff --cached --check
+```
+
+## Task 4B：`C-11` Animation 实时同步
+
+**Production files:**
+
+- `src/core/scene/scene-process/service/animation.ts`
+- `src/core/scene/scene-process/service/animation/service-playback.ts`
+
+**Test:**
+
+- `src/core/scene/test/animation-service-playback.test.ts`
+
+- [ ] 接收官方 playing-state contract：播放中 property query 返回节点当前实时值，不调用 `setTime()` / `sample()`；确定 frame sampling 必须先 pause。
+- [ ] 使用 fake timers 验证初始 0 不广播、首次非零时间及时广播、时间单调、广播频率有上限；pause / resume / stop / natural completion / realm dispose 后 timer count 为 0。
+- [ ] 加入慢 listener / IPC backlog 模拟，证明约 60 Hz source 不会无界排队；如果现有实现无法满足，停止并重新决策，不静默降回旧 10 Hz。
+
+Focused verification：
+
+```powershell
+rtk npx jest src/core/scene/test/animation-service-playback.test.ts --runInBand
+```
+
+Expected：实时 query、时间广播和所有 cleanup paths 通过。
+
+```powershell
+rtk git add -- src/core/scene/scene-process/service/animation.ts src/core/scene/scene-process/service/animation/service-playback.ts src/core/scene/test/animation-service-playback.test.ts
 rtk git diff --cached --check
 ```
 
@@ -413,7 +517,26 @@ rtk npm view @cocos/asset-db dist-tags --json
 
 Expected：解析到 local `packages/asset-db@3.0.0-alpha.10` 和预期 watcher；pack dry-run 文件清单包含 vendored `packages/asset-db`。固定 `TARGET` 的 package / lockfile 是本轮 dependency 依据；registry 查询只作 freshness evidence。若 registry latest 前进，登记独立 asset-db upgrade 分析，但不临时改变本轮固定 target，也不在本轮升级。
 
-## Task 9：编译、全量 focused 回归和生成物审计
+## Task 9：`C-12` 编译、DTS contract、全量 focused 回归和生成物审计
+
+**CI / typecheck files:**
+
+- `.github/workflows/check-dts.yml`
+- 新增 `packages/cocos-cli-types/tsconfig.typecheck.json`
+
+- [ ] 先验证固定 `TARGET` 的 `check-dts.yml` 引用不存在的 `packages/cocos-cli-types/tsconfig.typecheck.json`，并用 `grep "^packages/cocos-cli-types/" || true` 吞掉 `TS5058` 等不匹配该前缀的 config 级错误。新增 config，`files` 精确列出 `index.d.ts`、`assets.d.ts`、`base.d.ts`、`configuration.d.ts`、`engine.d.ts`、`project.d.ts`、`scripting.d.ts`、`builder.d.ts`、`cli.d.ts` 和 CI 在 typecheck 前复制的 `cc.d.ts`；compiler options 固定为 `noEmit: true`、`skipLibCheck: false`、`target: ES2022`、`module: Node16`、`moduleResolution: Node16`。
+- [ ] 将 workflow 的 Typecheck step 简化为直接执行 `npx tsc -p packages/cocos-cli-types/tsconfig.typecheck.json --noEmit`，由 shell 保留真实退出码；不保留 output grep、`|| true` 或其它错误过滤。使用不存在 config 的同形式对照命令验证非零，再用正确 config 验证为 0；两次都使用与 CI 相同的 bash shell 形式。
+
+- [ ] build 前记录 unstaged / staged 状态和当前 generated declarations hashes，避免 merge index 中的大量 staged files掩盖 generator 变化：
+
+```powershell
+rtk git diff --name-status
+rtk git diff --cached --name-status
+rtk pwsh -NoProfile -Command 'Get-ChildItem packages/cocos-cli-types -Filter *.d.ts | Get-FileHash -Algorithm SHA256 | Sort-Object Path | Format-Table Path,Hash -AutoSize'
+rtk npx jest tests/generate-dts-postprocess.test.ts --runInBand
+```
+
+Expected：focused postprocess test 证明 `@cocos/asset-db/libs/filesystem` 合并 import 和 `StatsQuery.ConstantManager` namespace 修正。
 
 - [ ] 运行官方 extensionless import-map 回归：
 
@@ -426,11 +549,12 @@ Expected：有 `.js` 或 `.ts` source 的 extensionless `q-bundled:///fs/*` entr
 - [ ] DTS snapshot 冲突只用固定 `TARGET` 内容作为 generator seed，不作为最终选边。随后只运行一次完整 build：
 
 ```powershell
-rtk git restore --source=610c6b3d5f8608680a7374970bad99262ff25e02 --worktree -- packages/cocos-cli-types/__tests__/__snapshots__/dts-snapshot.test.ts.snap
+rtk git restore --source=d373afbca8c519bc75f6e68c1526b3d7f6a2536b --worktree -- packages/cocos-cli-types/__tests__/__snapshots__/dts-snapshot.test.ts.snap
 rtk npx tsc -b --pretty false
 rtk npm run build
 rtk npm pkg set version=0.0.1-alpha.33.1 --prefix packages/cocos-cli-types
 rtk git status --short --untracked-files=all
+rtk pwsh -NoProfile -Command 'Get-ChildItem packages/cocos-cli-types -Filter *.d.ts | Get-FileHash -Algorithm SHA256 | Sort-Object Path | Format-Table Path,Hash -AutoSize'
 ```
 
 Expected：`npm run build` 退出码 0，完成 dist、static、schema 和唯一一次 DTS 生成；最终 types package version 固定为官方 `TARGET` 的 `0.0.1-alpha.33.1`，不能采用 registry 动态计算出的下一版本。tracked 变化只允许 `packages/cocos-cli-types/package.json` 和 DTS snapshot；生成的 `*.d.ts` 被 `.gitignore` 排除，不应 stage，改由 types tests 和 pack dry-run 审计。其它 tracked generated diff 必须逐项解释，否则停止。
@@ -445,6 +569,25 @@ rtk npm --prefix packages/cocos-cli-types pack --dry-run --json
 ```
 
 Expected：无 unmerged paths；types package pack 文件清单包含生成后的 declarations。vendored `packages/asset-db` 由 Task 8 的 root pack dry-run 单独审计。
+
+- [ ] 对生成 declarations 做 consumer-level typecheck 和关键 contract 检查。先模拟 CI 复制 engine declaration，再执行与 workflow 相同的 project command：
+
+```powershell
+rtk pwsh -NoProfile -Command '$gitBash="C:\Program Files\Git\bin\bash.exe"; if(-not (Test-Path -LiteralPath $gitBash)){ throw "Git Bash not found: $gitBash" }; Copy-Item -LiteralPath packages/engine/bin/.declarations/cc.d.ts -Destination packages/cocos-cli-types/cc.d.ts -Force'
+rtk "C:\Program Files\Git\bin\bash.exe" -lc 'npx tsc -p packages/cocos-cli-types/does-not-exist.json --noEmit'
+rtk "C:\Program Files\Git\bin\bash.exe" -lc 'npx tsc -p packages/cocos-cli-types/tsconfig.typecheck.json --noEmit'
+rtk node -e "console.log(require.resolve('@cocos/asset-db/libs/filesystem'))"
+rtk pwsh -NoProfile -Command 'Select-String -Path packages/cocos-cli-types/builder.d.ts -Pattern "@cocos/asset-db/libs/filesystem","StatsQuery.ConstantManager"'
+```
+
+Expected：第一条 typecheck 对照命令因 `TS5058` 非 0，第二条与 workflow 相同的 command 退出 0；vendored filesystem type 可解析；builder declaration 不再引用旧 `./filesystem`，namespace 外 bare `ConstantManager` 已修正。`cc.d.ts` 是 ignored CI 临时文件，不 stage。
+
+- [ ] Stage CI typecheck config：
+
+```powershell
+rtk git add -- .github/workflows/check-dts.yml packages/cocos-cli-types/tsconfig.typecheck.json
+rtk git diff --cached --check
+```
 
 - [ ] 生成并 stage snapshot 后再执行 conflict-marker / whitespace gate：
 
@@ -473,10 +616,33 @@ rtk npm run test:e2e -- --runTestsByPath e2e/mcp/api/assets/material.e2e.test.ts
 
 Expected：MCP save 修改 `.mtl` source、触发 reimport，并在关闭 / 重启 MCP server 后 query 到相同持久化值。
 
+- [ ] 运行 scene dump / node / component / prefab E2E，验证官方 circular-import fix 没有破坏 adapter scene editing：
+
+```powershell
+rtk npm run test:e2e -- --runTestsByPath e2e/mcp/api/node.e2e.test.ts e2e/mcp/api/component.e2e.test.ts e2e/mcp/api/prefab.e2e.test.ts e2e/mcp/api/editor-prefab.e2e.test.ts --runInBand
+```
+
+Expected：scene process 可启动，node/component dump encode/decode、prefab open/save/reload 通过；该测试不证明 `/preview` browser canvas。
+
+- [ ] 新增并运行 `e2e/mcp/api/prefab-restart-persistence.e2e.test.ts`。测试必须要求 `COCOS_CLI_OFFICIAL_SYNC_MUTABLE_PROJECT_ROOT`，通过既有 `createTestProject()` 从该 fixture 创建独立 E2E workspace。第一个 `MCPTestClient({ projectPath: testProject.path })` 启动后，用 `fs.copyFile()` 只复制 `assets/resources/test_assets/prefab.prefab` source 到唯一 `assets/e2e-official-sync/prefab-restart-<test-id>.prefab`，禁止复制原 `.meta`；轮询 `assets-query-uuid` 的 `db://assets/e2e-official-sync/prefab-restart-<test-id>.prefab`，直到 AssetDB import 产生非空且不同于原 prefab 的新 UUID。随后通过真实 transport 打开新 UUID，创建 marker node，在另一节点添加 `cc.Button`，设置 `interactable=false` 和 `target=<marker node>`，执行 `scene-save`，轮询 AssetDB reimport / query 成功，然后完全关闭 client / server。第二个新建的 `MCPTestClient({ projectPath: sameTestProject.path })` 重新打开并 query，逐项断言组件、boolean 字段和 target node UUID / path 均保持。`finally` 使用 `assets-delete-asset` 删除唯一 db URL，轮询 `assets-query-uuid` 为空且 source / generated `.meta` 消失，再清理 E2E workspace；fixture 原 prefab 与 `.meta` 不得被修改。
+
+```powershell
+rtk pwsh -NoProfile -Command '$env:COCOS_CLI_OFFICIAL_SYNC_MUTABLE_PROJECT_ROOT=Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc\cocos-test-projects-mutable"; npm run test:e2e -- --runTestsByPath e2e/mcp/api/prefab-restart-persistence.e2e.test.ts --runInBand'
+```
+
+Expected：断言发生在第二个 MCP process；仅 reload 同一 process 不算通过。若 save、reimport 或 restart 任一步只能依赖固定 sleep，测试不合格。
+
+- [ ] Stage dedicated E2E：
+
+```powershell
+rtk git add -- e2e/mcp/api/prefab-restart-persistence.e2e.test.ts
+rtk git diff --cached --check
+```
+
 - [ ] Runtime preview focused suites。先从主测试项目配置解析 engine root：
 
 ```powershell
-rtk pwsh -NoProfile -Command '$projectRoot=Join-Path $env:TEMP "cocos-cli-official-sync-610c6b3d\cocos-test-projects"; $packageJson=Get-Content -Raw -LiteralPath (Join-Path $projectRoot "package.json") | ConvertFrom-Json; $enginePath=$packageJson."cocos-cli".enginePath; $env:COCOS_CLI_TEST_PROJECT_ROOT=$projectRoot; $env:COCOS_CLI_TEST_ENGINE_ROOT=[System.IO.Path]::GetFullPath($enginePath); npm --prefix vitests run test -- suites/runtime-preview/cli-startup.test.ts suites/runtime-preview/launcher-engine-root.test.ts suites/runtime-preview/launcher-runtime-preview.test.ts suites/runtime-preview/settings-generation.test.ts suites/runtime-preview/preview-app-route-contract.test.ts'
+rtk pwsh -NoProfile -Command '$projectRoot=Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc\cocos-test-projects"; $packageJson=Get-Content -Raw -LiteralPath (Join-Path $projectRoot "package.json") | ConvertFrom-Json; $enginePath=$packageJson."cocos-cli".enginePath; $env:COCOS_CLI_TEST_PROJECT_ROOT=$projectRoot; $env:COCOS_CLI_TEST_ENGINE_ROOT=[System.IO.Path]::GetFullPath($enginePath); npm --prefix vitests run test -- suites/runtime-preview/cli-startup.test.ts suites/runtime-preview/launcher-engine-root.test.ts suites/runtime-preview/launcher-runtime-preview.test.ts suites/runtime-preview/settings-generation.test.ts suites/runtime-preview/preview-app-route-contract.test.ts'
 ```
 
 Expected：退出码 0。这里只证明列出的 fixture / integration contract。
@@ -484,7 +650,7 @@ Expected：退出码 0。这里只证明列出的 fixture / integration contract
 - [ ] 运行主测试项目 CLI integration：
 
 ```powershell
-rtk pwsh -NoProfile -Command '$projectRoot=Join-Path $env:TEMP "cocos-cli-official-sync-610c6b3d\cocos-test-projects"; $packageJson=Get-Content -Raw -LiteralPath (Join-Path $projectRoot "package.json") | ConvertFrom-Json; $enginePath=$packageJson."cocos-cli".enginePath; $env:COCOS_CLI_TEST_PROJECT_ROOT=$projectRoot; $env:COCOS_CLI_TEST_ENGINE_ROOT=[System.IO.Path]::GetFullPath($enginePath); npm --prefix vitests run test -- suites/runtime-preview/main-test-project-cli-integration.test.ts'
+rtk pwsh -NoProfile -Command '$projectRoot=Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc\cocos-test-projects"; $packageJson=Get-Content -Raw -LiteralPath (Join-Path $projectRoot "package.json") | ConvertFrom-Json; $enginePath=$packageJson."cocos-cli".enginePath; $env:COCOS_CLI_TEST_PROJECT_ROOT=$projectRoot; $env:COCOS_CLI_TEST_ENGINE_ROOT=[System.IO.Path]::GetFullPath($enginePath); npm --prefix vitests run test -- suites/runtime-preview/main-test-project-cli-integration.test.ts'
 ```
 
 Expected：真实 `dist/cli.js preview --runtime` 在主测试项目通过；不能扩大为所有真实项目通过。
@@ -493,21 +659,33 @@ Expected：真实 `dist/cli.js preview --runtime` 在主测试项目通过；不
 
 - [ ] 新增 `vitests/scripts/official-sync-preview-mode-acceptance.mjs`。该 helper 必须：
 
-  - 通过 `child_process.spawn()` 且 `windowsHide: true` 顺序启动四个 CLI processes。
+  - 通过 `child_process.spawn()` 且 `windowsHide: true` 顺序启动 game / build / scene-editor / runtime / MCP 五个 CLI processes。
   - game / build / scene-editor 使用 `--no-open`；runtime 不传 `--no-open`，因为该参数在 runtime 下应被拒绝。
   - 使用固定独立端口，stdout/stderr 分 mode 写入 evidence 目录。
   - 在明确 timeout 内轮询实际 URL / readiness，不使用固定 sleep 作为成功条件。
   - 使用 Playwright 打开 browser，收集 `pageerror`、`unhandledrejection`、`console.error`、同源 failed request 和非预期 bad response。
+  - scene-editor 和 MCP scene-enabled server stack 额外访问 `/preview?uuid=<uuid>`。启动前强断言 `assets/resources/test_assets/testMat.mtl`、`testMat.mtl.meta`、`prefab.prefab`、`prefab.prefab.meta` 均存在；分别从两个 `.meta` 读取真实 Material / Prefab UUID。调用 `Scene.Preview.open()` 和 `generateThumbnail()`，等待状态为 `ok`，执行 canvas pixel 非空检查并保存 screenshot；再覆盖不支持 / 不存在 UUID。
+  - 同时打开两个 `/preview` tabs，分别切换资源 / primitive，证明 active preview、camera 和 browser heap 相互独立；reload / close 后无残留 camera、timer 或 scene。
+  - URL availability matrix 必须证明 default / build / runtime 不暴露 resource preview page 或 `Scene.Preview`；`--scene-editor` 与 MCP startup 都能托管 `/preview`，但每个 browser tab 是独立 browser scene realm，MCP 另有 child scene worker。
+  - 在 mutable project 执行 realm-isolation 序列：第一个独立 `MCPTestClient` 明确以 mutable project path 启动 child worker；helper 用 `fs.copyFile()` 只把 fixture prefab source 复制到 `assets/e2e-official-sync/prefab-realm-isolation.prefab`，不复制 `.meta`，轮询 `assets-query-uuid(db://assets/e2e-official-sync/prefab-realm-isolation.prefab)` 直到取得不同于原 asset 的新 UUID。MCP 打开新 UUID，加入唯一 marker node，并在另一节点新增 `cc.Button`，将 `cc.Button.interactable` 设为 `false`、`cc.Button.target` 指向 marker node，但先不 `scene-save`；browser `/preview` 打开同 UUID，并通过 `page.evaluate()` 检查当前 browser realm 的 preview object tree，必须看不到 marker。随后 MCP 执行 `scene-save`，helper 以 AssetDB reimport / asset mtime 与 query 条件轮询完成，不用固定 sleep；browser reload 后重新 `Scene.Preview.open()`，必须看到 marker。最后完全关闭第一个 client / server，创建第二个 `MCPTestClient` 并以同一 project path 启动，重新打开 prefab，query 必须仍得到 marker、`interactable=false` 和指向 marker 的 `target`。`finally` 通过 `assets-delete-asset` 删除该 db URL，轮询 UUID 为空且 source / generated `.meta` 消失。该序列证明共享的是 AssetDB / library / disk，不是 scene object memory。
   - 在 `finally` 中终止本 helper 启动的进程，并验证端口释放。
   - 运行非法 mode / companion option matrix，要求非 0、明确错误且端口没有监听。
   - 对 Task 1 固定构造的 `pal/system-info -> pal/system-info/web/system-info` extensionless override 做强断言：候选数必须大于 0，生成 import-map value 必须以 `system-info.js` 结尾，该 URL 请求 200，browser 不得出现 extensionless failed request。零命中必须失败，不能 skip。
 
-- [ ] 使用 Task 1 已冻结的 project / engine fixtures。运行前验证 project fixture 只有 `package.json`、engine fixture 只有 `cc.config.json` 两项预期测试配置变化；任何 source asset、`.meta` 或其它 engine source 变化都阻塞验收。
+- [ ] 使用 Task 1 已冻结的 project / engine fixtures。普通 mode / browser smoke 使用只读 project；realm-isolation 使用 mutable project。运行前验证两个 project fixtures 都只有 `package.json`、engine fixture 只有 `cc.config.json` 三项预期测试配置变化，并执行 source/meta preflight；任何其它 source asset、`.meta` 或 engine source 变化都阻塞验收：
+
+```powershell
+rtk pwsh -NoProfile -Command '$roots=@((Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc\cocos-test-projects"),(Join-Path $env:TEMP "cocos-cli-official-sync-d373afbc\cocos-test-projects-mutable")); $paths=@("assets/resources/test_assets/testMat.mtl","assets/resources/test_assets/testMat.mtl.meta","assets/resources/test_assets/prefab.prefab","assets/resources/test_assets/prefab.prefab.meta"); foreach($root in $roots){ foreach($path in $paths){ $full=Join-Path $root $path; if(-not (Test-Path -LiteralPath $full)){ throw "Missing acceptance fixture: $full" } } }'
+rtk git -C $env:TEMP\cocos-cli-official-sync-d373afbc\cocos-test-projects status --short
+rtk git -C $env:TEMP\cocos-cli-official-sync-d373afbc\cocos-test-projects-mutable status --short
+```
+
+Expected：四个路径在两个 project fixtures 中都存在；两个 project status 都只列 `package.json`。
 
 - [ ] 清理当前进程 test env 后运行可执行 helper：
 
 ```powershell
-rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_ENGINE_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF -ErrorAction SilentlyContinue; node vitests/scripts/official-sync-preview-mode-acceptance.mjs --cli-root "E:\own_space\engines\cocos-cli\.worktrees\official-sync" --project-root "$env:TEMP\cocos-cli-official-sync-610c6b3d\cocos-test-projects" --game-port 9630 --build-port 9631 --scene-port 9632 --runtime-port 9633 --startup-timeout-ms 180000 --browser-timeout-ms 120000 --evidence-root "$env:TEMP\cocos-cli-official-sync-610c6b3d\evidence"'
+rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_ENGINE_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF -ErrorAction SilentlyContinue; node vitests/scripts/official-sync-preview-mode-acceptance.mjs --cli-root "E:\own_space\engines\cocos-cli\.worktrees\official-sync" --project-root "$env:TEMP\cocos-cli-official-sync-d373afbc\cocos-test-projects" --mutable-project-root "$env:TEMP\cocos-cli-official-sync-d373afbc\cocos-test-projects-mutable" --game-port 9630 --build-port 9631 --scene-port 9632 --runtime-port 9633 --mcp-port 9634 --startup-timeout-ms 180000 --browser-timeout-ms 120000 --evidence-root "$env:TEMP\cocos-cli-official-sync-d373afbc\evidence"'
 ```
 
 - [ ] Helper 必须实际执行并验收：
@@ -515,12 +693,13 @@ rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -Error
 ```text
 default game preview -> /
 --build              -> legacy build preview URL
---scene-editor       -> /scene-editor/，同实例同时检查 /
+--scene-editor       -> /scene-editor/；同一 server stack 同时检查 / 和 /preview，各 browser tab 独立初始化 scene realm
 --runtime            -> runtime root、/settings.js、/scene-list、health/readiness
+start-mcp-server     -> /mcp、/scene-editor/、/preview；MCP child worker 与 browser scene realms 分离
 ```
 
 - [ ] 每种 mode 记录命令、端口、进程初始化链路、HTTP / browser 结果和 cleanup；helper 总退出码必须为 0。
-- [ ] 验收后比较两个 fixtures：除 Task 1 的 `package.json` / `cc.config.json` 测试配置外，source assets、`.meta` 和 engine source 不得新增变化。出现额外 dirty 时保留现场并失败。证据归档后先恢复这两个明确配置文件，确认两个 worktrees clean，再允许非 force `git worktree remove`。
+- [ ] 验收后比较三个 fixtures：只读 project 除 `package.json` 外不得变化，engine 除 `cc.config.json` 外不得变化；mutable project 的临时 prefab source / `.meta` 必须已由 helper 清理，最终也只能剩 `package.json`。出现额外 dirty 时保留现场并失败。证据归档后恢复三项明确配置文件，确认三个 worktrees clean，再允许非 force `git worktree remove`。
 
 Acceptance：
 
@@ -528,8 +707,9 @@ Acceptance：
 | --- | --- | --- |
 | default | `/` 可用，走官方 dynamic game preview | 不启动 runtime server 或 scene RPC |
 | `--build` | 走 legacy build 后预览 | 不忽略 build-only options |
-| `--scene-editor` | `/scene-editor/` 可用且 `/` route 不被抢占 | 不读取 runtime programming root |
+| `--scene-editor` | `/scene-editor/`、`/` 和 `/preview` 可用；resource UUID 预览 canvas 非空；不同 tab 的 scene realm 相互隔离 | 不读取 runtime programming root，不把 PreviewService 说成 save API 或 MCP child worker |
 | `--runtime` | adapter diagnostics、settings、watch / refresh 保留 | 不启动 scene RPC，不把 Material API误称为同实例 MCP |
+| `start-mcp-server` | `/mcp` 与 scene/resource preview routes 可用，共享主进程 AssetDB / library / disk | 不宣称 MCP child scene worker 与 `/preview` browser realm 共享对象内存 |
 
 browser smoke 是 merge commit gate。本机无法完成时不得继续创建 merge commit，除非用户看到具体未验证项后明确接受本轮 `partial`；HTTP 200 不能替代 browser acceptance。
 
@@ -562,21 +742,21 @@ rtk git diff --name-only <START_ADAPTER> -- docs/dev/reports docs/superpowers/pl
 - [ ] 所有 task 通过后创建 merge commit：
 
 ```powershell
-rtk git commit -m "merge: sync official main at 610c6b3d"
+rtk git commit -m "merge: sync official main at d373afbc"
 rtk git rev-parse HEAD
 rtk git rev-parse <MERGE_COMMIT>^1
 rtk git rev-parse <MERGE_COMMIT>^2
 ```
 
-Expected：第一 parent 是 `START_ADAPTER`，第二 parent 是 `610c6b3d5f8608680a7374970bad99262ff25e02`。
+Expected：第一 parent 是 `START_ADAPTER`，第二 parent 是 `d373afbca8c519bc75f6e68c1526b3d7f6a2536b`。
 
-- [ ] 立即记录固定 `MERGE_COMMIT`。创建官方同步复盘，记录该 SHA、实际冲突、`C-01` 到 `C-08` 实现、命令结果、失败和未验证项；以单独 docs commit 提交。docs commit 后仍使用 `<MERGE_COMMIT>^1/^2` 检查，不用新的 `HEAD^2`。
+- [ ] 立即记录固定 `MERGE_COMMIT`。创建官方同步复盘，记录该 SHA、实际冲突、`C-01` 到 `C-12` 实现、命令结果、失败和未验证项；以单独 docs commit 提交。docs commit 后仍使用 `<MERGE_COMMIT>^1/^2` 检查，不用新的 `HEAD^2`。
 - [ ] 在主工作区确认 clean 后回收：
 
 ```powershell
 rtk git rev-parse adapter-to-386
 rtk git switch adapter-to-386
-rtk git merge --ff-only codex/official-sync-20260710-610c6b3d
+rtk git merge --ff-only codex/official-sync-20260710-d373afbc
 ```
 
 Expected：回收前 `adapter-to-386` 仍精确等于 `START_ADAPTER`；只 fast-forward 到含 merge commit 和复盘 docs commit 的 sync branch tip，不产生第二个 merge commit。
@@ -586,10 +766,10 @@ Expected：回收前 `adapter-to-386` 仍精确等于 `START_ADAPTER`；只 fast
 ## 最终完成标准
 
 - `origin/main == upstream/main == TARGET`，合并 commit 第二 parent 精确等于 `TARGET`。
-- 8 个直接冲突和 `C-08` semantic conflict 均有实现与验证记录。
-- 四种 preview 用户流程符合确认合同，非法组合明确失败。
+- 8 个直接冲突和 `C-08` 到 `C-12` semantic conflict 均有实现与验证记录。
+- 四种 `preview` mode 与 `start-mcp-server` 用户流程符合确认合同，非法组合明确失败。
 - 官方 builder progress/log/cache/stage 和 adapter extension/wechatgame/runtime settings 同时保留。
-- Material / config-map 官方 API 可用，adapter AssetDB tests 不回退，DTS 由 generator 更新。
+- Material / config-map 官方 API、PreviewService、dump editing 和 animation sync 可用，adapter AssetDB / scene tests 不回退，DTS 由 generator 更新并完成 consumer typecheck。
 - `@cocos/asset-db` 继续解析到 local vendored package。
 - TypeScript、`npm run build`、focused Jest/Vitest 和声明范围内的 CLI acceptance 通过。
 - 复盘已落盘，adapter 只通过 `ff-only` 接收结果，远端 push 尚需单独确认。

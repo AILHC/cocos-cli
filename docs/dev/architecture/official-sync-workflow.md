@@ -345,6 +345,15 @@ git merge-tree --write-tree --name-only --messages adapter-to-386 <target>
 
 只有计划已落盘、对抗审查问题已回填，并获得用户确认，才进入阶段 8。用户确认冲突方向不等于自动批准尚未编写的执行计划。
 
+确认必须可审计，不能只停留在聊天上下文：
+
+- 记录用户确认的 `TARGET`、计划路径 / revision、覆盖的 `C-ID`、确认日期和仍接受的 residual risk。
+- 将对应决策状态从 `proposed` 更新为 `approved`，并在执行计划中勾选“用户确认 gate”。
+- 以独立 docs commit 提交确认记录；该 commit 之后的 clean adapter HEAD 才能记为 `START_ADAPTER`。
+- 如果确认后计划、target 或任一已批准语义发生实质变化，原确认失效，必须重新对抗审查并重新确认。仅修正错字、链接等不影响执行或语义的改动，也必须在复盘中说明。
+
+未完成确认记录 commit 时，禁止创建本轮 `SYNC_BRANCH` 或进入 merge state。
+
 ## 阶段 8：执行策略
 
 ### 8.1 长期 worktree 与单轮分支
