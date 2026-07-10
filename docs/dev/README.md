@@ -8,11 +8,12 @@
 2. 源码模块地图：`architecture/module-map.md`
 3. 项目测试规范：`testing-spec.md`
 4. 文档维护规则：`architecture/documentation-policy.md`
-5. 模块正式文档：`modules/`
-6. Superpowers spec / implementation plan：`../superpowers/`
-7. 可验证事实：`facts/`
-8. 设计决策：`decisions/`
-9. 专题过程记录、验收和交接：各主题目录下的 `facts/`、`acceptance/`、`handoff/`
+5. 官方同步与长期分支合并流程：`architecture/official-sync-workflow.md`
+6. 模块正式文档：`modules/`
+7. Superpowers spec / implementation plan：`../superpowers/`
+8. 可验证事实：`facts/`
+9. 设计决策：`decisions/`
+10. 专题过程记录、验收和交接：各主题目录下的 `facts/`、`acceptance/`、`handoff/`
 
 ## Document Types
 
@@ -21,6 +22,8 @@
 - `testing-spec.md`：项目级测试、诊断、验收、真实项目复现和环境变量边界规范。
 - `issues.md`：跨模块、产品化和工程治理类问题台账。
 - `facts/`：源码位置、真实产物、命令输出和对比记录。
+- `reports/`：专题分析报告、合并前分析和过程性判断；它可以引用 facts，但不替代 facts。
+- `retrospectives/`：阶段复盘、踩坑总结和流程改进闭环；复盘里的可重复证据应拆到 facts，状态进入 issues。
 - `decisions/`：带取舍的长期设计决策。
 - `reference/`：长期保留的外部参考材料；只能用于事实核对和历史行为理解，不能作为 production 默认策略。
 - `../superpowers/specs/`：按 Superpowers 工作流产生的正式 spec。
@@ -38,6 +41,7 @@
 - `issues.md`：跨模块问题台账；normal build 和 runtime preview 专项问题分别记录在 `build/issues.md`、`runtime-preview/issues.md`。
 - `quick-reference.md`：开发速查入口。
 - `codegraph-usage.md`：CodeGraph 使用说明。
+- `architecture/official-sync-workflow.md`：官方同步、fork main 更新和长期分支合并前分析流程。
 - `reference/`：长期参考材料入口，当前包含旧 Editor preview server 参考源码。
 - `build-extension-hooks-20260612.md`：build extension hooks 专题记录。
 - `i18n.md`、`i18n-types-usage.md`：i18n 专题记录，归属 `modules/i18n.md`。
