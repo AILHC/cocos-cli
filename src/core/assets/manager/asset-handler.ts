@@ -7,7 +7,7 @@ import fg from 'fast-glob';
 
 import i18n from '../../base/i18n';
 import { IAsset, IExportData } from '../@types/protected/asset';
-import { AssetHandler, CustomHandler, CustomAssetHandler, ICreateMenuInfo, CreateAssetOptions, IExportOptions, IAssetConfig, ImporterHook, ThumbnailInfo, ThumbnailSize } from '../@types/protected/asset-handler';
+import { AssetHandler, CustomHandler, CustomAssetHandler, ICreateMenuInfo, CreateAssetOptions, IExportOptions, IAssetConfig, ImporterHook, ThumbnailInfo, ThumbnailSize, IUerDataConfigItem } from '../@types/protected/asset-handler';
 import type { AssetHandlerInfo } from '../asset-handler/config';
 import assetConfig from '../asset-config';
 import { copyPath, createDirectoryPath, writePath } from './filesystem';
@@ -493,7 +493,9 @@ class AssetHandlerManager {
     /**
      * 查询各个资源的基本配置 MAP
      */
-    async queryAssetConfigMap(): Promise<Record<string, IAssetConfig>> {
+    async queryRawAssetConfigMap(): Promise<Record<string, IAssetConfig>> {
+        await this.activateRegisterAll();
+
         const result: Record<string, IAssetConfig> = {};
         for (const importer of Object.keys(this.name2handler)) {
             const handler = this.name2handler[importer];
@@ -509,6 +511,14 @@ class AssetHandlerManager {
             result[importer] = config;
         }
         return result;
+    }
+
+    /**
+     * Query localized asset config map.
+     */
+    async queryAssetConfigMap(): Promise<Record<string, IAssetConfig>> {
+        const rawConfigMap = await this.queryRawAssetConfigMap();
+        return localizeAssetConfigMap(rawConfigMap);
     }
 
     queryThumbnailHandlers(): string[] {
@@ -691,6 +701,79 @@ class AssetHandlerManager {
 const assetHandlerManager = new AssetHandlerManager();
 
 export default assetHandlerManager;
+
+function localizeAssetConfigMap(configMap: Record<string, IAssetConfig>): Record<string, IAssetConfig> {
+    const localizedConfigMap = lodash.cloneDeep(configMap);
+    for (const config of Object.values(localizedConfigMap)) {
+        localizeAssetConfig(config);
+    }
+    return localizedConfigMap;
+}
+
+function localizeAssetConfig(config: IAssetConfig): void {
+    config.displayName = translateAssetConfigText(config.displayName);
+    config.description = translateAssetConfigText(config.description);
+
+    if (config.userDataConfig) {
+        localizeUserDataConfig(config.userDataConfig);
+    }
+}
+
+function localizeUserDataConfig(config: Record<string, IUerDataConfigItem>): void {
+    for (const item of Object.values(config)) {
+        localizeUserDataConfigItem(item);
+    }
+}
+
+function localizeUserDataConfigItem(item: IUerDataConfigItem): void {
+    item.label = translateAssetConfigText(item.label);
+    item.description = translateAssetConfigText(item.description);
+
+    if (item.render?.items) {
+        item.render.items = item.render.items.map((option) => ({
+            ...option,
+            label: translateAssetConfigText(option.label) ?? option.label,
+        }));
+    }
+
+    if (!item.itemConfigs) {
+        return;
+    }
+
+    if (Array.isArray(item.itemConfigs)) {
+        item.itemConfigs.forEach((child) => {
+            localizeUserDataConfigItem(child);
+        });
+        return;
+    }
+
+    for (const child of Object.values(item.itemConfigs)) {
+        localizeUserDataConfigItem(child);
+    }
+}
+
+function translateAssetConfigText(value: string | undefined): string | undefined {
+    if (typeof value !== 'string' || value.length === 0) {
+        return value;
+    }
+
+    const i18nPrefix = 'i18n:';
+    if (!value.startsWith(i18nPrefix)) {
+        return value;
+    }
+
+    const key = value.slice(i18nPrefix.length);
+    if (!key) {
+        return value;
+    }
+
+    const translated = i18n.transI18nName(value);
+    if (translated && translated !== value) {
+        return translated;
+    }
+
+    return key;
+}
 
 function patchHandler(info: ICreateMenuInfo, handler: string, extensions: string[]) {
     // 避免污染原始 info 数据
