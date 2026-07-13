@@ -127,9 +127,9 @@ rtk git commit -m "docs: refresh official sync plan for 3b526b9d"
 ## Task 0.5：记录最终用户确认
 
 - [x] 对固定 `TARGET=3b526b9d` 的 animation session re-enter 增量完成两路短复审；Git reviewer 为 `approved`，业务 reviewer 在修正 re-enter 后 `assetChanged` 时间线后复审为 `approved`。`65644d59` 的两路批准仅作为已闭环历史。
-- [ ] 向用户展示固定 target 的合并前摘要、11 个增量 commits 对实际用户流程的影响、11 个直接冲突、`C-01` 到 `C-04`、`C-07` 到 `C-15`、最终计划 revision 和 residual risks，并获得明确批准。用户对 `65644d59` 的确认已记录为旧 target 历史，不满足本 gate。
-- [ ] 在合并前报告中记录确认日期、target、计划 revision 和覆盖的 `C-ID`，把上述 13 项状态从 `proposed` 更新为 `approved`；在本计划中勾选本 Task。确认后若再次修改 target、业务语义、验收标准或 stop condition，立即把状态退回 `proposed` 并重新审查 / 确认。
-- [ ] 以独立 docs commit 提交确认记录：
+- [x] 已向用户展示固定 target 的合并前摘要、11 个增量 commits 对实际用户流程的影响、11 个直接冲突、`C-01` 到 `C-04`、`C-07` 到 `C-15`、最终计划 revision 和 residual risks；用户于 2026-07-13 明确批准 `TARGET=3b526b9d86519df1ee5046550aaa202d860ab15d`、计划 revision `cdf003820d981502153e7d447bfd39eba54c32b3`。
+- [x] 已在合并前报告中记录确认日期、target、计划 revision 和覆盖的 `C-ID`，并将 `C-01`、`C-02`、`C-03`、`C-04`、`C-07`、`C-08`、`C-09`、`C-10`、`C-11`、`C-12`、`C-13`、`C-14`、`C-15` 更新为 `approved`；`C-05`、`C-06` 沿用既有批准。确认后若再次修改 target、业务语义、验收标准或 stop condition，立即把相关状态退回 `proposed` 并重新审查 / 确认。
+- [x] 以独立 docs commit 提交确认记录（由本次 commit 完成）：
 
 ```powershell
 rtk git add -- docs/dev/reports/official-sync/adapter-to-386-origin-main-premerge-analysis-20260709.md docs/superpowers/plans/2026-07-10-adapter-to-386-official-merge.md
@@ -139,6 +139,8 @@ rtk git commit -m "docs: approve official sync plan for 3b526b9d"
 ```
 
 Expected：cached diff 只有两份确认记录文档；报告明确列出 13 个本轮 approved decision IDs，计划记录对抗审查和用户确认 gate 已完成。该 commit 完成前禁止执行 Task 1。
+
+本次只完成 Task 0.5。用户明确要求本会话不进入 merge，不创建或切换长期 worktree / merge branch，不执行 Task 1；后续会话必须从 freshness gate 和 `START_ADAPTER` 记录重新开始。
 
 - [ ] 确认主工作区 clean，并记录提交后的 `START_ADAPTER`：
 
