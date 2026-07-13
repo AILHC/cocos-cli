@@ -84,6 +84,8 @@ git log --date=short --pretty=format:"%h %ad %d %s" --left-right origin/main...u
 
 `--prune` 不作为默认动作。只有确认需要清理 stale remote-tracking refs 时，才单独执行并记录 prune 前后的 refs。
 
+`fetch` 后必须先向用户报告，再继续 target 分析或 fork push。报告至少包含：旧/新 remote-tracking SHA、最终 fetch 是否成功、官方新增 commit 数、`origin/main...upstream/main` 左右计数。中间某次命令或脚本失败但后续 fetch 成功时，必须明确区分“分析命令失败”和“fetch 最终成功”，不能只说“Git 失败”。
+
 决策规则：
 
 - `git rev-list --left-right --count origin/main...upstream/main` 的左侧是 `origin/main` 独有 commit 数，右侧是 `upstream/main` 独有 commit 数。
@@ -91,6 +93,7 @@ git log --date=short --pretty=format:"%h %ad %d %s" --left-right origin/main...u
 - `N 0`：`origin/main` 有 fork-only commits，必须停下说明差异，不能自动覆盖。
 - `N M`：双方分叉，必须停下做专项分析，不能按“同步 fork main”继续。
 - 如果需要 push fork main，只能做 fast-forward push；非 fast-forward / force push 必须单独确认。
+- 只有用户已明确授权本轮同步 fork main 时才可执行 fast-forward push；否则停在建议状态。push 后立即报告远端 ref 的旧值、新值和结果，不等到后续 merge 分析结束。
 - 如果本次合并目标不是 fork main，而是某个官方 tag、release branch 或临时 ref，不应强行同步 `origin/main`。
 
 ## 阶段 2：确定 target 与 BASE
