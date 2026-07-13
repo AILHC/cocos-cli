@@ -7,7 +7,7 @@
 - `adapter`：`adapter-to-386`
 - `target`：`origin/main`
 - `BASE`：`c71c446428da66b77ae8e8c6714c9cc35ac094d2`
-- `TARGET`：`65644d59c5106f3c261de35af5c2d7b90d796f41`
+- `TARGET`：`3b526b9d86519df1ee5046550aaa202d860ab15d`
 - `ANALYZED_ADAPTER`：`8f52bece43b2512590d28870d7c3f05031299235`，表示 production code 分析基线；后续新增仅为本轮 docs commits，实际执行起点由计划记录为 `START_ADAPTER`
 - remote 拓扑：
   - `origin`：`https://github.com/AILHC/cocos-cli.git`
@@ -21,18 +21,19 @@
   - 再次确认 `origin/main...upstream/main` 为 `0 4` 后执行 fast-forward push；当前 `origin/main == upstream/main == d373afbca8c519bc75f6e68c1526b3d7f6a2536b`。
   - 2026-07-13 `git ls-remote upstream refs/heads/main` 显示官方又前进 7 个 commits；`git fetch upstream main` 于 15:20 成功，随后仅在确认 fork main 无独有提交后 fast-forward push。当时 `origin/main == upstream/main == 5c2b76a60899c6558bb1461e907b68a4567c412c`。
   - 提交刷新文档前的 freshness gate 又发现官方前进到 `84000ea12364f877431cb487e121951dc223c595`。`git fetch upstream main` 成功；首次 fork push 因 GitHub TLS handshake 失败而未改变远端，明确报告后重试成功。当时 `origin/main == upstream/main == 84000ea12364f877431cb487e121951dc223c595`。
-  - graphics 增量短复审期间，reviewer 的独立 freshness check 发现官方再次前进到 `65644d59c5106f3c261de35af5c2d7b90d796f41`。本地 `git fetch upstream main` 成功，确认 `origin/main...upstream/main` 为 `0 2` 后执行 fast-forward push；当前 `origin/main == upstream/main == 65644d59c5106f3c261de35af5c2d7b90d796f41`。
+  - graphics 增量短复审期间，reviewer 的独立 freshness check 发现官方再次前进到 `65644d59c5106f3c261de35af5c2d7b90d796f41`。本地 `git fetch upstream main` 成功，确认 `origin/main...upstream/main` 为 `0 2` 后执行 fast-forward push；当时 `origin/main == upstream/main == 65644d59c5106f3c261de35af5c2d7b90d796f41`。
+  - 用户确认 `65644d59` 计划后、写入批准记录前，freshness gate 发现官方新增 `3b526b9d86519df1ee5046550aaa202d860ab15d`。`git fetch upstream main` 成功，确认 `origin/main...upstream/main` 为 `0 1` 后执行 fast-forward push；当前 `origin/main == upstream/main == 3b526b9d86519df1ee5046550aaa202d860ab15d`。
 - 当前工作区状态：
-  - 刷新分析前 `adapter-to-386@bdeb201d537c42528093f10a27808063ded9d641` clean，相对 `ANALYZED_ADAPTER` 只有 3 个已提交 docs commits。
+  - 刷新分析前 `adapter-to-386@d53e465c91bbd82eb42f28a7abf278426a167d69` clean，相对 `ANALYZED_ADAPTER` 只有 4 个已提交 docs commits。
   - 尚未创建 `.worktrees/official-sync`，也未进入 merge / rebase 状态。
 
 本报告是合并前分析报告，不是合并复盘。实际进入 merge / rebase 后，完成或中止时还需要另写复盘。
 
 ## 范围
 
-- `BASE..target`：69 个官方 commits。
-- `BASE..ANALYZED_ADAPTER`：335 个本地 commits。刷新到 `65644d59` 时当前 adapter 为 338 个独有 commits，新增 3 个均为本轮 docs-only commits，production code delta 未变化。
-- 本次已使用 `git merge-tree --write-tree --name-only --messages bdeb201d537c42528093f10a27808063ded9d641 65644d59c5106f3c261de35af5c2d7b90d796f41` 做可复现的只读冲突预测；存在冲突时预期退出码为 1，不能把该退出码误报为命令未执行。
+- `BASE..target`：70 个官方 commits。
+- `BASE..ANALYZED_ADAPTER`：335 个本地 commits。刷新到 `3b526b9d` 时当前 adapter 为 339 个独有 commits，新增 4 个均为本轮 docs-only commits，production code delta 未变化。
+- 本次已使用 `git merge-tree --write-tree --name-only --messages d53e465c91bbd82eb42f28a7abf278426a167d69 3b526b9d86519df1ee5046550aaa202d860ab15d` 做可复现的只读冲突预测；存在冲突时预期退出码为 1，不能把该退出码误报为命令未执行。
 - 已读取：
   - `docs/dev/architecture/official-sync-workflow.md`
   - `docs/dev/testing-spec.md`
@@ -41,6 +42,8 @@
 - 2026-07-13 首轮最新 target 对抗审查结论为 `revise`：纠正 sortingPlugin 业务语义和 Google Play 连带公开 FB 的遗漏，补 loader partial-cache rollback、Joint Texture Layout 三路径 parity、animation 重启落盘、Pink final-dist bridge、esbuild direct dependency、固定 SHA conflict evidence 与 build 生成物 diff。同两名 reviewer 对修订结果短复审后均为 `approved`；该批准不替代用户确认，也不授权进入 merge。
 - 上述短复审固定的是 `5c2b76a6`。官方随后前进到 `84000ea1`，该批准对新增 graphics config 事实失效。graphics 业务语义 reviewer 对修订结果给出 `approved`，但 Git / 可执行性 reviewer 同时发现 target 已再次漂移，并指出 `C-04` 在 `engine/index.ts` 冲突解除前运行 Engine tests 的顺序不可执行；因此 `84000ea1` 仍未形成有效最终批准。
 - 固定到 `65644d59` 后再次完成两路对抗审查。首轮均为 `revise`：要求把 Engine tests 延后到 `C-14` 解除 `engine/index.ts` 冲突后执行，拆分 Web Mobile 的 build/run URL 与 Pink host route/QR 流程，并把 Android/Web Mobile 的 compiled builder paths、i18n/static/intro、final dist/pack 验收放到完整 build 后。同两名 reviewer 对修订结果短复审后均为 `approved`；该批准只证明报告和计划具备决策/执行闭环，不替代用户确认，也不授权进入 merge。
+- 用户随后明确确认 `65644d59` 计划，但批准记录尚未落盘时 target 已漂移到 `3b526b9d`。按 gate 规则，该确认只能作为旧 target 历史，不能自动批准新增 animation session 语义。
+- 固定到 `3b526b9d` 后完成两路短审查。Git / 可执行性 reviewer 直接 `approved`；业务 reviewer 首轮要求修正 E2E 事件顺序，避免在 re-enter 前已消费 `assetChanged` 却误称跨 session suppression。计划已改为 save 前订阅事件、save 后立即 exit/re-enter，并强断言 current clip change 发生在 re-enter completed 之后；同 reviewer 复审为 `approved`。该批准仍不替代用户对新 target 的确认。
 
 ## 官方新增
 
@@ -179,6 +182,16 @@ cocos preview --scene-editor
 
 这 2 个提交共修改 26 个文件，与 `BASE..adapter` 没有路径重叠，`merge-tree` 仍预测相同 11 个直接冲突。但它们扩大 `C-15` 的平台面板与发布流程：原计划只验收 iOS / Google Play 会漏掉 Android / Web Mobile 的 package path、view/host、SDK bridge、preview URL 和 pack contents。`C-03` 的 PluginManager package registration、`C-08` 的 root view build / release ownership也必须覆盖四个平台。
 
+### 2026-07-13 第六次官方增量
+
+`65644d59` 之后新增 1 个官方 commit：
+
+| commit | 官方变化 | 实际用户 / 业务流程影响 |
+| --- | --- | --- |
+| `3b526b9d` | 修复 animation clip 自保存后退出并重新进入同一 animation session 时，AssetDB refresh 错误释放/重载当前 clip 的问题 | 用户编辑并保存 clip，离开 animation mode，再重新进入同一 clip 时，当前 `AnimationState.clip` 继续作为权威对象；Asset service 不释放该 clip，component 重新绑定当前 state，不把刚保存的 keyframes/events 替换成 stale reload。删除 clip 仍走原退出路径，非当前 clip 仍正常 refresh |
+
+该提交只修改 animation/asset service 和对应 tests，共 3 个文件，与 `BASE..adapter` 没有路径重叠，`merge-tree` 仍预测相同 11 个直接冲突。它不新增 `C-ID`，但扩大 `C-11`：原计划已要求 save、reimport、第二进程重启 persistence，现在还必须在同一 scene worker 内覆盖 save -> exit -> re-enter -> AssetDB change event，证明 suppression 生命周期不会在 session dispose 时被提前清空，也不会误抑制普通资产刷新。
+
 ## 用户流程变化
 
 本节把 preview 相关代码差异翻译为用户可见流程。以下流程来自源码阅读和 `BASE..target` / `BASE..adapter` diff 推断，尚未在实际 merge 后运行验证。
@@ -265,9 +278,9 @@ adapter 保护：
 
 ## 冲突预测
 
-`git merge-tree --write-tree --name-only --messages bdeb201d537c42528093f10a27808063ded9d641 65644d59c5106f3c261de35af5c2d7b90d796f41` 预测直接冲突文件：
+`git merge-tree --write-tree --name-only --messages d53e465c91bbd82eb42f28a7abf278426a167d69 3b526b9d86519df1ee5046550aaa202d860ab15d` 预测直接冲突文件：
 
-`TARGET=65644d59` 预测 11 个直接冲突文件，和 `84000ea1` 相同；新 Android / Web Mobile package commits 没有新增路径重叠或直接冲突，但扩大 platform registration、view build 和发布产物的 semantic conflict。以下按业务主题记录合并方案：
+`TARGET=3b526b9d` 预测 11 个直接冲突文件，和 `65644d59` 相同；新 animation commit 没有新增路径重叠或直接冲突，但扩大 `C-11` 的 session / AssetDB refresh semantic conflict。以下按业务主题记录合并方案：
 
 ```text
 .gitignore
@@ -295,7 +308,7 @@ src/core/scene/scene.scripting.middleware.ts
 | `C-08` | semantic conflict：`.gitignore`、`package.json`、`package-lock.json`、vendored packages | 接收官方 CLI 版本、Pink 约束、DTS memory 参数和 platform view build scripts，同时继续由本仓库源码维护 `@cocos/asset-db`，保留 runtime preview 依赖和 scripts | 审计自动合并结果：保留 `file:./packages/asset-db`、`packages/asset-db` 发布文件、`@parcel/watcher`、runtime preview / release scripts；把官方 `build:platform-views` 同时接入最终 `build` / `compile`，并在 `.gitignore` 同时保留 platform view dist、runtime preview app dist、`.codex` 和 versioned Creator tools 规则。lockfile ownership 仍指向本地 package。本次不升级 `@cocos/asset-db` | 新 target 没有升级 AssetDB，却改变 compile / package 产物；只保留任一边 package scripts 都会静默漏掉 runtime app 或平台面板 | 不恢复 registry AssetDB；不删除任一 build pipeline；不为整理 lockfile顺带升级依赖 | 高风险：安装解析错误、compile 顺序或发布文件遗漏。验证 ignore contract、`npm ci`、`npm ls`、root pack dry-run、platform dist 和 runtime preview dist。`proposed`（`65cf1ae3` 修改 package / ignore 语义，旧批准失效） |
 | `C-09` | semantic conflict：PreviewService、scene engine bootstrap、effect fallback、`/preview`、project file route | `--scene-editor` 和 `start-mcp-server` 的 scene stack 可托管 `/preview`，每个 browser tab 在独立 scene realm 中完整加载 material/model/mesh/prefab/skeleton/spine；引用 atlas 的 prefab 获得真实 native image 尺寸，不改变四种 preview mode | 接收 PreviewService、native extension recovery、循环依赖前置 cache、`nativeReady` / `inFlight` 去重和 adapter UUID helper；补官方遗漏的失败事务边界：依赖/native 失败时释放 Details/readiness/in-flight，并只移除本次插入的 partial cache，使第二次请求真实 fetch/deserialize。Engine resume 只调用一次；effect path 和 file realpath 边界仍按 adapter 决策 | 前置 cache 是断环所需，但官方失败路径可能留下半初始化 cache；“完整照搬官方”与“失败可重试”不能同时成立，必须做最小可靠性修正。PreviewService 仍不与 MCP child worker / runtime browser 共享 scene heap | 不回退并发加载修复；不保留失败 partial asset；不接到 runtime server；不允许双重 resume 或整个 projectRoot allowlist | 高风险：循环死锁、cache owner 误删、width=0 asset、effect/traversal。验证 cache 插入后的 dependency/native failure、清理只作用于本次对象、第二次真实重试、并发/循环/atlas 像素、双 tab cleanup。`proposed` |
 | `C-10` | semantic conflict：dump `service-access` circular-import fix 与 Node / Component / Prefab editing | child scene worker 和 browser scene realm 都使用官方无环 service access；adapter 的节点引用、组件字段、Undo、dirty、save / reload 行为不回退 | 完整接收 `f1463d84` 的 service-access、dump encode/decode 和 node/component 调整；用 MCP prefab round-trip 和 browser scene bundle 双链路验证，不重引入旧静态 circular imports | 这是用户要求的 prefab/component 可操作对象落盘链路基础；官方修复应接收，但 module init 成功不等于引用恢复和保存仍正确 | 不保留旧 circular imports；不把 browser Preview prefab 副本当可编辑 prefab；不省略重启后 query | 高风险：service 注册时序、component path encode、node reference restore、Undo / save。验证 add/remove/recycle、节点排序、组件引用、save、进程重启后 query。`proposed` |
-| `C-11` | semantic conflict：animation playback 约 60 Hz time sync、playing-state property query、clip edit/save state recreation | 播放中 property query 返回当前实时节点值而不 seek/sample；pause 后才做确定 frame sampling；编辑、保存、undo/redo 后继续绑定当前 clip instance 与编辑时间；stop / dispose 无残留 timer | 接收官方 animation sync、reset-before-edit 和 self-save snapshot restore；补 monotonic / cleanup、播放中编辑、save 后 state recreation / rebind 单测，并增加真实 scene/MCP edit-save、AssetDB reimport、第二进程重启 query E2E | 新提交修复的不只是 timer，而是“用户边预览边改 clip”时资源对象与运行态对象分叉；mock service test 不能证明 source 落盘和 reimport 后仍正确 | 不把运行时采样值写回 clip；不绑定 stale clip；不以单进程 mock 代替落盘；不允许 timer 在 realm close 后广播 | 高风险：事件风暴、错误 snapshot、旧 state 复活、save/reimport 分叉。验证 service tests 加真实 `.anim` source 变化、第二 MCP process curve query / clip binding；E2E 不通过则明确列 residual，不能宣称可用。`proposed` |
+| `C-11` | semantic conflict：animation playback 约 60 Hz time sync、playing-state property query、clip edit/save state recreation、session re-enter refresh suppression | 播放中 property query 返回当前实时节点值而不 seek/sample；pause 后才做确定 frame sampling；编辑、保存、undo/redo、exit/re-enter 后继续绑定当前 clip instance 与编辑时间；当前 clip 的 AssetDB change 不释放 authoritative state，非当前 clip 和 delete 仍走正常 refresh / exit；stop / dispose 无残留 timer | 接收官方 animation sync、reset-before-edit、self-save snapshot restore 和 `preserveCurrentClipAssetForChange()` 协作；补 monotonic / cleanup、播放中编辑、save 后 state recreation / rebind、save -> exit -> re-enter -> assetChanged 单测，并增加真实 scene/MCP edit-save、AssetDB reimport、第二进程重启 query E2E | 新提交修复的不只是 timer，而是“用户边预览边改 clip”以及重新进入 session 时资源 cache、component 与运行态对象分叉；mock service test 不能证明 source 落盘和 reimport 后仍正确，单看 AssetService 也不能证明普通 refresh 未被过度抑制 | 不把运行时采样值写回 clip；不绑定 stale clip；不在 `_disposeSession()` 清空仍待消费的 self-save suppression；不以单进程 mock 代替落盘；不把所有 animation asset change 都跳过 | 高风险：suppression 泄漏、普通 refresh 被吞、删除后 session 残留、旧 state 复活、save/reimport 分叉。验证 current/non-current/delete matrix、同进程 re-enter、service tests、真实 `.anim` source 变化和第二 MCP process curve query / clip binding；E2E 不通过则明确列 residual，不能宣称可用。`proposed` |
 | `C-12` | semantic conflict：DTS generator namespace / vendored `asset-db` import、缺失的 CI typecheck config 与吞错 workflow | 最终 DTS 同时表达官方 PreviewService / scene / assets / builder API 和 adapter APIs，`@cocos/asset-db/libs/filesystem`、`StatsQuery.ConstantManager` 可解析，官方 `check-dts.yml` 的 typecheck step 能对任意 `tsc` 非零状态真实失败 | 接收官方 generator postprocess 和 tests；补齐 workflow 已引用但 target 中不存在的 `packages/cocos-cli-types/tsconfig.typecheck.json`，以九个 public declarations 和 CI 复制的 `cc.d.ts` 为 roots；将 workflow 的 `grep ... || true` 过滤改为直接执行 `npx tsc -p ... --noEmit`，避免 `TS5058` 等 config 级错误被吞掉；最终源码完成后唯一一次生成，固定 types version `0.0.1-alpha.33.1`；运行完整 types tests、用显式 Git Bash 执行与 CI 相同的 command，以及 package pack dry-run | 新 target 修改 generator，并新增了既引用缺失 config、又可能吞掉 config 级错误的 workflow；只重建 snapshot或在本地另跑直连命令不能证明 CI / consumer contract | 不手工拼 snapshot；不保留旧相对 `./filesystem` import；不保留 workflow 的输出 grep / `|| true`；不采用 registry 动态生成的新版本号 | 高风险：声明可生成但 CI 或消费者 typecheck 失败。验证 postprocess focused test、九个 types contract tests、显式 `C:\Program Files\Git\bin\bash.exe -lc 'npx tsc -p packages/cocos-cli-types/tsconfig.typecheck.json --noEmit'`、snapshot 和 pack。`proposed` |
 | `C-13` | direct conflict：`src/core/assets/asset-config.ts`；semantic conflict scripting configuration / plugin consumers | `script.sortingPlugin` 在配置初始化、late registry、update/remove/reload 后同步到当前 AssetDB；`querySortedPlugins()` 和 preview / scene / build plugin script consumers 在同一实例采用 UUID 顺序，adapter 的 library records 和 extension mounts 不回退 | 以 adapter AssetDB root/list/records 设计为主干，接入官方 `setSortingPlugin()`、初始 sync 和 configuration listeners；保留 stable UUID array 过滤。增加 listener ownership 检查，并验证 query、preview settings、scene script service、build data / bundle 都消费同一顺序 | 配置存放在 AssetDB runtime config，但业务效果是 plugin script 加载/执行顺序，不是 importer 顺序；整文件采用官方仍会把 adapter 输出路径和 mount ownership 退回旧值 | 不 keep adapter 丢 sorting；不 take official 丢 CLI library records；不声称它改变 import pipeline；不靠重启 CLI 才生效 | 高风险：listener 泄漏、consumer 顺序分叉、late registration race。验证初始/late/update/remove/reload、重复 init、query 与 preview/scene/build consumers、shared/non-shared library 和 extension mount。`proposed` |
 | `C-14` | direct conflict：`src/core/engine/index.ts`；Joint Texture Layout + graphics normalization + adapter runtime mode | official joint texture 和 graphics config APIs 生效；game/preview/build 使用相同 resolved layouts / modules；adapter `EngineRuntimeMode`、3.8.6 engine root、UUID compatibility、browser-owned builtin/physics 语义保留 | 以 adapter EngineManager 生命周期为主干，同时叠加 official JTL resolver/API 和 `C-04` graphics helper/getConfig normalization；setting task 调同一 JTL resolver。保留 adapter runtimeMode / UUID helper，不恢复整文件 official 的 Node builtin/physics行为。该文件按两个主题联合解决、分别测试 | `84000ea1` 与 JTL 连续修改同一 EngineManager；先后手工套 patch 可能让 `getConfig()` normalization 或 init settings 覆盖另一主题。整文件选边仍会丢 adapter runtime contract | 不复制 JTL/graphics 算法；不把 UUID 原样透传；不因 graphics/JTL 回退 runtimeMode | 高风险：getConfig 调用顺序、missing asset、modules/layout settings 分叉。验证 graphics matrix、JTL UUID/number/missing、真实 AssetDB、game/runtime/build parity 和 3.8.6 runtime mode。`proposed` |
@@ -311,10 +324,11 @@ src/core/scene/scene.scripting.middleware.ts
 - `C-13` 到 `C-15`：分别承接 plugin script 加载顺序、joint texture layout、平台配置面板三条新增流程。
 - `C-04` / `C-14`：`84000ea1` 新增 graphics owner model 并再次修改 EngineManager；`C-04` 旧批准失效，两个主题必须在同一 `engine/index.ts` 冲突中联合实现、分别验收。
 - `C-03` / `C-08` / `C-15`：`65644d59` 将 Android / Web Mobile 也迁入 platform package + Pink view pipeline；三项状态仍为 `proposed`，验收范围从 iOS / Google Play 扩大到四个平台。
+- `C-11`：`3b526b9d` 把 self-save suppression 从单次 session 内扩展到 exit/re-enter，并让 AssetService 在当前 clip 有 authoritative state 时保留 cache；必须新增 current/non-current/delete 和 re-enter refresh matrix。
 
 ### 用户确认记录
 
-用户于 2026-07-10 确认旧 target 下的 `C-01` 到 `C-08`。后续 target 漂移已陆续重新打开 `C-01`、`C-02`、`C-03`、`C-07` 到 `C-15`；`84000ea1` 又使 `C-04` 的旧批准失效。当前只有 `C-05`、`C-06` 可沿用旧批准；其余 13 项均为 `proposed`，进入 merge 前必须按最新报告和计划重新确认。
+用户于 2026-07-10 确认旧 target 下的 `C-01` 到 `C-08`，并于 2026-07-13 明确确认 `65644d59` 计划；但第二次确认尚未写入批准 commit 时 freshness gate 已发现 `3b526b9d`。后续 target 漂移已重新打开 `C-01`、`C-02`、`C-03`、`C-04`、`C-07` 到 `C-15`；当前只有 `C-05`、`C-06` 可沿用旧批准，其余 13 项均为 `proposed`。进入 merge 前必须确认最新报告，尤其是新增 `C-11` session re-enter 语义；不能把 `65644d59` 的“确认”追记成对 `3b526b9d` 的批准。
 
 ## 高风险 semantic conflict
 
@@ -334,13 +348,14 @@ src/core/scene/scene.scripting.middleware.ts
 - Android / Web Mobile 已从旧目录布局迁移到 package `src/`；public types、PluginManager、builder config/hooks 和 final dist 任一路仍引用旧路径，都会形成“平台面板能显示但构建阶段加载失败”的 semantic regression。
 - `65cf1ae3` 注释整个 `HIDDEN_PLATFORMS` 后不仅公开 Google Play，也公开 `fb-instant-games`；后者没有本轮 package/view/验收，应视为 collateral semantic change，推荐继续隐藏。
 - `5c2b76a6` 的 prefab/atlas loader 把 partial asset 先放入 cache 来断环；任何本地改写若改变 cache、`nativeReady`、`inFlight` 的先后顺序，都可能形成死锁或暴露 width=0 texture。
+- `3b526b9d` 让当前 animation clip 的 runtime state 在 AssetDB change 时优先于普通 asset reload，并跨 session dispose 保留 self-save suppression。若 predicate 过宽会吞掉普通 refresh，过窄则 re-enter 后重新绑定 stale clip；delete 必须继续退出 session。
 
 ## 推荐路线
 
 不在当前 dirty 主工作区直接执行实际 merge。推荐并已写入通用规范的路线：
 
-1. 长期保留 `.worktrees/official-sync`，每轮从准确的 `ADAPTER` HEAD 新建 `SYNC_BRANCH`，本轮建议 `codex/official-sync-20260713-65644d59`。
-2. 当前 target 要求重新确认 `C-01` 到 `C-04`、`C-07` 到 `C-15`。全部 gate 通过后，才可在长期 worktree 执行 `git merge --no-ff --no-commit 65644d59c5106f3c261de35af5c2d7b90d796f41`。不 rebase，不改写 `adapter-to-386` 历史。
+1. 长期保留 `.worktrees/official-sync`，每轮从准确的 `ADAPTER` HEAD 新建 `SYNC_BRANCH`，本轮建议 `codex/official-sync-20260713-3b526b9d`。
+2. 当前 target 要求重新确认 `C-01` 到 `C-04`、`C-07` 到 `C-15`。全部 gate 通过后，才可在长期 worktree 执行 `git merge --no-ff --no-commit 3b526b9d86519df1ee5046550aaa202d860ab15d`。不 rebase，不改写 `adapter-to-386` 历史。
 3. 按子系统分批解冲突：
    - preview / launcher / scene route。
    - builder init / stage task / common options。
@@ -371,7 +386,7 @@ src/core/scene/scene.scripting.middleware.ts
 | Build Vitest | `npm --prefix vitests run test -- suites/build/...` | repo 根目录 | wechatgame、bundle、editor parity 边界 | 不证明所有平台构建通过 |
 | Assets API | focused tests for material service/API/lib、asset config map i18n、serialized assets | repo 根目录 | material dump query/save 落盘、localized/raw config contract、API bridge | 不证明 prefab / scene / component 通用编辑 |
 | Plugin script order live sync | sortingPlugin init/late/update/remove/reload + query / preview / scene / build consumer tests | repo 根目录 | plugin script 加载顺序与 adapter AssetDB ownership 同时保留 | 不证明具体第三方 plugin 脚本自身逻辑正确 |
-| Scene PreviewService | focused service / route / security tests + atlas prefab `/preview` browser smoke + scene editing / animation restart E2E | repo 根目录 + 隔离项目 | resource preview、native asset ready / dedup、scene dump fixes、animation source save / reimport / second-process query、project file allowlist | 不证明 runtime preview 或其它资产类型事务 |
+| Scene PreviewService | focused service / route / security tests + atlas prefab `/preview` browser smoke + scene editing / animation restart E2E | repo 根目录 + 隔离项目 | resource preview、native asset ready / dedup、scene dump fixes、animation save / exit / re-enter refresh suppression、source reimport / second-process query、project file allowlist | 不证明 runtime preview 或其它资产类型事务 |
 | Joint Texture Layout | resolver / AssetDB state tests + game/runtime/build settings comparison | repo 根目录 + 隔离项目 | skeleton/clip UUID resolution、device tip、preview/build parity | 不证明所有 GPU / device limit |
 | Engine graphics | migration / metadata / Engine tests + normal/runtime/build settings matrix | repo 根目录 + 隔离项目 | graphics owner、pipeline/modules normalization、旧配置迁移和三路径一致性 | 不证明所有自定义 render pipeline 业务逻辑 |
 | Platform views | iOS / Google Play / Android / Web Mobile schema 与 builder hook tests、`npm run build:platform-views`、host load、root pack dry-run | repo 根目录 | 四个平台的 Pink 配置、迁移后 builder path 和发布物完整性 | 不证明真实签名 / 商店发布成功 |
@@ -389,13 +404,13 @@ src/core/scene/scene.scripting.middleware.ts
 - 重新确认 `C-01` / `C-02` / `C-07` 的新 target 补充边界。
 - 确认 `C-09`：PreviewService / scene bootstrap / effect fallback / file route。
 - 确认 `C-10`：dump circular-import fix 与 prefab/component 落盘回归。
-- 确认 `C-11`：animation 60 Hz 实时同步语义和 timer cleanup。
+- 确认 `C-11`：animation 60 Hz 实时同步、timer cleanup、self-save 后 exit/re-enter 与 AssetDB refresh suppression。
 - 确认 `C-12`：DTS generator postprocess、完整 types contract 和 vendored import。
 - 确认 `C-03` / `C-08` / `C-15`：PluginManager、platform package views、compile / release / pack 产物与 vendored ownership。
 - 确认 `C-13`：scripting sorting plugin 与 adapter AssetDB 输出 / mounts / listener lifecycle。
 - 确认 `C-04`：official engine.graphics owner / migration / modules normalization 与 adapter physics / 3.8.6 parity。
 - 确认 `C-14`：Joint Texture Layout、graphics normalization 与 adapter EngineRuntimeMode / 3.8.6 settings 的联合 Engine merge。
-- 审查并确认已刷新到 `TARGET=65644d59` 的 `docs/superpowers/plans/2026-07-10-adapter-to-386-official-merge.md`。
+- 审查并确认已刷新到 `TARGET=3b526b9d` 的 `docs/superpowers/plans/2026-07-10-adapter-to-386-official-merge.md`。
 - 提交本轮刷新文档，确认 `ANALYZED_ADAPTER..START_ADAPTER` 只有 docs 变化。
 
 ## 后续复盘检查点
