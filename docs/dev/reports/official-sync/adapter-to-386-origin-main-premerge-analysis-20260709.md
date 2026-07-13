@@ -330,6 +330,8 @@ src/core/scene/scene.scripting.middleware.ts
 
 用户于 2026-07-13 确认固定 `TARGET=3b526b9d86519df1ee5046550aaa202d860ab15d`、计划 revision `cdf003820d981502153e7d447bfd39eba54c32b3` 下的 `C-01`、`C-02`、`C-03`、`C-04`、`C-07`、`C-08`、`C-09`、`C-10`、`C-11`、`C-12`、`C-13`、`C-14`、`C-15`。`C-05`、`C-06` 沿用 2026-07-10 的有效批准，因此 `C-01` 到 `C-15` 已全部批准。该确认只关闭合并前决策 gate；用户明确要求本会话不进入 merge。后续会话必须先重新执行 freshness gate，并以本次批准 commit 之后的实际 `adapter-to-386` HEAD 记录 `START_ADAPTER`；若 target、业务语义、验收标准或 stop condition 发生变化，相关决策立即退回 `proposed`。
 
+2026-07-14 执行阶段复查发现 `upstream/main` 已前进到 `df01f317b88b6901733d4e4a9fb0eba2220578e0`，`origin/main` 与固定 `TARGET` 仍为 `3b526b9d86519df1ee5046550aaa202d860ab15d`。用户确认本轮继续合入已批准的固定 snapshot，不追踪执行期间继续前进的官方 head。流程 gate 相应修正为：远端 head 正常前进只作为下一轮同步事实；本轮仅在固定 target 对象不存在，或更新官方 ref 后 target 不再是当前 `upstream/main` 的 ancestor 时停止。该确认不改变 `C-01` 到 `C-15` 的业务方案、验收标准或 merge parent 要求。
+
 ## 高风险 semantic conflict
 
 - `package.json` / `package-lock.json` 当前无 direct conflict，但官方和 adapter 都改了 package、workspace、generated tool 链，需要 merge 后做 dependency sanity。

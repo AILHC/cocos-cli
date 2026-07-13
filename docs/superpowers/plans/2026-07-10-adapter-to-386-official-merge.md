@@ -62,7 +62,7 @@
 
 命中任一条件立即停止，不继续解决后续冲突：
 
-- `upstream/main` 或 `origin/main` 不再等于固定 `TARGET`。
+- 固定 `TARGET` 对象不存在，或更新 `upstream/main` 后确认 `TARGET` 不再是当前官方 main 的 ancestor。远端 branch head 正常前进本身不是 stop condition，只记录为下一轮同步事实。
 - `adapter-to-386` 相对 `ANALYZED_ADAPTER` 出现未分析的 production code / test 变化。
 - 实际直接冲突集合与预测不一致，或出现新的高风险 semantic conflict。
 - 已确认方案需要改变用户可见语义、落盘路径、配置真相源或 dependency ownership。
@@ -140,6 +140,8 @@ rtk git commit -m "docs: approve official sync plan for 3b526b9d"
 
 Expected：cached diff 只有两份确认记录文档；报告明确列出 13 个本轮 approved decision IDs，计划记录对抗审查和用户确认 gate 已完成。该 commit 完成前禁止执行 Task 1。
 
+- [x] 2026-07-14 执行阶段发现 `upstream/main` 已前进到 `df01f317b88b6901733d4e4a9fb0eba2220578e0`，而固定 `TARGET` 与 `origin/main` 仍为 `3b526b9d86519df1ee5046550aaa202d860ab15d`。用户确认本轮采用固定 snapshot 语义：远端 head 正常前进不改变已批准 target；只在 target 对象不存在或不再属于当前官方 lineage 时停止。该修订不改变 `C-01` 到 `C-15` 的业务语义和验收范围，由本次 docs commit 记录。
+
 本次只完成 Task 0.5。用户明确要求本会话不进入 merge，不创建或切换长期 worktree / merge branch，不执行 Task 1；后续会话必须从 freshness gate 和 `START_ADAPTER` 记录重新开始。
 
 - [ ] 确认主工作区 clean，并记录提交后的 `START_ADAPTER`：
@@ -152,18 +154,21 @@ rtk git diff --name-only 8f52bece43b2512590d28870d7c3f05031299235..adapter-to-38
 
 Expected：最后一条命令只列出 `docs/**`。否则停止并刷新分析。
 
-## Task 1：执行前漂移检查和长期 worktree 准备
+## Task 1：执行前 target lineage 检查和长期 worktree 准备
 
-- [ ] 只读检查远端、refs 和 worktrees：
+- [ ] 记录远端 heads，更新官方 remote-tracking ref，并检查固定 target lineage 和 worktrees：
 
 ```powershell
 rtk git ls-remote upstream refs/heads/main
 rtk git ls-remote origin refs/heads/main
+rtk git fetch --no-tags upstream refs/heads/main:refs/remotes/upstream/main
 rtk git rev-parse origin/main upstream/main adapter-to-386
+rtk git cat-file -e 3b526b9d86519df1ee5046550aaa202d860ab15d^{commit}
+rtk git merge-base --is-ancestor 3b526b9d86519df1ee5046550aaa202d860ab15d upstream/main
 rtk git worktree list --porcelain
 ```
 
-Expected：两个远端 main 和本地 tracking refs 都是 `3b526b9d86519df1ee5046550aaa202d860ab15d`。
+Expected：固定 `TARGET` 对象存在且是当前 `upstream/main` 的 ancestor；记录 `origin/main`、`upstream/main` 的当前 heads，但它们允许前进，不要求继续等于 `TARGET`。若 ancestry 失败则停止；若只发生正常前进，登记为下一轮同步事实后继续本轮固定 snapshot。
 
 - [ ] 如果长期 worktree 不存在，创建它：
 
@@ -950,7 +955,7 @@ Expected：回收前 `adapter-to-386` 仍精确等于 `START_ADAPTER`；只 fast
 
 ## 最终完成标准
 
-- `origin/main == upstream/main == TARGET`，合并 commit 第二 parent 精确等于 `TARGET`。
+- 固定 `TARGET` 是执行时当前 `upstream/main` 的 ancestor；远端 heads 已记录但允许正常前进；合并 commit 第二 parent 精确等于 `TARGET`。
 - 11 个直接冲突和 `C-01` 到 `C-15` 的全部 direct / semantic conflict 均有实现与验证记录。
 - 四种 `preview` mode 与 `start-mcp-server` 用户流程符合确认合同，非法组合明确失败。
 - 官方 builder progress/log/cache/stage、iOS / Google Play / Android / Web Mobile Pink views 和迁移后的 builder package paths、adapter extension/wechatgame/runtime settings 同时保留。

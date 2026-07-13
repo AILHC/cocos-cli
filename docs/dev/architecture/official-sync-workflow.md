@@ -115,6 +115,13 @@ git log --date=short --pretty=format:"%h %ad %d %s" --reverse <BASE>..adapter-to
 | `TARGET` | `<target>` | `<hash>` | 本次要吸收的基线 |
 | `ADAPTER` | `adapter-to-386` | `<hash>` | 当前长期分支 |
 
+### 固定 snapshot 与最新 head 的边界
+
+- “同步到官方最新 main”只用于选择和批准 `TARGET`。在冻结 `TARGET` 前，应记录当时的 `origin/main`、`upstream/main` 和固定 commit。
+- `TARGET` 一旦以完整 SHA 批准，后续执行合并时使用该 SHA，不再把远端 branch head 持续等于该 SHA 作为前提。官方 main 正常前进只记为下一轮同步事实，不自动改变本轮 target。
+- 执行前仍须验证 `TARGET` 对象存在，并在更新官方 remote-tracking ref 后确认它仍是当前 `upstream/main` 的 ancestor。若 ancestry 失败，说明官方历史可能被改写或原 target provenance 已不可验证，必须停止。
+- 如果目标明确要求“执行时仍为官方最新”，则不得沿用固定 snapshot 语义；远端前进后必须重新分析、审查和确认新的 target。
+
 ## 阶段 3：分析官方更新
 
 只分析 `BASE..target`。不要把 adapter 独有文件在 target 中不存在描述成“官方删除”。
