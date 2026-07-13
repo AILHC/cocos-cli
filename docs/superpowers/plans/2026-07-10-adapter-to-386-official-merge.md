@@ -163,12 +163,12 @@ rtk git ls-remote upstream refs/heads/main
 rtk git ls-remote origin refs/heads/main
 rtk git fetch --no-tags upstream refs/heads/main:refs/remotes/upstream/main
 rtk git rev-parse origin/main upstream/main adapter-to-386
-rtk git cat-file -e 3b526b9d86519df1ee5046550aaa202d860ab15d^{commit}
+rtk git cat-file -t 3b526b9d86519df1ee5046550aaa202d860ab15d
 rtk git merge-base --is-ancestor 3b526b9d86519df1ee5046550aaa202d860ab15d upstream/main
 rtk git worktree list --porcelain
 ```
 
-Expected：固定 `TARGET` 对象存在且是当前 `upstream/main` 的 ancestor；记录 `origin/main`、`upstream/main` 的当前 heads，但它们允许前进，不要求继续等于 `TARGET`。若 ancestry 失败则停止；若只发生正常前进，登记为下一轮同步事实后继续本轮固定 snapshot。
+Expected：`git cat-file -t` 输出 `commit`，且固定 `TARGET` 是当前 `upstream/main` 的 ancestor；记录 `origin/main`、`upstream/main` 的当前 heads，但它们允许前进，不要求继续等于 `TARGET`。若 ancestry 失败则停止；若只发生正常前进，登记为下一轮同步事实后继续本轮固定 snapshot。
 
 - [ ] 如果长期 worktree 不存在，创建它：
 
