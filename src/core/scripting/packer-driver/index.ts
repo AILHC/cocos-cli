@@ -34,6 +34,13 @@ import { shouldUseTentativePrerequisiteImportsMod } from './target-policy';
 import { installCommonJSBareSpecifierFallback } from './commonjs-bare-specifier-fallback';
 import { verifyPrerequisiteImportMapIntegrity } from './prerequisite-integrity';
 import { createScriptCompileDiagnostic } from '../compile-error-diagnostics';
+import {
+    doesScriptChunkRegisterUuid,
+    getPreviewOutputIntegritySealPath,
+    preparePreviewCacheForLoad,
+    removePreviewOutputIntegritySeal,
+    writePreviewOutputIntegritySeal,
+} from './script-registration-integrity';
 
 const VERSION = '20';
 
@@ -72,6 +79,22 @@ function getErrorMessage(error: unknown): string {
         return error.stack || error.message;
     }
     return String(error);
+}
+
+async function loadPreviewQuickPackCache(quickPack: QuickPack, logger: Logger): Promise<void> {
+    const middleware = (quickPack as any)._middleware;
+    if (!middleware || typeof middleware.workspace !== 'string' || typeof middleware.lock !== 'function') {
+        throw new Error('Runtime preview QuickPack workspace does not expose the required cache lock.');
+    }
+    await fs.ensureDir(middleware.workspace);
+    const release = await middleware.lock();
+    try {
+        const result = preparePreviewCacheForLoad(middleware.workspace);
+        logger.debug(`Target(preview) output integrity cache=${result}.`);
+        await quickPack.loadCache();
+    } finally {
+        await release();
+    }
 }
 
 interface BuildResult {
@@ -211,7 +234,11 @@ export class PackerDriver {
 
             logger.debug('Loading cache');
             const t1 = performance.now();
-            await quickPack.loadCache();
+            if (targetId === 'preview') {
+                await loadPreviewQuickPackCache(quickPack, logger);
+            } else {
+                await quickPack.loadCache();
+            }
             const t2 = performance.now();
             logger.debug(`Loading cache costs ${t2 - t1}ms.`);
 
@@ -914,11 +941,19 @@ const defaultOptimizeEntrySourceCompilation = false;
 
 type OutputTransactionFileBackup = Buffer | null;
 
+interface VerifiedScriptChunk {
+    moduleURL: string;
+    uuid: string;
+    chunkId: string;
+    registrationValid: boolean;
+}
+
 class PackTargetOutputTransaction {
     constructor(
         private readonly _quickPack: QuickPack,
         private readonly _logger: Logger,
         private readonly _targetName: string,
+        private readonly _resolveScriptUuid?: (moduleURL: string) => string | undefined,
     ) {
     }
 
@@ -926,12 +961,19 @@ class PackTargetOutputTransaction {
         this._backupRecordFiles();
         this._chunkSnapshot = this._snapshotChunkFiles();
         this._installAddChunkBackup();
+        if (this._targetName === 'preview') {
+            removePreviewOutputIntegritySeal(this._getWorkspace());
+        }
     }
 
     public commit(): void {
+        if (this._targetName === 'preview') {
+            writePreviewOutputIntegritySeal(this._getWorkspace());
+        }
         this._restoreAddChunk();
         this._fileBackups.clear();
         this._chunkSnapshot.clear();
+        this._verifiedScriptChunks.clear();
     }
 
     public rollback(): void {
@@ -953,16 +995,47 @@ class PackTargetOutputTransaction {
         }
         this._fileBackups.clear();
         this._chunkSnapshot.clear();
+        this._verifiedScriptChunks.clear();
+    }
+
+    public verifyScriptRegistrationRecords(): void {
+        if (this._verifiedScriptChunks.size === 0) {
+            return;
+        }
+        const moduleRecords = (this._quickPack as any)._moduleRecords;
+        if (!moduleRecords || typeof moduleRecords !== 'object') {
+            throw new Error(`Target(${this._targetName}) QuickPack module records are unavailable.`);
+        }
+        for (const verifiedChunk of this._verifiedScriptChunks.values()) {
+            const moduleRecord = moduleRecords[verifiedChunk.moduleURL];
+            const recordUuid = moduleRecord?.mTimestamp?.uuid;
+            if (recordUuid !== verifiedChunk.uuid || moduleRecord?.chunkId !== verifiedChunk.chunkId) {
+                throw new Error(
+                    `Runtime preview script record is inconsistent: ${verifiedChunk.moduleURL} ` +
+                    `expected UUID ${verifiedChunk.uuid} and chunk ${verifiedChunk.chunkId}.`,
+                );
+            }
+            if (moduleRecord.type === 'esm' && !verifiedChunk.registrationValid) {
+                throw new Error(
+                    `Runtime preview script registration is missing or inconsistent: ${verifiedChunk.moduleURL} ` +
+                    `does not register UUID ${compressUuid(verifiedChunk.uuid, false)}.`,
+                );
+            }
+        }
     }
 
     private _backupRecordFiles(): void {
         const middleware = (this._quickPack as any)._middleware;
-        for (const filePath of [
+        const recordFiles = [
             middleware?.mainRecordPath,
             middleware?.assemblyRecordPath,
             middleware?.importMapPath,
             middleware?.resolutionDetailMapPath,
-        ]) {
+        ];
+        if (this._targetName === 'preview' && typeof middleware?.workspace === 'string') {
+            recordFiles.push(getPreviewOutputIntegritySealPath(middleware.workspace));
+        }
+        for (const filePath of recordFiles) {
             if (typeof filePath !== 'string') {
                 continue;
             }
@@ -981,13 +1054,51 @@ class PackTargetOutputTransaction {
         this._originalAddChunk = originalAddChunk;
         const transaction = this;
         chunkWriter.addChunk = function (...args: unknown[]) {
+            const [moduleURL, code] = args;
+            const moduleURLHref = transaction._getModuleURLHref(moduleURL);
+            const scriptUuid = moduleURLHref ? transaction._resolveScriptUuid?.(moduleURLHref) : undefined;
+            let registrationValid = false;
+            if (moduleURLHref && scriptUuid) {
+                if (typeof code !== 'string') {
+                    throw new Error(`Runtime preview script chunk source is unavailable: ${moduleURLHref}.`);
+                }
+                registrationValid = doesScriptChunkRegisterUuid(code, compressUuid(scriptUuid, false));
+            }
             const chunkPath = transaction._resolveChunkFilePath(this, args);
             if (chunkPath) {
                 transaction._backupFile(chunkPath);
                 transaction._backupFile(`${chunkPath}.map`);
             }
-            return originalAddChunk.apply(this, args);
+            const chunkId = originalAddChunk.apply(this, args);
+            if (moduleURLHref && scriptUuid) {
+                if (typeof chunkId !== 'string') {
+                    throw new Error(`Runtime preview script chunk ID is unavailable: ${moduleURLHref}.`);
+                }
+                transaction._verifiedScriptChunks.set(moduleURLHref, {
+                    moduleURL: moduleURLHref,
+                    uuid: scriptUuid,
+                    chunkId,
+                    registrationValid,
+                });
+            }
+            return chunkId;
         };
+    }
+
+    private _getModuleURLHref(value: unknown): string | undefined {
+        if (typeof value !== 'object' || value === null) {
+            return undefined;
+        }
+        const href = (value as { href?: unknown }).href;
+        return typeof href === 'string' ? href : undefined;
+    }
+
+    private _getWorkspace(): string {
+        const workspace = (this._quickPack as any)._middleware?.workspace;
+        if (typeof workspace !== 'string') {
+            throw new Error(`Target(${this._targetName}) QuickPack workspace is unavailable.`);
+        }
+        return workspace;
     }
 
     private _restoreAddChunk(): void {
@@ -1068,6 +1179,7 @@ class PackTargetOutputTransaction {
     }
 
     private readonly _fileBackups = new Map<string, OutputTransactionFileBackup>();
+    private readonly _verifiedScriptChunks = new Map<string, VerifiedScriptChunk>();
     private _chunkSnapshot = new Set<string>();
     private _chunkWriter: any;
     private _originalAddChunk: ((...args: unknown[]) => unknown) | undefined;
@@ -1434,13 +1546,19 @@ class PackTarget {
         const t1 = performance.now();
         try {
             await this._runWithQuickPackOutputLock(async () => {
-                const transaction = new PackTargetOutputTransaction(this._quickPack, this._logger, targetName);
+                const transaction = new PackTargetOutputTransaction(
+                    this._quickPack,
+                    this._logger,
+                    targetName,
+                    targetName === 'preview' ? (moduleURL) => this._urlUUIDMap.get(moduleURL) : undefined,
+                );
                 try {
                     transaction.begin();
                     buildResult = await this._build();
                     if (buildResult.err) {
                         throw buildResult.err;
                     }
+                    transaction.verifyScriptRegistrationRecords();
                     const integrityError = await this._verifyPrerequisiteImportMapIntegrity();
                     if (integrityError) {
                         throw integrityError;
@@ -1582,6 +1700,12 @@ class PackTarget {
 
     public async clearCache() {
         this._quickPack.clear();
+        if (this._name === 'preview') {
+            const workspace = (this._quickPack as any)._middleware?.workspace;
+            if (typeof workspace === 'string') {
+                removePreviewOutputIntegritySeal(workspace);
+            }
+        }
         this._firstBuild = true;
     }
 
@@ -1611,6 +1735,7 @@ class PackTarget {
                     // this._logger.warn(`Unexpected: ${uuid} is not in registry.`);
                 } else {
                     this._uuidURLMap.delete(uuid);
+                    this._urlUUIDMap.delete(oldURL);
                     this._modLo.unsetUUID(oldURL);
                     const deleted = this._prerequisiteAssetMods.delete(oldURL);
                     if (!deleted) {
@@ -1625,6 +1750,7 @@ class PackTarget {
                 }
                 const { href: url } = change.url;
                 this._uuidURLMap.set(uuid, url);
+                this._urlUUIDMap.set(url, uuid);
                 this._modLo.setUUID(url, uuid);
                 this._prerequisiteAssetMods.add(url);
             }
@@ -1726,6 +1852,7 @@ class PackTarget {
     private _quickPackLoaderContext: QuickPackLoaderContext;
     private _prerequisiteAssetMods: Set<string> = new Set();
     private _uuidURLMap: Map<string, string> = new Map();
+    private _urlUUIDMap: Map<string, string> = new Map();
     private _logger: Logger;
     private _firstBuild = true;
     private _cleanResolutionNextTime = true;

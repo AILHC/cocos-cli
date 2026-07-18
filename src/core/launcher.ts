@@ -19,6 +19,7 @@ import {
     type ScriptCompileDiagnostic,
 } from './scripting/compile-error-diagnostics';
 import type { RuntimeRefreshResult } from '../runtime-preview/refresh/runtime-refresh-coordinator';
+import { assertPreviewOutputIntegritySeal } from './scripting/packer-driver/script-registration-integrity';
 
 interface RuntimePreviewStageDiagnostics {
     stageStart: (stage: string) => void;
@@ -184,6 +185,7 @@ async function inspectRuntimePreviewProgrammingArtifacts(options: {
     emit: (line: string) => void;
 }): Promise<void> {
     const recordsRoot = join(options.programmingRoot, 'packer-driver', 'targets', 'preview');
+    assertPreviewOutputIntegritySeal(recordsRoot);
     const [importMap, mainRecord] = await Promise.all([
         readJsonFile<{ imports?: Record<string, string>; scopes?: Record<string, Record<string, string>> }>(
             join(recordsRoot, 'import-map.json'),

@@ -9,6 +9,10 @@ import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-setti
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import {
+  removePreviewOutputIntegritySeal,
+  writePreviewOutputIntegritySeal,
+} from '../../../src/core/scripting/packer-driver/script-registration-integrity';
 
 const execFileAsync = promisify(execFile);
 const diagnosticSceneUuid = '5d1de01c-5229-4d34-bde3-2c90372f88d9';
@@ -35,6 +39,9 @@ async function writeMinimalProgrammingArtifacts(projectRoot: string): Promise<vo
     'System.register([], function(){ return { execute: function(){} }; });',
     'utf8',
   );
+  await writeFile(join(previewRoot, 'assembly-record.json'), JSON.stringify({ chunks: {}, entries: {} }), 'utf8');
+  await writeFile(join(previewRoot, 'resolution-detail-map.json'), JSON.stringify({}), 'utf8');
+  writePreviewOutputIntegritySeal(previewRoot);
 }
 
 describe('runtime preview production asset routes', () => {
@@ -184,6 +191,9 @@ describe('runtime preview production asset routes', () => {
       expect(() => capturedServerOptions[0].prepareRuntimePreview('http://127.0.0.1:20000')).toThrow(
         `Runtime preview was prepared for ${finalServerUrl}, not http://127.0.0.1:20000`,
       );
+      const previewRoot = join(projectRoot, 'temp', 'cli', 'programming', 'packer-driver', 'targets', 'preview');
+      removePreviewOutputIntegritySeal(previewRoot);
+      await expect(capturedServerOptions[0].verifyProgrammingOutput()).rejects.toThrow(/uncommitted/);
     } finally {
       vi.restoreAllMocks();
       vi.doUnmock('../../../src/core/base/console');

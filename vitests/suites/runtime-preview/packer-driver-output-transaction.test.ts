@@ -6,6 +6,11 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPackTargetForTest } from '../../../src/core/scripting/packer-driver';
 import { eventEmitter } from '../../../src/core/scripting/event-emitter';
+import {
+  hasValidPreviewOutputIntegritySeal,
+  writePreviewOutputIntegritySeal,
+} from '../../../src/core/scripting/packer-driver/script-registration-integrity';
+import { AssetActionEnum } from '@cocos/asset-db/libs/asset';
 
 vi.mock('@cocos/ccbuild', () => ({
   StatsQuery: class StatsQuery {
@@ -108,6 +113,7 @@ async function createLastGoodOutput(workspace: string) {
   await writeText(chunkPath, 'System.register(["__unresolved_0"], function () {})');
   await writeText(depChunkPath, 'last-good dependency chunk');
   await writeText(mapPath, 'last-good map');
+  writePreviewOutputIntegritySeal(workspace);
   return { chunkId, chunkPath, mapPath };
 }
 
@@ -199,7 +205,118 @@ describe('PackerDriver output transaction', () => {
     expect(await readFile(join(workspace, 'resolution-detail-map.json'), 'utf8')).toBe('{"last":"good"}');
     expect(await readFile(chunkPath, 'utf8')).toBe('System.register(["__unresolved_0"], function () {})');
     expect(await readFile(mapPath, 'utf8')).toBe('last-good map');
+    expect(hasValidPreviewOutputIntegritySeal(workspace)).toBe(true);
     expect(existsSync(join(workspace, 'chunks', 'cc', 'cccccccccccccccccccccccccccccccccccccccc.js'))).toBe(false);
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('rejects a UUID script chunk before writing when registration metadata is missing', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'packer-driver-script-registration-'));
+    const { chunkPath } = await createLastGoodOutput(workspace);
+    const scriptURL = new URL('file:///broken.ts');
+    const scriptUuid = 'a4de7990-0a51-4c38-9cee-75f282f83f39';
+    const quickPack = createQuickPack(workspace, async function () {
+      const chunkId = this._chunkWriter.addChunk(scriptURL, 'System.register([], function () {})');
+      this._moduleRecords[scriptURL.href] = {
+        mTimestamp: { mtime: 1, uuid: scriptUuid },
+        chunkId,
+        type: 'esm',
+      };
+      return { depsGraph: {} };
+    });
+    const target = createPackTargetForTest({
+      modLo: createModLo() as any,
+      quickPack: quickPack as any,
+      logger: createLogger(),
+    });
+    await target.applyAssetChanges([{
+      type: AssetActionEnum.add,
+      uuid: scriptUuid,
+      filePath: '/broken.ts',
+      importer: 'typescript',
+      url: scriptURL,
+      isPluginScript: false,
+    }]);
+
+    const result = await target.build();
+
+    expect(result.err?.message).toContain('does not register UUID');
+    expect(await readFile(chunkPath, 'utf8')).toBe('System.register(["__unresolved_0"], function () {})');
+    expect(hasValidPreviewOutputIntegritySeal(workspace)).toBe(true);
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('commits a script chunk only when RF registration and the module record agree', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'packer-driver-script-registration-valid-'));
+    await createLastGoodOutput(workspace);
+    const scriptURL = new URL('file:///valid.ts');
+    const scriptUuid = 'a4de7990-0a51-4c38-9cee-75f282f83f39';
+    const quickPack = createQuickPack(workspace, async function () {
+      const chunkId = this._chunkWriter.addChunk(
+        scriptURL,
+        `System.register([], function () { _cclegacy._RF.push({}, "${scriptUuid}", "Valid", undefined); _cclegacy._RF.pop(); });`,
+      );
+      this._moduleRecords[scriptURL.href] = {
+        mTimestamp: { mtime: 1, uuid: scriptUuid },
+        chunkId,
+        type: 'esm',
+      };
+      return { depsGraph: {} };
+    });
+    const target = createPackTargetForTest({
+      modLo: createModLo() as any,
+      quickPack: quickPack as any,
+      logger: createLogger(),
+    });
+    await target.applyAssetChanges([{
+      type: AssetActionEnum.add,
+      uuid: scriptUuid,
+      filePath: '/valid.ts',
+      importer: 'typescript',
+      url: scriptURL,
+      isPluginScript: false,
+    }]);
+
+    const result = await target.build();
+
+    expect(result.err).toBeUndefined();
+    expect(target.ready).toBe(true);
+    expect(hasValidPreviewOutputIntegritySeal(workspace)).toBe(true);
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('does not require RF registration for a CommonJS script module', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'packer-driver-commonjs-registration-'));
+    await createLastGoodOutput(workspace);
+    const scriptURL = new URL('file:///commonjs-script.js');
+    const scriptUuid = '8fd97JkCJxK6LFPOt93xa/d';
+    const quickPack = createQuickPack(workspace, async function () {
+      const chunkId = this._chunkWriter.addChunk(scriptURL, 'System.register([], function () { module.exports = {}; })');
+      this._moduleRecords[scriptURL.href] = {
+        mTimestamp: { mtime: 1, uuid: scriptUuid },
+        chunkId,
+        type: 'commonjs',
+      };
+      return { depsGraph: {} };
+    });
+    const target = createPackTargetForTest({
+      modLo: createModLo() as any,
+      quickPack: quickPack as any,
+      logger: createLogger(),
+    });
+    await target.applyAssetChanges([{
+      type: AssetActionEnum.add,
+      uuid: scriptUuid,
+      filePath: '/commonjs-script.js',
+      importer: 'typescript',
+      url: scriptURL,
+      isPluginScript: false,
+    }]);
+
+    const result = await target.build();
+
+    expect(result.err).toBeUndefined();
+    expect(hasValidPreviewOutputIntegritySeal(workspace)).toBe(true);
     await rm(workspace, { recursive: true, force: true });
   });
 
