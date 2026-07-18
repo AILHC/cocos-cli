@@ -11,7 +11,12 @@ export class SocketService {
      * @param server http 服务器
      */
     startup(server: HTTPServer | HTTPSServer) {
-        this.io = new Server(server);
+        // 允许跨域连接：PinK 的场景宿主是 vscode-webview://... 与本服务不同源，
+        // socket.io 有独立于 express 的 CORS 配置，不开这里 webview 会被浏览器拦截连接。
+        // 与 HTTP 路由的 CORS（server.ts 的 app.use(cors)，Access-Control-Allow-Origin: *）保持一致。
+        this.io = new Server(server, {
+            cors: { origin: '*', methods: ['GET', 'POST'] },
+        });
         this.io.on('connection', (socket: any) => {
             console.log(`socket ${socket.id} connected`);
             middlewareService.middlewareSocket.forEach((middleware) => {

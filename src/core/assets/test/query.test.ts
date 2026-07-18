@@ -338,7 +338,11 @@ describe('测试 db 的查询接口', function () {
 
         it('查询 internal 目录下 ccType = cc.SceneAsset 资源', async () => {
             const allScenes = await assetManager.queryAssetInfos({ ccType: 'cc.SceneAsset', pattern: 'db://internal/**/*' });
-            expect(allScenes.length).toBe(6);
+            expect(allScenes.map((asset) => asset.url).sort()).toEqual([
+                'db://internal/default_file_content/scene/default.scene',
+                'db://internal/default_file_content/scene/scene-2d.scene',
+                'db://internal/default_file_content/scene/scene-quality.scene',
+            ]);
         });
         it('查询 internal 目录下 extname = mp4资源', async () => {
             const allMP4 = await assetManager.queryAssetInfos({ extname: '.mp4', pattern: 'db://internal/**/*' });

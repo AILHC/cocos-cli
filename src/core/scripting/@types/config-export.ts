@@ -4,6 +4,7 @@ export interface ScriptProjectConfig {
     loose: boolean;
     guessCommonJsExports: boolean;
     exportsConditions: string[];
+    sortingPlugin: string[];
     preserveSymlinks: boolean;
 
     importMap: string;

@@ -5,7 +5,7 @@ import { SchemaNode, SchemaNodeQueryResult } from './node-schema';
 import { SchemaSceneIdentifier, SchemaNodeIdentifier, SchemaComponentIdentifier } from '../base/schema-identifier';
 import { SchemaSaveAssetResult } from '../assets/schema';
 import { SchemaPrefabInfo } from './prefab-info-schema';
-import { SchemaUrlOrUUID } from '../base/schema-identifier';
+import { SchemaAssetDbUrl, SchemaAssetDbUrlOrUUID } from '../base/schema-asset-db-url';
 
 const SchemaScene = SchemaSceneIdentifier.extend({
     name: z.string().describe('Scene/Prefab Name'), // 场景/预制体名称
@@ -29,20 +29,20 @@ export const SchemaReload = z.nativeEnum(ReloadResult).describe('Reload Scene/Pr
 export const SchemaCreateOptions = z.object({
     baseName: z.string().describe('Asset Name'), // 资源名称
     templateType: z.enum(SCENE_TEMPLATE_TYPE).optional().describe('Scene Template Type (Optional, only effective for scene asset type)'), // 场景模板类型（可选，资源类型为场景才生效）
-    dbURL: z.string().describe('Target directory for storing asset files, e.g., db://assets'), // 目标目录用于存放资源文件，例如 db://assets
+    dbURL: SchemaAssetDbUrl.describe('Target directory for storing asset files, e.g., db://assets'), // 目标目录用于存放资源文件，例如 db://assets
 }).describe('Create Scene/Prefab Parameters'); // 创建场景/预制体参数
 
 export const SchemaCreateResult = SchemaSceneIdentifier.describe('Create Scene/Prefab Result Info'); // 创建场景/预制体操作的结果信息
 
 // 打开场景选项
 export const SchemaOpenOptions = z.object({
-    dbURLOrUUID: SchemaUrlOrUUID, // 资源的 URL、UUID 或文件路径
+    dbURLOrUUID: SchemaAssetDbUrlOrUUID, // 资源的 URL、UUID 或文件路径
     includeChildren: z.boolean().default(true).describe('Whether to include child nodes as INodeIdentifier[] in the result'), // 是否包含子节点
     includeComponents: z.boolean().default(false).describe('Whether to include components as IComponentIdentifier[]. Only effective for prefab; scene nodes have no components so this is ignored.'), // 是否包含组件（仅对 prefab 有效；scene 节点本身无组件，传入此参数无效）
 }).describe('Open scene options');
 
 
-export type TAssetUrlOrUUID = z.infer<typeof SchemaUrlOrUUID>;
+export type TAssetUrlOrUUID = z.infer<typeof SchemaAssetDbUrlOrUUID>;
 export type TOpenOptions = z.infer<typeof SchemaOpenOptions>;
 export type TCurrentResult = z.infer<typeof SchemaCurrentResult>;
 export type TOpenResult = z.infer<typeof SchemaOpenResult>;

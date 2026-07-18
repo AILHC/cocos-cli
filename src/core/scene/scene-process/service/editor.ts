@@ -164,7 +164,7 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
 
             // 设置当前打开的编辑器
             this.currentEditorUuid = assetInfo.uuid;
-            this.emit('editor:open');
+            this.emit('editor:open', cc.director.getScene());
             this.isOpen = true;
             console.log(`打开 ${assetInfo.url}`);
             return encode;
@@ -236,7 +236,6 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
             this._markUndoSaved();
 
             this.emit('editor:save');
-
             console.log(`保存 ${assetInfo.url}`);
             return result;
         } catch (error) {
@@ -298,7 +297,6 @@ export class EditorService extends BaseService<IEditorEvents> implements IEditor
                             currentParams = null;
                         }
 
-                        this.emit('editor:reload');
                         this.broadcast('editor:reload');
                         console.log(`重载 ${assetInfo.url}`);
                     }

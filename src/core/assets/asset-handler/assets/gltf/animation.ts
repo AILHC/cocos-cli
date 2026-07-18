@@ -12,6 +12,7 @@ import { serializeForLibrary } from '../utils/serialize-library';
 import { splitAnimation } from '../utils/split-animation';
 import { loadAssetSync } from '../utils/load-asset-sync';
 import { getOriginalAnimationLibraryPath } from './original-animation';
+import { resolveDecodeCCONBinary } from './serialization-namespace';
 
 import { deserialize, getDependUUIDList } from '../../utils';
 import assert from 'assert';
@@ -54,7 +55,8 @@ export const GltfAnimationHandler: AssetHandler = {
             const originalAnimationPath = asset.parent.getFilePath(getOriginalAnimationLibraryPath(userData.gltfIndex))
                 .replace(/\.bin$/, '.cconb');
             const originalAnimationBytes = await readFile(originalAnimationPath);
-            const { decodeCCONBinary } = await import('cc/editor/serialization');
+            const serialization = await import('cc/editor/serialization');
+            const decodeCCONBinary = resolveDecodeCCONBinary(serialization);
             const originalAnimationClip = deserialize(decodeCCONBinary(new Uint8Array(
                 originalAnimationBytes.buffer,
                 originalAnimationBytes.byteOffset,

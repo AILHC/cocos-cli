@@ -49,6 +49,39 @@ export interface IChunkContent {
     skeleton: null | string;
     clips: string[];
 }
+
+export interface IResolvedCustomJointTextureLayout {
+    textureLength: number;
+    contents: IResolvedChunkContent[];
+}
+
+export interface IResolvedChunkContent {
+    skeleton: number;
+    clips: number[];
+}
+
+export type JointTextureLayoutDeviceTipLevel = 'valid' | 'warning' | 'error';
+
+export interface IJointTextureLayoutDeviceTip {
+    level: JointTextureLayoutDeviceTipLevel;
+    message: string;
+}
+
+export interface IJointTextureLayoutPreviewItem {
+    index: number;
+    textureLength: number;
+    calculatedTextureLength: number;
+    fallbackTextureLength?: number;
+    resolvedLayout: IResolvedCustomJointTextureLayout | null;
+    tip: IJointTextureLayoutDeviceTip;
+    missingAssets: string[];
+}
+
+export interface IJointTextureLayoutPreviewResult {
+    layouts: IJointTextureLayoutPreviewItem[];
+    resolvedLayouts: IResolvedCustomJointTextureLayout[];
+    missingAssets: string[];
+}
 export type MacroItem = {
     key: string;
     value: boolean;
@@ -100,9 +133,17 @@ export interface IEngineModuleProjectConfig extends IEngineModuleConfig {
     name: string;
 }
 
+export type IEngineGraphicsPipeline = 'custom-pipeline' | 'legacy-pipeline';
+
+export interface IEngineGraphicsConfig {
+    pipeline?: IEngineGraphicsPipeline;
+    'custom-pipeline-post-process'?: boolean;
+}
+
 export interface IEngineConfig extends IEngineModuleConfig {
     physicsConfig: IPhysicsConfig;
     macroConfig?: Record<string, string | number | boolean>;
+    graphics?: IEngineGraphicsConfig;
     sortingLayers: { id: number, name: string, value: number }[];
     customLayers: { name: string, value: number }[];
     renderPipeline?: string;

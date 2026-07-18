@@ -12,6 +12,8 @@ import assetConfig from './asset-config';
 export async function initAssetDB() {
     // @ts-ignore HACK 目前引擎有在一些资源序列化会调用的接口里使用这个变量，没有合理的传参之前需要临时设置兼容
     globalThis.Build = true;
+    const { scriptConfig } = await import('../scripting/shared/query-shared-settings');
+    await scriptConfig.init();
     await assetConfig.init();
     newConsole.trackMemoryStart('assets:worker-init');
     await assetManager.init();

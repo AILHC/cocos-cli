@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { BaseCommand } from './base';
+import { existsSync, readJSONSync } from 'fs-extra';
 
 
 /**
@@ -12,18 +13,56 @@ export class PreviewCommand extends BaseCommand {
             .description('Preview a Cocos project')
             .requiredOption('-j, --project <path>', 'Path to the Cocos project (required)')
             .option('-p, --port <number>', 'Port number for the preview server', '9527')
-            .option('--host <host>', 'Host for the runtime preview server', '127.0.0.1')
+            .option('--host <host>', 'Host for the runtime preview server')
             .option('--runtime', 'Start the runtime preview server without opening a browser')
-            .option('--scene <uuid>', 'Start scene uuid for runtime preview diagnostics')
+            .option('-s, --scene <sceneUrlOrUuid>', 'Start scene (uuid or db:// url)')
             .option('--settings-timeout-ms <number>', 'Runtime preview settings generation timeout in milliseconds')
             .option('--script-load-concurrency <number>', 'Runtime preview project script load concurrency')
             .option('--clear-programming-cache', 'Clear runtime preview programming cache before startup script sync')
             .option('--refresh-on-reload', 'Refresh AssetDB before serving the runtime preview root page')
             .option('--watch-assets', 'Watch project assets and refresh only changed files during runtime preview refresh')
+            .option('-P, --platform <platform>', 'Target web platform (web-desktop or web-mobile)')
+            .option('-c, --build-config <path>', 'Specify build config file path')
+            .option('--no-open', 'Do not open the preview URL in browser')
+            .option('--build', 'Use the legacy build-based preview (full build then serve) instead of the dynamic serve preview')
+            .option('--scene-editor', 'Start the scene editor debug preview instead of the game preview')
             .action(async (options: any) => {
                 try {
                     const resolvedPath = this.validateProjectPath(options.project);
                     const port = parseInt(options.port, 10);
+                    const selectedModes = [
+                        options.runtime === true ? 'runtime' : undefined,
+                        options.build === true ? 'build' : undefined,
+                        options.sceneEditor === true ? 'scene-editor' : undefined,
+                    ].filter(Boolean);
+                    if (selectedModes.length > 1) {
+                        throw new Error(`Preview modes are mutually exclusive: ${selectedModes.join(', ')}`);
+                    }
+                    const mode = selectedModes[0] ?? 'game';
+                    const runtimeOnlyOptions = [
+                        options.host !== undefined ? '--host' : undefined,
+                        options.settingsTimeoutMs !== undefined ? '--settings-timeout-ms' : undefined,
+                        options.scriptLoadConcurrency !== undefined ? '--script-load-concurrency' : undefined,
+                        options.clearProgrammingCache === true ? '--clear-programming-cache' : undefined,
+                        options.refreshOnReload === true ? '--refresh-on-reload' : undefined,
+                        options.watchAssets === true ? '--watch-assets' : undefined,
+                    ].filter(Boolean);
+                    if (mode !== 'runtime' && runtimeOnlyOptions.length) {
+                        throw new Error(`${runtimeOnlyOptions.join(', ')} can only be used with --runtime`);
+                    }
+                    const buildOnlyOptions = [
+                        options.platform !== undefined ? '--platform' : undefined,
+                        options.buildConfig !== undefined ? '--build-config' : undefined,
+                    ].filter(Boolean);
+                    if (mode !== 'build' && buildOnlyOptions.length) {
+                        throw new Error(`${buildOnlyOptions.join(', ')} can only be used with --build`);
+                    }
+                    if (mode === 'runtime' && options.open === false) {
+                        throw new Error('--no-open is not valid with --runtime');
+                    }
+                    if ((mode === 'build' || mode === 'scene-editor') && options.scene !== undefined) {
+                        throw new Error(`--scene is not valid with --${mode}`);
+                    }
                     const settingsTimeoutMs = options.settingsTimeoutMs === undefined
                         ? undefined
                         : parseInt(options.settingsTimeoutMs, 10);
@@ -50,7 +89,7 @@ export class PreviewCommand extends BaseCommand {
 
                     const { default: Launcher } = await import('../core/launcher');
                     const launcher = new Launcher(resolvedPath);
-                    if (options.runtime) {
+                    if (mode === 'runtime') {
                         await launcher.startRuntimePreview({
                             port,
                             host: options.host,
@@ -61,15 +100,39 @@ export class PreviewCommand extends BaseCommand {
                             refreshOnReload: options.refreshOnReload === true,
                             watchAssets: options.watchAssets === true,
                         });
+                    } else if (mode === 'scene-editor') {
+                        await launcher.startSceneEditorPreview({ port, open: options.open });
+                    } else if (mode === 'build') {
+                        let buildOptions: Record<string, any> = {};
+                        if (options.buildConfig) {
+                            if (!existsSync(options.buildConfig)) {
+                                console.error(chalk.red(`Error: Build config does not exist: ${options.buildConfig}`));
+                                process.exit(1);
+                            }
+                            buildOptions = readJSONSync(options.buildConfig);
+                        }
+
+                        const platform = options.platform || buildOptions.platform || 'web-desktop';
+                        await launcher.startPreview({
+                            port,
+                            platform,
+                            open: options.open,
+                            buildOptions,
+                        });
                     } else {
-                        await launcher.startPreview(port);
+                        // 默认：动态托管游戏预览（对齐编辑器浏览器预览）
+                        await launcher.startGamePreview({
+                            port,
+                            scene: options.scene,
+                            open: options.open,
+                        });
                     }
 
 
                     // 保持进程运行
                     process.stdin.resume();
                 } catch (error) {
-                    console.error(chalk.red('Failed to start preview server'));
+                    console.error(chalk.red('Failed to start preview'));
                     console.error(error);
                     process.exit(1);
                 }

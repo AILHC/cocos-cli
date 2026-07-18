@@ -66,8 +66,9 @@ describe('MCP Assets API - User Data', () => {
                 // 更新用户数据
                 const updateResult = await context.mcpClient.callTool('assets-update-asset-user-data', {
                     urlOrUuidOrPath: createResult.data.uuid,
-                    path: 'customKey',
-                    value: testValue,
+                    userData: {
+                        customKey: testValue,
+                    },
                 });
 
                 expect(updateResult.code).toBe(200);
@@ -82,7 +83,7 @@ describe('MCP Assets API - User Data', () => {
             }
         });
 
-        test('should update nested user data', async () => {
+        test('should update nested user data by path', async () => {
             // 创建测试资源
             const fileName = generateTestFileName('nested-userdata', 'txt');
             const fileUrl = `${context.testRootUrl}/${fileName}`;
@@ -96,7 +97,7 @@ describe('MCP Assets API - User Data', () => {
 
             if (createResult.code === 200 && createResult.data) {
                 // 设置嵌套值
-                await context.mcpClient.callTool('assets-update-asset-user-data', {
+                await context.mcpClient.callTool('assets-update-asset-user-data-by-path', {
                     urlOrUuidOrPath: createResult.data.uuid,
                     path: 'nested.key',
                     value: 'nestedValue',

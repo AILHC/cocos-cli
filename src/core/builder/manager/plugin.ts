@@ -1085,7 +1085,13 @@ export class PluginManager extends EventEmitter {
     }
 
     public queryPlatformConfig(): PlatformConfigItem[] {
-        return Object.entries(this.platformConfig).map(([platform, config]) => {
+        // HACK(临时): fb-instant-games / google-play 暂不对外,在平台查询的总出口处过滤掉。
+        //   PinK 构建面板(走 pluginManager.queryPlatformConfig)、core/lib 接口等所有消费方都经此方法,
+        //   统一隐藏。待平台就绪后移除此过滤。
+        // const HIDDEN_PLATFORMS = new Set(['fb-instant-games', 'google-play']);
+        return Object.entries(this.platformConfig)
+            // .filter(([platform]) => !HIDDEN_PLATFORMS.has(platform))
+            .map(([platform, config]) => {
             const customStages = this.customBuildStages[platform];
             const stageConfigs = customStages
                 ? this.sortPkgNameWidthPriority(Object.keys(customStages))
@@ -1286,16 +1292,14 @@ export class PluginManager extends EventEmitter {
         if (platformConfig) {
             const createTemplateLabel = platformConfig.createTemplateLabel;
             if (!createTemplateLabel) {
-                console.debug(`no build template for ${nameOrPlatform}`);
-                return;
+                throw new Error(`no build template for ${nameOrPlatform}`);
             }
             nameOrPlatform = createTemplateLabel;
         }
 
         const templateConfig = this.buildTemplateConfigMap[nameOrPlatform];
         if (!templateConfig) {
-            console.debug(`no build template for ${nameOrPlatform}`);
-            return;
+            throw new Error(`no build template for ${nameOrPlatform}`);
         }
 
         const buildTemplateDir = builderConfig.buildTemplateDir;

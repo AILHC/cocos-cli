@@ -25,9 +25,9 @@ function getServiceProp(name: string): any {
     }
 }
 
-function getNodeByUuid(uuid: string): Node | null {
+function getNodeByPath(path: string): Node | null {
     const EditorExtends = (cc as any).EditorExtends || (globalThis as any).EditorExtends;
-    return EditorExtends?.Node?.getNode?.(uuid) ?? null;
+    return EditorExtends?.Node?.getNodeByPath?.(path) ?? null;
 }
 
 function getNodePath(node: Node): string {
@@ -282,9 +282,9 @@ class GizmoOperation {
 
         // 与编辑器一致：vertexSnap 检查
         const selection = getServiceProp('Selection');
-        const uuids: string[] = selection?.query?.() ?? [];
-        if (uuids[0]) {
-            const node = getNodeByUuid(uuids[0]);
+        const paths: string[] = selection?.query?.() ?? [];
+        if (paths[0]) {
+            const node = getNodeByPath(paths[0]);
             if (node) {
                 const res = getServiceProp('Gizmo')?.callAllGizmoFuncOfNode?.(node, 'onVertexSnapMove', event);
                 if (res === false) {
@@ -452,9 +452,9 @@ class GizmoOperation {
         if (this._regionSelecting) return false;
 
         const selection = getServiceProp('Selection');
-        const uuids: string[] = selection?.query?.() ?? [];
-        if (uuids.length > 0) {
-            const node = getNodeByUuid(uuids[0]);
+        const paths: string[] = selection?.query?.() ?? [];
+        if (paths.length > 0) {
+            const node = getNodeByPath(paths[0]);
             if (node) {
                 const res = getServiceProp('Gizmo')?.callAllGizmoFuncOfNode?.(node, 'onKeyDown', event);
                 return res;
@@ -465,9 +465,9 @@ class GizmoOperation {
 
     public onKeyUp(event: ISceneKeyboardEvent): boolean | void {
         const selection = getServiceProp('Selection');
-        const uuids: string[] = selection?.query?.() ?? [];
-        if (uuids.length > 0) {
-            const node = getNodeByUuid(uuids[0]);
+        const paths: string[] = selection?.query?.() ?? [];
+        if (paths.length > 0) {
+            const node = getNodeByPath(paths[0]);
             if (node) {
                 const res = getServiceProp('Gizmo')?.callAllGizmoFuncOfNode?.(node, 'onKeyUp', event);
                 return res;

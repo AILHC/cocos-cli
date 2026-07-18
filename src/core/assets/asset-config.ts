@@ -1,6 +1,7 @@
 import { join } from 'path';
 import { AssetDBRegisterInfo } from './@types/private';
-import { configurationRegistry, ConfigurationScope, IBaseConfiguration } from '../configuration';
+import { configurationManager, configurationRegistry, ConfigurationScope, IBaseConfiguration } from '../configuration';
+import { MessageType } from '../configuration/script/interface';
 import project from '../project';
 import { Engine } from '../engine';
 import { createImportMetadataNodes } from './metadata';
@@ -55,6 +56,7 @@ class AssetConfig {
     };
 
     private _init = false;
+    private _watchingConfiguration = false;
 
     /**
      * 持有的可双向绑定的配置管理实例
@@ -87,6 +89,7 @@ class AssetConfig {
         const enginePath = Engine.getInfo().typescript.path;
         this._assetConfig.libraryRoot = this._assetConfig.libraryRoot || join(this._assetConfig.root, 'library');
         this._assetConfig.tempRoot = join(this._assetConfig.root, 'temp/cli/asset-db');
+        this.watchConfigurationChanges();
         await this.syncRuntimeConfigFromConfiguration();
         const sharedLibraryOutput = process.env.COCOS_CLI_SHARED_LIBRARY_OUTPUT !== '0';
         const projectLibrary = join(this._assetConfig.root, 'library');
@@ -134,6 +137,21 @@ class AssetConfig {
         return this._configInstance.set(path, value, scope);
     }
 
+    setSortingPlugin(value: unknown) {
+        this._assetConfig.sortingPlugin = Array.isArray(value)
+            ? value.filter((item): item is string => typeof item === 'string')
+            : [];
+    }
+
+    async syncSortingPluginFromConfiguration(scriptConfigInstance = configurationRegistry.getInstances().script) {
+        if (!scriptConfigInstance) {
+            return;
+        }
+
+        const scriptConfig = await scriptConfigInstance.get<{ sortingPlugin?: unknown }>();
+        this.setSortingPlugin(scriptConfig?.sortingPlugin);
+    }
+
     private async syncRuntimeConfigFromConfiguration() {
         const importConfig = await this._configInstance.get<Partial<Pick<AssetDBConfig, 'restoreAssetDBFromCache' | 'globList' | 'createTemplateRoot'>>>();
         this._assetConfig.restoreAssetDBFromCache = importConfig.restoreAssetDBFromCache ?? false;
@@ -142,6 +160,36 @@ class AssetConfig {
             this._assetConfig.root,
             importConfig.createTemplateRoot ?? DEFAULT_CREATE_TEMPLATE_ROOT
         );
+        await this.syncSortingPluginFromConfiguration();
+    }
+
+    private watchConfigurationChanges() {
+        if (this._watchingConfiguration) {
+            return;
+        }
+        this._watchingConfiguration = true;
+
+        configurationRegistry.on(MessageType.Registry, (instance: IBaseConfiguration) => {
+            if (instance.moduleName === 'script') {
+                void this.syncSortingPluginFromConfiguration(instance);
+            }
+        });
+
+        configurationManager.on(MessageType.Update, (key: string) => {
+            if (key === 'script.sortingPlugin' || key === 'script') {
+                void this.syncSortingPluginFromConfiguration();
+            }
+        });
+
+        configurationManager.on(MessageType.Remove, (key: string) => {
+            if (key === 'script.sortingPlugin' || key === 'script') {
+                this.setSortingPlugin([]);
+            }
+        });
+
+        configurationManager.on(MessageType.Reload, () => {
+            void this.syncRuntimeConfigFromConfiguration();
+        });
     }
 }
 

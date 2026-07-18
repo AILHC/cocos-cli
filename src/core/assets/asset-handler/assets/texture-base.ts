@@ -2,6 +2,7 @@
 
 import { Asset } from '@cocos/asset-db';
 import { Filter, SpriteFrameBaseAssetUserData, TextureBaseAssetUserData, WrapMode } from '../../@types/userDatas';
+import type { IUerDataConfigItem } from '../../@types/protected';
 
 export const defaultMinFilter: Filter = 'linear';
 export const defaultMagFilter: Filter = 'linear';
@@ -17,6 +18,68 @@ export function makeDefaultTextureBaseAssetUserData(): TextureBaseAssetUserData 
         magfilter: defaultMagFilter,
         mipfilter: defaultMipFilter,
         anisotropy: 0,
+    };
+}
+
+export function createTextureBaseUserDataConfig(): Record<string, IUerDataConfigItem> {
+    return {
+        wrapModeS: {
+            label: 'i18n:ENGINE.assets.texture.wrapModeS',
+            description: 'i18n:ENGINE.assets.texture.wrapModeSTip',
+            default: defaultWrapModeS,
+            render: {
+                ui: 'ui-select',
+                items: createWrapModeOptions(),
+            },
+        },
+        wrapModeT: {
+            label: 'i18n:ENGINE.assets.texture.wrapModeT',
+            description: 'i18n:ENGINE.assets.texture.wrapModeTTip',
+            default: defaultWrapModeT,
+            render: {
+                ui: 'ui-select',
+                items: createWrapModeOptions(),
+            },
+        },
+        minfilter: {
+            label: 'i18n:ENGINE.assets.texture.minfilter',
+            description: 'i18n:ENGINE.assets.texture.minfilterTip',
+            default: defaultMinFilter,
+            render: {
+                ui: 'ui-select',
+                items: createFilterOptions(),
+            },
+        },
+        magfilter: {
+            label: 'i18n:ENGINE.assets.texture.magfilter',
+            description: 'i18n:ENGINE.assets.texture.magfilterTip',
+            default: defaultMagFilter,
+            render: {
+                ui: 'ui-select',
+                items: createFilterOptions().filter((item) => item.value !== 'none'),
+            },
+        },
+        mipfilter: {
+            label: 'i18n:ENGINE.assets.texture.mipfilter',
+            description: 'i18n:ENGINE.assets.texture.mipfilterTip',
+            default: defaultMipFilter,
+            render: {
+                ui: 'ui-select',
+                items: createFilterOptions(),
+            },
+        },
+        anisotropy: {
+            label: 'i18n:ENGINE.assets.texture.anisotropy',
+            description: 'i18n:ENGINE.assets.texture.anisotropyTip',
+            default: 0,
+            render: {
+                ui: 'ui-number-input',
+                attributes: {
+                    min: 0,
+                    step: 1,
+                },
+            },
+        },
     };
 }
 
@@ -59,6 +122,22 @@ export function makeDefaultSpriteFrameBaseAssetUserData(): SpriteFrameBaseAssetU
             maxPos: [],
         },
     };
+}
+
+function createWrapModeOptions() {
+    return [
+        { label: 'i18n:importer.property_schema.texture.wrap_repeat', value: 'repeat' },
+        { label: 'i18n:importer.property_schema.texture.wrap_clamp_to_edge', value: 'clamp-to-edge' },
+        { label: 'i18n:importer.property_schema.texture.wrap_mirrored_repeat', value: 'mirrored-repeat' },
+    ];
+}
+
+function createFilterOptions() {
+    return [
+        { label: 'i18n:importer.property_schema.texture.filter_none', value: 'none' },
+        { label: 'i18n:importer.property_schema.texture.filter_nearest', value: 'nearest' },
+        { label: 'i18n:importer.property_schema.texture.filter_linear', value: 'linear' },
+    ];
 }
 
 export function getWrapMode(wrapMode: WrapMode) {

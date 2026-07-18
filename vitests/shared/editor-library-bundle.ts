@@ -296,8 +296,10 @@ export async function buildEditorLibraryResourcesBundle(
   };
 }
 
-export async function buildEditorLibraryInternalBundle(engineRoot: string): Promise<EditorLibraryInternalBundle> {
-  const libraryRoot = join(engineRoot, 'editor', 'library');
+export async function buildEditorLibraryInternalBundle(
+  engineRoot: string,
+  libraryRoot: string,
+): Promise<EditorLibraryInternalBundle> {
   const assetData = await readJson<Record<string, AssetDataRecord>>(join(libraryRoot, '.internal-data.json'));
   const ccConfig = await readJson<{ features?: Record<string, { dependentAssets?: string[] }> }>(join(engineRoot, 'cc.config.json'));
   const config: EditorLibraryBundleConfig = {

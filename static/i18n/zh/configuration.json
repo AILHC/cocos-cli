@@ -94,6 +94,11 @@
     "exportsConditions": {
       "title": "导出条件"
     },
+    "sortingPlugin": {
+      "title": "插件脚本排序配置",
+      "description": "插件脚本加载顺序配置，使用资源选择器选择插件脚本，配置文件中保存插件脚本 UUID。",
+      "itemTitle": "插件脚本"
+    },
     "preserveSymlinks": {
       "title": "保留符号链接"
     },
@@ -217,6 +222,24 @@
         "description": "是否禁用废弃特性"
       }
     },
+    "graphics": {
+      "title": "图形",
+      "pipeline": {
+        "title": "渲染管线",
+        "options": {
+          "custom": "Render Pipeline (New)",
+          "legacy": "Render Pipeline (Legacy)"
+        }
+      },
+      "pipelineName": {
+        "title": "Pipeline Name",
+        "description": "自定义渲染管线名称，对应 engine.macroConfig.CUSTOM_PIPELINE_NAME。"
+      },
+      "customPipelinePostProcess": {
+        "title": "Post Process Module",
+        "description": "是否启用自定义管线后处理模块。"
+      }
+    },
     "rendering": {
       "title": "渲染",
       "renderPipeline": {
@@ -236,6 +259,32 @@
       "customJointTextureLayouts": {
         "title": "自定义骨骼贴图布局",
         "description": "自定义骨骼动画贴图布局"
+      }
+    },
+    "jointTextureLayout": {
+      "title": "动画 / 骨骼贴图布局",
+      "customJointTextureLayouts": {
+        "title": "自定义骨骼贴图布局",
+        "description": "按骨骼和动画剪辑组织骨骼贴图布局。构建和预览时会自动计算贴图尺寸，并把资源 UUID 转换为运行时 hash。",
+        "itemTitle": "骨骼贴图布局",
+        "textureLength": {
+          "title": "贴图边长",
+          "description": "由骨骼数量、动画帧数和默认姿势自动计算；小于 1024 通常适用于所有设备，小于 2048 可能影响不支持浮点贴图的设备，2048 及以上可能影响较多移动设备。"
+        },
+        "contents": {
+          "title": "布局内容",
+          "description": "每项包含一个骨骼资源和一组动画剪辑资源。",
+          "itemTitle": "骨骼内容",
+          "skeleton": {
+            "title": "骨骼 UUID",
+            "description": "cc.Skeleton 资源 UUID。"
+          },
+          "clips": {
+            "title": "动画剪辑 UUID",
+            "description": "cc.AnimationClip 资源 UUID 列表。",
+            "itemTitle": "动画剪辑 UUID"
+          }
+        }
       }
     },
     "macroConfig": {

@@ -101,6 +101,36 @@ export const SchemaUUID = z.string()
         return `${cleaned.slice(0, 8)}-${cleaned.slice(8, 12)}-${cleaned.slice(12, 16)}-${cleaned.slice(16, 20)}-${cleaned.slice(20, 32)}`;
     });
 
+const isSubAssetUUIDLike = (value: string): boolean => {
+    return /^[0-9a-fA-F-]{32,36}@/.test(removeWhitespace(value));
+};
+
+export const SchemaSubAssetUUID = z.string()
+    .min(1, 'Sub asset UUID cannot be empty')
+    .describe('Sub asset UUID in parentUuid@subMetaId format')
+    .transform((value, ctx) => {
+        const cleaned = removeWhitespace(value).toLowerCase();
+        const match = cleaned.match(/^([0-9a-f-]{32,36})((?:@[0-9a-f]{5,})+)$/);
+
+        if (!match) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Invalid sub asset UUID format. Use parentUuid@subMetaId.',
+            });
+            return z.NEVER;
+        }
+
+        const parentUuid = SchemaUUID.safeParse(match[1]);
+        if (!parentUuid.success) {
+            parentUuid.error.errors.forEach((err) => {
+                ctx.addIssue(err);
+            });
+            return z.NEVER;
+        }
+
+        return `${parentUuid.data}${match[2]}`;
+    });
+
 // ==================== 3. Path Schema ====================
 export const SchemaPath = z.string()
     .min(1, '路径不能为空')
@@ -172,6 +202,9 @@ export const SchemaUrlOrUUIDOrPath = z.string()
             if (/^[0-9a-f]{32}$/.test(potentialUuid)) {
                 return SchemaUUID.parse(cleaned);
             }
+            if (isSubAssetUUIDLike(cleaned)) {
+                return SchemaSubAssetUUID.parse(cleaned);
+            }
 
             // 3. Path
             return SchemaPath.parse(cleaned);
@@ -184,7 +217,7 @@ export const SchemaUrlOrUUIDOrPath = z.string()
             }
             throw error;
         }
-    }).describe('Asset URL, UUID or file path'); // 资源的 URL、UUID 或文件路径
+    }).describe('Asset URL, UUID, sub asset UUID, or file path'); // 资源的 URL、UUID 或文件路径
 
 // PATH 或 UUID
 export const SchemaUUIDOrPath = z.string()
@@ -198,6 +231,9 @@ export const SchemaUUIDOrPath = z.string()
             if (/^[0-9a-f]{32}$/.test(potentialUuid)) {
                 return SchemaUUID.parse(cleaned);
             }
+            if (isSubAssetUUIDLike(cleaned)) {
+                return SchemaSubAssetUUID.parse(cleaned);
+            }
 
             // 2. Path
             return SchemaPath.parse(cleaned);
@@ -210,7 +246,7 @@ export const SchemaUUIDOrPath = z.string()
             }
             throw error;
         }
-    }).describe('Use UUID or file path');
+    }).describe('Use UUID, sub asset UUID, or file path');
 
 
 export const SchemaUrlOrPath = z.string()
@@ -256,6 +292,9 @@ export const SchemaUrlOrUUID = z.string()
             if (/^[0-9a-f]{32}$/.test(potentialUuid)) {
                 return SchemaUUID.parse(cleaned);
             }
+            if (isSubAssetUUIDLike(cleaned)) {
+                return SchemaSubAssetUUID.parse(cleaned);
+            }
 
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
@@ -271,7 +310,7 @@ export const SchemaUrlOrUUID = z.string()
             }
             throw error;
         }
-    }).describe('Use db:// protocol format or UUID'); // 使用 db:// 协议格式或者 UUID
+    }).describe('Use db:// protocol format, UUID, or sub asset UUID'); // 使用 db:// 协议格式或者 UUID
 
 export const SchemaSceneIdentifier = z.object({
     assetName: z.string().describe('Scene or Prefab asset name'), // 场景/预制体资源名称

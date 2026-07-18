@@ -41,8 +41,7 @@ describe('normalizeDtsRollupContent', () => {
 
         const normalized = normalizeDtsRollupContent('builder.d.ts', macBuilderRollup);
 
-        expect(normalized).toContain("import { IAssetDeleteOptions } from './filesystem';");
-        expect(normalized).toContain("import { IAssetWriteFileOptions } from './filesystem';");
+        expect(normalized).toContain("import { IAssetDeleteOptions, IAssetWriteFileOptions } from '@cocos/asset-db/libs/filesystem';");
         expect(normalized).toContain('save(): Promise<boolean>;');
         expect(normalized).toContain('write(path: string, options?: IAssetWriteFileOptions): Promise<false | undefined>;');
         expect(normalized).toContain('remove(path: string, options?: IAssetDeleteOptions): Promise<void>;');
@@ -60,5 +59,33 @@ describe('normalizeDtsRollupContent', () => {
         const engineRollup = 'export declare function getRenderConfig(): Promise<void>;\n';
 
         expect(normalizeDtsRollupContent('engine.d.ts', engineRollup)).toBe(engineRollup);
+    });
+
+    it('does not import filesystem option types already declared by the builder rollup', () => {
+        const builderRollup = [
+            "import { EventEmitter as EventEmitter_2 } from 'stream';",
+            "import { IAssetDeleteOptions, IAssetWriteFileOptions } from '@cocos/asset-db/libs/filesystem';",
+            "import type { PluginItem } from '@babel/core';",
+            '',
+            'export declare interface IAssetDeleteOptions {',
+            '    recursive?: boolean;',
+            '}',
+            '',
+            'export declare interface IAssetWriteFileOptions {',
+            '    overwrite?: boolean;',
+            '}',
+            '',
+            'export declare class MetaManager {',
+            '    write(path: any): false | undefined;',
+            '    remove(path: string): void;',
+            '}',
+            '',
+        ].join('\n');
+
+        const normalized = normalizeDtsRollupContent('builder.d.ts', builderRollup);
+
+        expect(normalized).not.toContain("from '@cocos/asset-db/libs/filesystem'");
+        expect(normalized).toContain('write(path: string, options?: IAssetWriteFileOptions): Promise<false | undefined>;');
+        expect(normalized).toContain('remove(path: string, options?: IAssetDeleteOptions): Promise<void>;');
     });
 });

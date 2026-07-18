@@ -274,15 +274,48 @@ class AssetOperation extends EventEmitter {
         await asset._assetDB.reimport(asset.uuid);
     }
 
-    async updateUserData<T extends keyof AssetUserDataMap = 'unknown'>(uuidOrURLOrPath: string, path: string, value: any): Promise<AssetUserDataMap[T]> {
+    async updateUserData<T extends keyof AssetUserDataMap = 'unknown'>(uuidOrURLOrPath: string, userData: AssetUserDataMap[T]): Promise<AssetUserDataMap[T] | undefined> {
+        if (!isRecord(userData)) {
+            throw new Error('userData must be an object');
+        }
+
         const asset = assetQuery.queryAsset(uuidOrURLOrPath);
         if (!asset) {
             console.error(`can not find asset ${uuidOrURLOrPath}`);
             return;
         }
+
+        if (!isRecord(asset.meta.userData)) {
+            asset.meta.userData = {} as AssetUserDataMap[T];
+        }
+        const currentUserData = asset.meta.userData as Record<string, unknown>;
+        for (const key of Object.keys(currentUserData)) {
+            delete currentUserData[key];
+        }
+        Object.assign(currentUserData, lodash.cloneDeep(userData));
+        asset.meta.userData = currentUserData as AssetUserDataMap[T];
+        await asset.save();
+        await asset._assetDB.reimport(asset.uuid);
+        return asset?.meta.userData as AssetUserDataMap[T];
+    }
+
+    async updateUserDataByPath<T extends keyof AssetUserDataMap = 'unknown'>(uuidOrURLOrPath: string, path: string, value: any): Promise<AssetUserDataMap[T] | undefined> {
+        if (!path) {
+            throw new Error('path must not be empty. Use updateUserData to replace the complete userData object');
+        }
+
+        const asset = assetQuery.queryAsset(uuidOrURLOrPath);
+        if (!asset) {
+            console.error(`can not find asset ${uuidOrURLOrPath}`);
+            return;
+        }
+        if (!isRecord(asset.meta.userData)) {
+            asset.meta.userData = {} as AssetUserDataMap[T];
+        }
         lodash.set(asset?.meta.userData, path, value);
         await asset.save();
-        return asset?.meta.userData;
+        await asset._assetDB.reimport(asset.uuid);
+        return asset?.meta.userData as AssetUserDataMap[T];
     }
 
     async saveAsset(uuidOrURLOrPath: string, content: string | Buffer) {

@@ -6,6 +6,8 @@ import { existsSync } from 'fs';
 import { E2E_TIMEOUTS, E2E_DEBUG } from '../config';
 import type { MCPToolsMap, MCPResponse } from '../types/mcp-tools.generated';
 
+const STARTUP_OUTPUT_TAIL_LIMIT = 16 * 1024;
+
 export interface MCPServerOptions {
     projectPath: string;
     port?: number; // 可选，不传则由服务器自动选择端口
@@ -82,6 +84,63 @@ export class MCPTestClient {
      */
     async start(): Promise<void> {
         return new Promise((resolve, reject) => {
+            let settled = false;
+            let startupOutputTail = '';
+            let stdoutScanTail = '';
+
+            const appendStartupOutput = (stream: 'stdout' | 'stderr', output: string) => {
+                startupOutputTail = `${startupOutputTail}[${stream}] ${output}`
+                    .slice(-STARTUP_OUTPUT_TAIL_LIMIT);
+                if (stream === 'stdout') {
+                    stdoutScanTail = `${stdoutScanTail}${output}`.slice(-2048);
+                }
+            };
+            const clearStartupTimers = () => {
+                if (this.startTimeoutTimer) {
+                    clearTimeout(this.startTimeoutTimer);
+                    this.startTimeoutTimer = null;
+                }
+                if (this.connectTimer) {
+                    clearTimeout(this.connectTimer);
+                    this.connectTimer = null;
+                }
+            };
+            const createStartupError = (message: string) => {
+                const outputTail = startupOutputTail.trim();
+                return new Error(outputTail
+                    ? `${message}\nMCP server output tail:\n${outputTail}`
+                    : message);
+            };
+            const rejectStartup = (message: string, terminateChild: boolean) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearStartupTimers();
+
+                const error = createStartupError(message);
+                if (!terminateChild) {
+                    reject(error);
+                    return;
+                }
+
+                this.serverReady = false;
+                void this.close().then(
+                    () => reject(error),
+                    (closeError) => reject(createStartupError(
+                        `${message}\nFailed to close MCP server process: ${closeError instanceof Error ? closeError.message : String(closeError)}`,
+                    )),
+                );
+            };
+            const resolveStartup = () => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearStartupTimers();
+                resolve();
+            };
+
             if (E2E_DEBUG) {
                 console.log(`🚀 Starting MCP server for project: ${this.projectPath}`);
             }
@@ -106,41 +165,55 @@ export class MCPTestClient {
             }
 
             // 启动服务器进程
+            const testEngineRoot = process.env.COCOS_CLI_TEST_ENGINE_ROOT?.trim();
             this.serverProcess = spawn(process.execPath, args, {
                 stdio: ['pipe', 'pipe', 'pipe'],
+                ...(testEngineRoot ? {
+                    env: {
+                        ...process.env,
+                        COCOS_CLI_TEST_ENGINE_ROOT: testEngineRoot,
+                        COCOS_CLI_TEST_PROJECT_ROOT: this.projectPath,
+                    },
+                } : {}),
             });
 
             this.serverReady = false;
             this.startTimeoutTimer = setTimeout(() => {
                 if (!this.serverReady) {
-                    this.startTimeoutTimer = null;
-                    reject(new Error(`MCP server start timeout after ${this.startTimeout}ms`));
+                    rejectStartup(`MCP server start timeout after ${this.startTimeout}ms`, true);
                 }
             }, this.startTimeout);
 
             // 监听服务器输出，判断是否启动成功
             this.serverProcess.stdout?.on('data', (data) => {
                 const output = data.toString();
+                appendStartupOutput('stdout', output);
 
                 if (E2E_DEBUG) {
                     console.log('[MCP Server stdout]:', output);
                 }
 
                 // 从日志中解析端口号："Server is running on: http://localhost:PORT"
-                const portMatch = output.match(/Server is running on:.*:(\d+)/);
+                const portMatch = stdoutScanTail.match(/Server is running on:.*:(\d+)/);
                 if (portMatch) {
                     const actualPort = parseInt(portMatch[1], 10);
-                    if (this.port === 0) {
-                        // 如果是自动选择端口，更新端口号
-                        this.port = actualPort;
-                        if (E2E_DEBUG) {
-                            console.log(`✅ MCP server started on auto-assigned port: ${actualPort}`);
+                    // 始终以服务端实际绑定的端口为准。
+                    // 即使显式指定了端口，服务端在端口被占用时也会自动回退到其它端口
+                    // （见 server.ts 的 createServerWithRetry），此时必须跟随真实端口，
+                    // 否则客户端会连接到一个无人监听的端口而触发 "fetch failed"。
+                    if (actualPort !== this.port) {
+                        if (E2E_DEBUG && this.port > 0) {
+                            console.warn(`⚠️ MCP server fell back from port ${this.port} to ${actualPort}`);
                         }
+                        this.port = actualPort;
+                    }
+                    if (E2E_DEBUG) {
+                        console.log(`✅ MCP server started on port: ${actualPort}`);
                     }
                 }
 
                 // 检查服务器启动成功的标志
-                if (output.includes('MCP Server started') || output.includes('Server listening') || output.includes('Server is running on:')) {
+                if (stdoutScanTail.includes('MCP Server started') || stdoutScanTail.includes('Server listening') || stdoutScanTail.includes('Server is running on:')) {
                     if (!this.serverReady) {
                         this.serverReady = true;
                         if (this.startTimeoutTimer) {
@@ -152,8 +225,11 @@ export class MCPTestClient {
                         this.connectTimer = setTimeout(() => {
                             this.connectTimer = null;
                             this.connectClient()
-                                .then(() => resolve())
-                                .catch(reject);
+                                .then(resolveStartup)
+                                .catch((error) => rejectStartup(
+                                    `Failed to connect to MCP server: ${error instanceof Error ? error.message : String(error)}`,
+                                    true,
+                                ));
                         }, 1000);
                     }
                 }
@@ -161,6 +237,7 @@ export class MCPTestClient {
 
             this.serverProcess.stderr?.on('data', (data) => {
                 const output = data.toString();
+                appendStartupOutput('stderr', output);
                 if (output.includes('Debugger')) {
                     return;
                 }
@@ -170,28 +247,12 @@ export class MCPTestClient {
             });
 
             this.serverProcess.on('error', (error) => {
-                if (this.startTimeoutTimer) {
-                    clearTimeout(this.startTimeoutTimer);
-                    this.startTimeoutTimer = null;
-                }
-                if (this.connectTimer) {
-                    clearTimeout(this.connectTimer);
-                    this.connectTimer = null;
-                }
-                reject(error);
+                rejectStartup(`Failed to start MCP server process: ${error.message}`, true);
             });
 
             this.serverProcess.on('exit', (code) => {
-                if (!this.serverReady) {
-                    if (this.startTimeoutTimer) {
-                        clearTimeout(this.startTimeoutTimer);
-                        this.startTimeoutTimer = null;
-                    }
-                    if (this.connectTimer) {
-                        clearTimeout(this.connectTimer);
-                        this.connectTimer = null;
-                    }
-                    reject(new Error(`Server exited with code ${code} before ready`));
+                if (!settled) {
+                    rejectStartup(`Server exited with code ${code} before startup completed`, false);
                 }
             });
         });
@@ -199,32 +260,60 @@ export class MCPTestClient {
 
     /**
      * 连接客户端到服务器（通过 HTTP）
+     *
+     * 服务端打印 "Server is running on" 之后，监听 socket 偶尔还没准备好接受连接
+     * （尤其在负载较高的 CI 机器上），首个请求可能瞬时 ECONNREFUSED / "fetch failed"。
+     * 因此这里带少量重试，避免概率性失败。
      */
     private async connectClient(): Promise<void> {
-        if (E2E_DEBUG) {
-            console.log(`📡 Connecting MCP client via HTTP to port ${this.port}...`);
+        const maxAttempts = 5;
+        const retryDelay = 1000;
+
+        let lastError: unknown;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (E2E_DEBUG) {
+                console.log(`📡 Connecting MCP client via HTTP to port ${this.port} (attempt ${attempt}/${maxAttempts})...`);
+            }
+
+            // 每次重试都重建 transport / client，失败后的实例可能处于不可用状态
+            const mcpUrl = new URL(`http://localhost:${this.port}/mcp`);
+            this.transport = new StreamableHTTPClientTransport(mcpUrl);
+            this.client = new Client({
+                name: 'e2e-test-client',
+                version: '1.0.0',
+            }, {
+                capabilities: {
+                    tools: {},
+                },
+            });
+
+            try {
+                // 连接客户端到服务器
+                await this.client.connect(this.transport);
+
+                if (E2E_DEBUG) {
+                    console.log(`✅ MCP client connected successfully!`);
+                }
+                return;
+            } catch (error) {
+                lastError = error;
+                if (E2E_DEBUG) {
+                    console.warn(`   Connect attempt ${attempt} failed:`, error instanceof Error ? error.message : error);
+                }
+
+                // 清理失败的实例后再重试
+                try { await this.client.close(); } catch { /* ignore */ }
+                try { await this.transport.close(); } catch { /* ignore */ }
+                this.client = null;
+                this.transport = null;
+
+                if (attempt < maxAttempts) {
+                    await new Promise((r) => setTimeout(r, retryDelay));
+                }
+            }
         }
 
-        // 创建 HTTP 传输层（构造函数接受 URL 对象）
-        const mcpUrl = new URL(`http://localhost:${this.port}/mcp`);
-        this.transport = new StreamableHTTPClientTransport(mcpUrl);
-
-        // 创建客户端
-        this.client = new Client({
-            name: 'e2e-test-client',
-            version: '1.0.0',
-        }, {
-            capabilities: {
-                tools: {},
-            },
-        });
-
-        // 连接客户端到服务器
-        await this.client.connect(this.transport);
-
-        if (E2E_DEBUG) {
-            console.log(`✅ MCP client connected successfully!`);
-        }
+        throw lastError instanceof Error ? lastError : new Error(String(lastError));
     }
 
     /**

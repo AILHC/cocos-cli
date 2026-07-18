@@ -1,4 +1,5 @@
 import { CocosMigrationManager, CocosMigration } from '../migration';
+import { getMigrationList } from '../migration/register-migration';
 import type { IMigrationTarget } from '../migration';
 
 jest.mock('../migration/cocos-migration', () => ({
@@ -128,5 +129,109 @@ describe('CocosMigrationManager', () => {
                 .mockRejectedValueOnce(new Error('单个迁移器失败直接抛异常'));
             await expect(CocosMigrationManager.migrate('/proj')).rejects.toThrow('[Migration] 迁移失败, 详情请查看日志');
         });
+    });
+
+    describe('built-in migration targets', () => {
+        it('should migrate engine.modules.graphics into engine.graphics', async () => {
+            const migration = getMigrationList().find((target) => {
+                return target.pluginName === 'engine' && target.targetPath === 'engine';
+            });
+            const oldConfig = {
+                macroConfig: {
+                    CUSTOM_PIPELINE_NAME: 'Forward',
+                },
+                modules: {
+                    globalConfigKey: 'default',
+                    configs: {
+                        default: {
+                            includeModules: ['custom-pipeline'],
+                            flags: {},
+                            cache: {
+                                'custom-pipeline': {
+                                    _option: 'custom-pipeline',
+                                },
+                            },
+                        },
+                    },
+                    graphics: {
+                        pipeline: 'legacy-pipeline',
+                        'custom-pipeline-post-process': true,
+                    },
+                },
+            };
+
+            expect(migration).toBeDefined();
+
+            const result = await migration!.migrate(oldConfig);
+
+            expect(result).toEqual({
+                macroConfig: {
+                    CUSTOM_PIPELINE_NAME: 'Forward',
+                },
+                configs: {
+                    default: {
+                        includeModules: ['custom-pipeline'],
+                        flags: {},
+                    },
+                },
+                globalConfigKey: 'default',
+                graphics: {
+                    pipeline: 'legacy-pipeline',
+                    'custom-pipeline-post-process': true,
+                },
+            });
+        });
+
+        it('should migrate top-level graphics without requiring general settings', async () => {
+            const migration = getMigrationList().find((target) => {
+                return target.pluginName === 'project' && !target.targetPath;
+            });
+            const oldConfig = {
+                macroConfig: {
+                    CUSTOM_PIPELINE_NAME: 'Forward',
+                },
+                graphics: {
+                    pipeline: 'custom-pipeline',
+                    'custom-pipeline-post-process': true,
+                },
+            };
+
+            expect(migration).toBeDefined();
+
+            const result = await migration!.migrate(oldConfig);
+
+            expect(result).toEqual({
+                engine: {
+                    macroConfig: {
+                        CUSTOM_PIPELINE_NAME: 'Forward',
+                    },
+                    graphics: {
+                        pipeline: 'custom-pipeline',
+                        'custom-pipeline-post-process': true,
+                    },
+                },
+            });
+        });
+    });
+});
+
+describe('registered cocos migrations', () => {
+    it('应从 Creator project script 配置迁移 sortingPlugin 到新 script 域', async () => {
+        const projectMigration = getMigrationList().find((target) => (
+            target.sourceScope === 'project'
+            && target.pluginName === 'project'
+            && !target.targetPath
+        ));
+
+        expect(projectMigration).toBeDefined();
+
+        const result = await projectMigration!.migrate({
+            script: {
+                exportsConditions: ['browser'],
+                sortingPlugin: ['plugin-uuid-a', 'plugin-uuid-b'],
+            },
+        });
+
+        expect(result.script.sortingPlugin).toEqual(['plugin-uuid-a', 'plugin-uuid-b']);
     });
 });

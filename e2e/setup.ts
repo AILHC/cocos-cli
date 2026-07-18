@@ -2,7 +2,6 @@ import { existsSync, readdirSync, statSync, unlinkSync, mkdirSync } from 'fs';
 import { resolve, isAbsolute, join } from 'path';
 import chalk from 'chalk';
 import { getProjectManager } from './helpers/project-manager';
-import { getSharedMCPServer } from './helpers/shared-mcp-server';
 
 /**
  * 清理旧的测试报告或者日志文件
@@ -179,19 +178,6 @@ export default async function globalSetup() {
     if (preserveWorkspace) {
         console.log(chalk.yellow('⚠️  调试模式：测试后不会删除工作区'));
         console.log(chalk.yellow('💡 工作区位置: ' + workspaceRoot));
-    }
-
-    // 初始化全局共享的 MCP 服务器（提前启动，避免懒加载延迟）
-    // 如果 MCP 测试不需要运行，服务器会在 teardown 时清理
-    console.log(chalk.cyan('📡 初始化全局共享 MCP 服务器...'));
-    try {
-        const sharedServer = getSharedMCPServer();
-        await sharedServer.initialize();
-        console.log(chalk.green(`✅ 全局共享 MCP 服务器已启动，端口: ${sharedServer.getClient().getPort()}`));
-    } catch (error) {
-        // MCP 服务器初始化失败不影响其他测试
-        // 如果后续有 MCP 测试，会在调用 setupMCPTestEnvironment 时再次尝试
-        console.log(chalk.yellow('⚠️  全局共享 MCP 服务器初始化失败（将延迟初始化）:'), error);
     }
 
     console.log('');

@@ -38,6 +38,14 @@ jobs:
           npx jest --roots packages/cocos-cli-types --testPathPattern dts-snapshot --no-cache -u
           npx jest packages/cocos-cli-types --roots="<rootDir>/packages/cocos-cli-types"
 
+      - name: Typecheck CLI DTS declarations
+        shell: bash
+        run: npx tsc -p packages/cocos-cli-types/tsconfig.typecheck.json --noEmit
+
+      - name: Typecheck engine DTS consumer contract
+        shell: bash
+        run: npx tsc -p packages/cocos-cli-types/tsconfig.engine-consumer.json --noEmit
+
       - name: Check DTS API compatibility
         shell: bash
         env:

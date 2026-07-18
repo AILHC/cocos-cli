@@ -99,25 +99,27 @@ export function getMigrationList(): IMigrationTarget[] {
             if (!oldConfig || !oldConfig.modules) {
                 return;
             }
-            const configKeys = Object.keys(oldConfig.modules.configs);
+            const moduleConfigs = oldConfig.modules.configs;
+            const configKeys = Object.keys(moduleConfigs ?? {});
             if (configKeys.length > 0) {
                 configKeys.forEach(key => {
-                    delete oldConfig.modules.configs[key].cache;
+                    delete moduleConfigs[key].cache;
                 });
             }
             const res: any = {};
             if (oldConfig.macroConfig) {
                 res.macroConfig = oldConfig.macroConfig;
             }
-            if (oldConfig.modules.configs) {
-                res.configs = oldConfig.modules.configs;
+            if (moduleConfigs) {
+                res.configs = moduleConfigs;
             }
             if (oldConfig.modules.globalConfigKey) {
                 res.globalConfigKey = oldConfig.modules.globalConfigKey;
             }
             if (oldConfig.modules.graphics) {
-                return res;
+                res.graphics = oldConfig.modules.graphics;
             }
+            return res;
         }
     });
 
@@ -127,6 +129,10 @@ export function getMigrationList(): IMigrationTarget[] {
         pluginName: 'project',
         migrate: async (oldConfig: Record<string, any>) => {
             const res: any = {};
+            const ensureEngineConfig = () => {
+                res.engine ??= {};
+                return res.engine;
+            };
             if (oldConfig.general) {
                 res.engine = {
                     designResolution: oldConfig.general.designResolution,
@@ -134,25 +140,25 @@ export function getMigrationList(): IMigrationTarget[] {
                 };
             }
             if (oldConfig.physics) {
-                res.engine.physicsConfig = oldConfig.physics;
+                ensureEngineConfig().physicsConfig = oldConfig.physics;
             }
             if (oldConfig.macroConfig) {
-                res.engine.macroConfig = oldConfig.macroConfig;
+                ensureEngineConfig().macroConfig = oldConfig.macroConfig;
             }
             if (oldConfig['sorting-layer']) {
-                res.engine.sortingLayers = oldConfig['sorting-layer'];
+                ensureEngineConfig().sortingLayers = oldConfig['sorting-layer'];
             }
             if (oldConfig.layer) {
-                res.engine.customLayers = oldConfig.layer;
+                ensureEngineConfig().customLayers = oldConfig.layer;
             }
             if (oldConfig.graphics) {
-                res.engine.graphics = oldConfig.graphics;
+                ensureEngineConfig().graphics = oldConfig.graphics;
             }
             if (oldConfig.highQuality) {
-                res.engine.highQuality = oldConfig.highQuality;
+                ensureEngineConfig().highQuality = oldConfig.highQuality;
             }
             if (oldConfig.general?.renderPipeline) {
-                res.engine.renderPipeline = oldConfig.general.renderPipeline;
+                ensureEngineConfig().renderPipeline = oldConfig.general.renderPipeline;
             }
             if (oldConfig.script) {
                 res.script = oldConfig.script;

@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "noEmit": true,
+        "skipLibCheck": true,
+        "target": "ES2022",
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "baseUrl": ".",
+        "paths": {
+            "cc": [
+                "./cc.d.ts"
+            ]
+        },
+        "types": [
+            "node"
+        ]
+    },
+    "files": [
+        "cc.d.ts",
+        "typecheck/engine-cc-consumer.ts"
+    ]
+}

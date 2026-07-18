@@ -13,6 +13,8 @@ import { PreviewCommand } from '../../../src/commands/preview';
 const launcherMockState = vi.hoisted(() => ({
   startRuntimePreview: vi.fn(),
   startPreview: vi.fn(),
+  startGamePreview: vi.fn(),
+  startSceneEditorPreview: vi.fn(),
   Launcher: vi.fn(),
 }));
 
@@ -31,6 +33,103 @@ function canListen(port: number): Promise<boolean> {
 }
 
 describe('runtime preview server startup', () => {
+  it('dispatches each preview mode to its dedicated launcher entry', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'preview-cli-mode-matrix-'));
+    const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
+    launcherMockState.Launcher.mockImplementation(() => ({
+      startRuntimePreview: launcherMockState.startRuntimePreview,
+      startPreview: launcherMockState.startPreview,
+      startGamePreview: launcherMockState.startGamePreview,
+      startSceneEditorPreview: launcherMockState.startSceneEditorPreview,
+    }));
+
+    const run = async (args: string[]) => {
+      const program = new Command();
+      program.exitOverride();
+      new PreviewCommand(program).register();
+      await program.parseAsync(['preview', '--project', projectRoot, ...args], { from: 'user' });
+    };
+
+    try {
+      await writeFile(join(projectRoot, 'package.json'), '{"name":"preview-cli-mode-matrix"}', 'utf8');
+      await run([]);
+      expect(launcherMockState.startGamePreview).toHaveBeenLastCalledWith({
+        port: 9527,
+        scene: undefined,
+        open: true,
+      });
+
+      await run(['--build', '--platform', 'web-mobile', '--no-open']);
+      expect(launcherMockState.startPreview).toHaveBeenLastCalledWith(expect.objectContaining({
+        port: 9527,
+        platform: 'web-mobile',
+        open: false,
+      }));
+
+      await run(['--scene-editor', '--no-open']);
+      expect(launcherMockState.startSceneEditorPreview).toHaveBeenLastCalledWith({
+        port: 9527,
+        open: false,
+      });
+
+      await run(['--runtime', '--scene', 'runtime-scene']);
+      expect(launcherMockState.startRuntimePreview).toHaveBeenLastCalledWith(expect.objectContaining({
+        port: 9527,
+        scene: 'runtime-scene',
+      }));
+
+      await run(['--scene', 'db://assets/game.scene']);
+      expect(launcherMockState.startGamePreview).toHaveBeenLastCalledWith(expect.objectContaining({
+        scene: 'db://assets/game.scene',
+      }));
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+      resume.mockRestore();
+      launcherMockState.startRuntimePreview.mockReset();
+      launcherMockState.startPreview.mockReset();
+      launcherMockState.startGamePreview.mockReset();
+      launcherMockState.startSceneEditorPreview.mockReset();
+      launcherMockState.Launcher.mockReset();
+    }
+  });
+
+  it('rejects incompatible modes and companion options before constructing Launcher', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'preview-cli-invalid-matrix-'));
+    const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const run = async (args: string[]) => {
+      const program = new Command();
+      program.exitOverride();
+      new PreviewCommand(program).register();
+      await program.parseAsync(['preview', '--project', projectRoot, ...args], { from: 'user' });
+    };
+
+    try {
+      await writeFile(join(projectRoot, 'package.json'), '{"name":"preview-cli-invalid-matrix"}', 'utf8');
+      for (const args of [
+        ['--runtime', '--build'],
+        ['--runtime', '--no-open'],
+        ['--scene-editor', '--scene', 'scene'],
+        ['--platform', 'web-mobile'],
+        ['--watch-assets'],
+      ]) {
+        launcherMockState.Launcher.mockClear();
+        exit.mockClear();
+        await run(args);
+        expect(exit).toHaveBeenCalledWith(1);
+        expect(launcherMockState.Launcher).not.toHaveBeenCalled();
+      }
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+      resume.mockRestore();
+      exit.mockRestore();
+      consoleError.mockRestore();
+      launcherMockState.Launcher.mockReset();
+    }
+  });
+
   it('passes refresh-on-reload from the preview CLI action to Launcher', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-cli-refresh-project-'));
     const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);

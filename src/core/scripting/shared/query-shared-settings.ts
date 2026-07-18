@@ -30,6 +30,7 @@ export function getDefaultSharedSettings(): ScriptProjectConfig {
         loose: false,
         guessCommonJsExports: false,
         exportsConditions: [],
+        sortingPlugin: [],
         preserveSymlinks: false,
         importMap: '',
         previewBrowserslistConfigFile: '',
@@ -62,8 +63,13 @@ class ScriptConfig {
         return this._configInstance.get<T>(path, scope);
     }
 
-    setProject(path: string, value: any, scope?: ConfigurationScope) {
-        return this._configInstance.set(path, value, scope);
+    async setProject(path: string, value: any, scope?: ConfigurationScope) {
+        const result = await this._configInstance.set(path, value, scope);
+        if (path === 'sortingPlugin') {
+            const { default: assetConfig } = await import('../../assets/asset-config');
+            assetConfig.setSortingPlugin(value);
+        }
+        return result;
     }
 }
 

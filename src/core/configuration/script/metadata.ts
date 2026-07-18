@@ -17,6 +17,11 @@ export interface ICocosConfigurationPropertySchema {
     items?: ICocosConfigurationPropertySchema | ICocosConfigurationPropertySchema[];
     additionalProperties?: boolean | ICocosConfigurationPropertySchema;
     required?: string[];
+    ui?: 'asset-picker' | string;
+    assetType?: string;
+    valueField?: string;
+    displayFields?: string[];
+    query?: Record<string, unknown>;
 }
 
 export interface ICocosConfigurationNode {

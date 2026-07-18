@@ -14,14 +14,11 @@ import assetManager from '../../assets/manager/asset';
 import { Engine } from '../../engine';
 import builderConfig from './builder-config';
 import { validatorManager } from './validator-manager';
-import { CocosConfigLoader } from '../../configuration/migration/cocos-config-loader';
 import { DEFAULT_PHYSICS_MATERIAL_UUID, featureListIncludesDependentAsset } from './engine-feature-assets';
-
 interface ModuleConfig {
     match: (module: string) => boolean;
     default: string | boolean;
 }
-
 export const overwriteModuleConfig: Record<string, ModuleConfig> = {
     physics: {
         match: (key: string) => {
@@ -400,12 +397,52 @@ export function handleOverwriteProjectSettings(options: IBuildTaskOption) {
     }
 }
 
+function resolveIncludeModulesFromEngineConfig(
+    engineConfig: ReturnType<typeof Engine.getConfig> & {
+        configs?: Record<string, { includeModules?: string[] }>;
+        globalConfigKey?: string;
+    },
+    engineModulesConfigKey?: string,
+) {
+    if (engineModulesConfigKey) {
+        const includeModules = engineConfig.configs?.[engineModulesConfigKey]?.includeModules;
+        if (!includeModules?.length) {
+            throw new Error(`Invalid engineModulesConfigKey: ${engineModulesConfigKey}`);
+        }
+        return [...includeModules];
+    }
+
+    if (engineConfig.includeModules?.length) {
+        return [...engineConfig.includeModules];
+    }
+
+    const selectedConfigKey = engineConfig.globalConfigKey || Object.keys(engineConfig.configs || {})[0];
+    const includeModules = selectedConfigKey ? engineConfig.configs?.[selectedConfigKey]?.includeModules : undefined;
+    return includeModules?.length ? [...includeModules] : [];
+}
+
+/**
+ * Refresh `options.includeModules` from the project engine config (cocos.config.json),
+ * so preview does not retain a stale module list from persisted builder options.
+ */
+export async function fillIncludeModulesFromProjectConfig(
+    options: { includeModules?: string[]; engineModulesConfigKey?: string },
+): Promise<void> {
+    options.includeModules = resolveIncludeModulesFromEngineConfig(Engine.getConfig(), options.engineModulesConfigKey);
+}
+
 export async function checkProjectSetting(options: IInternalBuildOptions | IInternalBundleBuildOptions) {
     options.engineInfo = options.engineInfo || Engine.getInfo();
 
-    const { designResolution, renderPipeline, physicsConfig, customLayers, sortingLayers, macroConfig, includeModules } = Engine.getConfig();
-    const activeIncludeModules = options.includeModules?.length ? options.includeModules : includeModules;
-    const hasDefaultPhysicsMaterialFeature = await featureListIncludesDependentAsset(activeIncludeModules ?? [], DEFAULT_PHYSICS_MATERIAL_UUID);
+    const engineConfig = Engine.getConfig();
+    const { designResolution, renderPipeline, physicsConfig, customLayers, sortingLayers, macroConfig } = engineConfig;
+    const activeIncludeModules = options.includeModules?.length
+        ? [...options.includeModules]
+        : resolveIncludeModulesFromEngineConfig(engineConfig, options.engineModulesConfigKey);
+    const enginePath = options.engineInfo?.typescript?.path;
+    const hasDefaultPhysicsMaterialFeature = enginePath
+        ? await featureListIncludesDependentAsset(activeIncludeModules, DEFAULT_PHYSICS_MATERIAL_UUID, enginePath)
+        : false;
     // 默认 Canvas 设置
     if (!options.designResolution) {
         options.designResolution = designResolution;
@@ -450,7 +487,7 @@ export async function checkProjectSetting(options: IInternalBuildOptions | IInte
     }
 
     if (!options.includeModules || !options.includeModules.length) {
-        options.includeModules = includeModules;
+        options.includeModules = activeIncludeModules;
     }
 
     // 确保 includeModules 中包含 'debug-renderer'
@@ -469,45 +506,7 @@ export async function checkProjectSetting(options: IInternalBuildOptions | IInte
     }
 
     if (!options.splashScreen) {
-        options.splashScreen = Engine.getConfig().splashScreen;
+        options.splashScreen = engineConfig.splashScreen;
     }
 
-}
-
-/**
- * 从项目配置中补充 includeModules
- * 使用 CocosConfigLoader 加载 settings/v2/packages/engine.json 中的配置
- * @param options 构建选项
- */
-export async function fillIncludeModulesFromProjectConfig(options: IInternalBuildOptions | IInternalBundleBuildOptions | IBuildTaskOption): Promise<void> {
-    try {
-        const projectPath = builderConfig.projectRoot;
-        const configLoader = new CocosConfigLoader();
-        configLoader.initialize(projectPath);
-        const engineConfig = await configLoader.loadConfig('project', 'engine');
-        if (!options.includeModules || !options.includeModules.length) {
-            if (engineConfig?.modules?.configs) {
-                const configs = engineConfig.modules.configs;
-                const globalConfigKey = engineConfig.modules.globalConfigKey || Object.keys(configs)[0];
-                
-                if (globalConfigKey && configs[globalConfigKey]?.includeModules) {
-                    options.includeModules = [...configs[globalConfigKey].includeModules];
-                }
-            }
-        }
-
-        const graphicsPipeline = engineConfig?.modules?.graphics?.pipeline;
-        const isPreviewSettings = Boolean((options as { preview?: boolean }).preview);
-        if (isPreviewSettings && (graphicsPipeline === 'legacy-pipeline' || graphicsPipeline === 'custom-pipeline')) {
-            const includeModules = new Set(options.includeModules ?? []);
-            includeModules.delete('legacy-pipeline');
-            includeModules.delete('custom-pipeline');
-            includeModules.delete('custom-pipeline-builtin-scripts');
-            includeModules.add(graphicsPipeline);
-            options.includeModules = Array.from(includeModules);
-            options.customPipeline = graphicsPipeline === 'custom-pipeline';
-        }
-    } catch (error) {
-        console.warn(`[Build] 加载项目引擎配置失败，将使用默认配置: ${error}`);
-    }
 }

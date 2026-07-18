@@ -20,6 +20,7 @@ import { ServiceEvents } from '../core/global-events';
 // const { basename, extname } = require('path');
 // import nodeUtil from '../../../utils/node';
 import dumpUtil from '../dump';
+import { registerDumpNodeAccess } from '../dump/service-access';
 import { Service } from '../core/decorator';
 
 // import getComponentFunctionOfNode from '../component/get-component-function-of-node';
@@ -81,15 +82,6 @@ let stashInstants: any = null;
  *   node.on('remove', (node) => {});
  */
 export class NodeManager {
-    _onNodeAdded?: (...args: any[]) => void;
-    _onNodeChanged?: (...args: any[]) => void;
-    _onNodeRemoved?: (...args: any[]) => void;
-    _onTransformChanged?: (...args: any[]) => void;
-    _onSizeChanged?: (...args: any[]) => void;
-    _onAnchorChanged?: (...args: any[]) => void;
-    _onParentChanged?: (...args: any[]) => void;
-    _onLightProbeChanged?: (...args: any[]) => void;
-
     emit<K extends keyof INodeEvents>(event: K, ...args: INodeEvents[K]): void;
     emit(event: string, ...args: any[]): void;
     emit(event: string, ...args: any[]) {
@@ -1102,10 +1094,6 @@ export class NodeManager {
 
         this.emit('node:add', node);
 
-        if (parent) {
-            this.emit('node:change', parent, { type: NodeEventType.CHILD_CHANGED });
-        }
-
         return node.uuid;
     }
 
@@ -1619,4 +1607,11 @@ export class NodeManager {
     }
 }
 
-export default new NodeManager();
+const nodeManager = new NodeManager();
+
+registerDumpNodeAccess({
+    query: nodeManager.query.bind(nodeManager),
+    addComponentAt: nodeManager.addComponentAt.bind(nodeManager),
+});
+
+export default nodeManager;

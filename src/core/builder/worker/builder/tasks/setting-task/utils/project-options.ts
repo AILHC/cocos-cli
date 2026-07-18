@@ -8,6 +8,7 @@ import { ISettings, IPhysicsConfig } from '../../../../../@types';
 import { IInternalBuildOptions } from '../../../../../@types/protected';
 import utils from '../../../../../../base/utils';
 import { Engine } from '../../../../../../engine';
+import { resolveCustomJointTextureLayouts } from '../../../../../../engine/joint-texture-layout';
 import { configurationManager } from '../../../../../../configuration';
 import { ISplashSetting } from '../../../../../../engine/@types/config';
 import { GlobalPaths } from '../../../../../../../global';
@@ -44,7 +45,7 @@ export async function patchOptionsToSettings(options: IInternalBuildOptions, set
     settings.rendering.renderPipeline = options.renderPipeline === defaultPipeline ? '' : options.renderPipeline;
     settings.rendering.customPipeline = options.customPipeline;
     const { customJointTextureLayouts, downloadMaxConcurrency } = Engine.getConfig();
-    settings.animation.customJointTextureLayouts = customJointTextureLayouts || [];
+    settings.animation.customJointTextureLayouts = await resolveCustomJointTextureLayouts(customJointTextureLayouts);
     if (options.includeModules.includes('custom-pipeline')) {
         settings.rendering.effectSettingsPath = 'src/effect.bin';
     }

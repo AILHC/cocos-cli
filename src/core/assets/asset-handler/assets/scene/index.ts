@@ -20,13 +20,18 @@ export const SceneHandler: AssetHandler = {
     createInfo: {
         async generateMenuInfo() {
             const templateDir = 'db://internal/default_file_content/scene';
-            return ['3d', '2d', 'quality'].map((name) => {
+            const templates = [
+                { name: '3d', fileName: 'scene.scene', templateName: 'default.scene' },
+                { name: '2d', fileName: 'scene-2d.scene', templateName: 'scene-2d.scene' },
+                { name: 'quality', fileName: 'scene-quality.scene', templateName: 'scene-quality.scene' },
+            ];
+            return templates.map(({ name, fileName, templateName }) => {
                 return {
                     group: 'scene',
                     label: `i18n:ENGINE.assets.newScene.${name}`,
                     name,
-                    fullFileName: name === '3d' ? 'scene.scene' : `scene-${name}.scene`,
-                    template: `${templateDir}/${name}.scene`,
+                    fullFileName: fileName,
+                    template: `${templateDir}/${templateName}`,
                 };
             });
         },

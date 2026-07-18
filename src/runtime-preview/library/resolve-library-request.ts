@@ -27,9 +27,23 @@ function getRawUrlPathname(requestPath: string): string | null {
 }
 
 interface LibraryRoute {
-    bundleName: string;
-    artifactKind: 'import' | 'native';
     tail: string;
+}
+
+const canonicalUuidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const canonicalArtifactUuidPattern = `${canonicalUuidPattern}(?:@[0-9a-f]+)*`;
+const rootLibraryArtifactPattern = new RegExp(
+    `^([0-9a-f]{2})/(${canonicalArtifactUuidPattern})(?:\\.[0-9a-f]+)?\\.[a-z0-9]+$`,
+    'i',
+);
+const rootLibraryTtfPattern = new RegExp(
+    `^([0-9a-f]{2})/(${canonicalArtifactUuidPattern})(?:\\.[0-9a-f]+)?/[^/]+\\.ttf$`,
+    'i',
+);
+
+function isCanonicalRootLibraryTail(tail: string): boolean {
+    const match = rootLibraryArtifactPattern.exec(tail) ?? rootLibraryTtfPattern.exec(tail);
+    return Boolean(match && match[1].toLowerCase() === match[2].slice(0, 2).toLowerCase());
 }
 
 function parseLibraryRoute(requestPath: string): LibraryRoute | null {
@@ -38,30 +52,27 @@ function parseLibraryRoute(requestPath: string): LibraryRoute | null {
         return null;
     }
 
-    const match = /^\/(?:assets|remote)\/([^/]+)\/(import|native)(?:\/(.*))?$/.exec(pathname);
-    if (!match) {
-        return null;
-    }
-
-    if (!match[3]) {
+    const namespacedMatch = /^\/(?:assets|remote)\/[^/]+\/(?:import|native)(?:\/(.*))?$/.exec(pathname);
+    const rootTail = pathname.slice(1);
+    const encodedTail = namespacedMatch?.[1] ?? rootTail;
+    if (!encodedTail) {
         return null;
     }
 
     let tail = '';
     try {
-        tail = decodeURIComponent(match[3]);
+        tail = decodeURIComponent(encodedTail);
     } catch {
         return null;
     }
     if (!isSafeLibraryTail(tail)) {
         return null;
     }
+    if (!namespacedMatch && !isCanonicalRootLibraryTail(tail)) {
+        return null;
+    }
 
-    return {
-        bundleName: match[1],
-        artifactKind: match[2] as 'import' | 'native',
-        tail,
-    };
+    return { tail };
 }
 
 function isSafeLibraryTail(tail: string): boolean {

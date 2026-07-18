@@ -130,16 +130,13 @@ export class E2EProjectManager {
         const name = projectName || this.generateProjectName();
         const projectPath = join(this.workspaceRoot, name);
 
-        // 清理源项目的缓存（如果已存在）
-        await this.cleanProjectCache(sourceProject);
-
         // 复制项目
         await copy(sourceProject, projectPath, {
             filter: (src) => this.shouldCopyFile(src, sourceProject),
         });
 
-        // 清理目标项目中的 CLI 引擎特定目录（测试前必须清理）
-        await this.cleanEngineSpecificDirs(projectPath);
+        // Source project 必须保持只读；所有缓存清理只发生在复制后的 workspace。
+        await this.cleanProjectCache(projectPath);
 
         // 记录创建的项目
         this.createdProjects.add(projectPath);
@@ -189,16 +186,13 @@ export class E2EProjectManager {
         // 创建新的共享项目
         const projectPath = join(this.workspaceRoot, 'shared', name);
 
-        // 清理缓存
-        await this.cleanProjectCache(sourceProject);
-
         // 复制项目
         await copy(sourceProject, projectPath, {
             filter: (src) => this.shouldCopyFile(src, sourceProject),
         });
 
-        // 清理目标项目中的 CLI 引擎特定目录（测试前必须清理）
-        await this.cleanEngineSpecificDirs(projectPath);
+        // Source project 必须保持只读；所有缓存清理只发生在复制后的 workspace。
+        await this.cleanProjectCache(projectPath);
 
         // 记录共享项目
         this.sharedProjects.set(name, projectPath);
@@ -221,9 +215,6 @@ export class E2EProjectManager {
      * @returns 测试项目信息
      */
     async createTempProject(sourceProject: string): Promise<TestProject> {
-        // 清理源项目缓存
-        await this.cleanProjectCache(sourceProject);
-
         // 在系统临时目录创建
         const tempDir = await mkdtemp(join(tmpdir(), 'cocos-e2e-'));
 
@@ -232,8 +223,8 @@ export class E2EProjectManager {
             filter: (src) => this.shouldCopyFile(src, sourceProject),
         });
 
-        // 清理目标项目中的 CLI 引擎特定目录（测试前必须清理）
-        await this.cleanEngineSpecificDirs(tempDir);
+        // Source project 必须保持只读；所有缓存清理只发生在复制后的临时项目。
+        await this.cleanProjectCache(tempDir);
 
         return {
             path: tempDir,
@@ -321,7 +312,7 @@ export class E2EProjectManager {
                     continue;
                 }
 
-                if (ig.ignores(item)) {
+                if (ig.ignores(item) || ig.ignores(`${item}/`)) {
                     const itemPath = join(projectPath, item);
                     await remove(itemPath);
                 }

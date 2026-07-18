@@ -30,6 +30,25 @@ export function createScriptMetadataNodes(): ICocosConfigurationNode[] {
                 default: [],
                 title: 'i18n:configuration.script.exportsConditions.title',
             },
+            'script.sortingPlugin': {
+                type: 'array',
+                default: [],
+                title: 'i18n:configuration.script.sortingPlugin.title',
+                description: 'i18n:configuration.script.sortingPlugin.description',
+                items: {
+                    type: 'string',
+                    title: 'i18n:configuration.script.sortingPlugin.itemTitle',
+                    ui: 'asset-picker',
+                    assetType: 'cc.Script',
+                    valueField: 'uuid',
+                    displayFields: ['url', 'name'],
+                    query: {
+                        userData: {
+                            isPlugin: true,
+                        },
+                    },
+                },
+            },
             'script.preserveSymlinks': {
                 type: 'boolean',
                 default: false,

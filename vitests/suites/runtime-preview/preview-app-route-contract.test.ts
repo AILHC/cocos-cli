@@ -19,7 +19,7 @@ function createRouteContext() {
     projectRoot: paths.projectRoot,
     engineRoot: paths.engineRoot,
     projectLibraryRoot: paths.editorLibraryRef,
-    internalLibraryRoot: join(paths.engineRoot, 'editor', 'library'),
+    internalLibraryRoot: paths.editorLibraryRef,
     projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
     cliProgrammingRoot: join(paths.projectRoot, 'temp', 'cli', 'programming'),
   });
@@ -463,7 +463,6 @@ describe('runtime preview preview-app required route contract', () => {
     const routeContext = createProductionLibraryRouteContext();
     const dependentRoutes = [
       '/assets/general/import/7d/7d8f9b89-4fd1-4c9f-a3ab-38ec7cded7ca@f9941.json',
-      '/assets/general/import/75/75bcfad1-6b3e-41db-bbb6-6ff9f0ebd32b.json',
     ];
 
     for (const route of dependentRoutes) {
@@ -612,7 +611,7 @@ describe('runtime preview preview-app required route contract', () => {
 
   it('serves preview-app general import URLs for internal builtin assets', async () => {
     const paths = getFixturePaths();
-    const internalBundle = await buildEditorLibraryInternalBundle(paths.engineRoot);
+    const internalBundle = await buildEditorLibraryInternalBundle(paths.engineRoot, paths.editorLibraryRef);
     const routeContext = {
       ...createRouteContext(),
       settingsProvider: new PreviewSettingsProvider({

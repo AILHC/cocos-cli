@@ -30,12 +30,14 @@ import { CCClass, CCObject, Component, Node, Prefab, Quat, Vec3 } from 'cc';
 import { createNodeByAsset, loadAny } from './node/node-create';
 import { getUICanvasNode, setLayer } from './node/node-utils';
 import { NodeUndoHelper } from './node/node-undo';
+import { isUndoApplying } from './undo/applying-state';
 import { prefabUtils } from './prefab/utils';
 import { sceneUtils } from './scene/utils';
 import nodeMgr from './node/index';
 import NodeConfig from './node/node-type-config';
 import { RemoveNodeCommand } from './undo/commands/remove-node-command';
 import { RemoveComponentCommand } from './undo/commands/remove-component-command';
+import { broadcastAnimationPropertyCommitted } from './animation/property-commit-event';
 
 const NodeMgr = EditorExtends.Node;
 
@@ -85,6 +87,14 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
             const assetUuid = await Rpc.getInstance().request('assetManager', 'queryUUID', [params.dbURL]);
             if (!assetUuid) {
                 throw new Error(`Asset not found for dbURL: ${params.dbURL}`);
+            }
+            // 阻止添加自己到当前的Prefab中，防止Prefab的循环引用
+            if (Service.Editor.getCurrentEditorType() === 'prefab') {
+                const rootNode = Service.Editor.getRootNode();
+                const rootNodePrefabInfo = rootNode?.['_prefab'];
+                if (rootNodePrefabInfo && rootNodePrefabInfo.asset && rootNodePrefabInfo.asset._uuid === assetUuid) {
+                    throw new Error('The prefab you are trying to add is the same with the prefab in editing, this is not allowed.');
+                }
             }
             const assetInfo = await Rpc.getInstance().request('assetManager', 'queryAssetInfo', [assetUuid]);
             const canvasNeeded = params.canvasRequired || false;
@@ -137,7 +147,8 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
          * 有 nodeType 说明是内置资源创建的，需要移除 prefab info
          * createByAsset 时，如果 assetType 不是 cc.Prefab 或者 unlinkPrefab 为 true，也需要移除
          */
-        if ('nodeType' in params || assetType !== 'cc.Prefab' || params.unlinkPrefab) {
+        const shouldUnlinkPrefab = 'nodeType' in params || assetType !== 'cc.Prefab' || params.unlinkPrefab;
+        if (shouldUnlinkPrefab) {
             Service.Prefab.removePrefabInfoFromNode(resultNode, true);
         }
 
@@ -170,17 +181,17 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
         if (name && resultNode.name !== name) {
             resultNode.name = name;
         }
+        // 挂到 prefab instance 下时，setParent 相关流程可能重新补回模板 prefab 信息。
+        // 但在 prefab asset 编辑器中，新节点需要保留 setParent 补齐的 prefab 元数据。
+        if (shouldUnlinkPrefab && Service.Editor.getCurrentEditorType() !== 'prefab') {
+            Service.Prefab.removePrefabInfoFromNode(resultNode, true);
+        }
         if (checkUITransform) {
             nodeMgr.ensureUITransformComponent(resultNode);
         }
 
         // 发送添加节点事件，添加节点中的根节点
         this.emit('node:add', resultNode);
-
-        // 发送节点修改消息
-        if (parent) {
-            this.emit('node:change', parent, { type: NodeEventType.CHILD_CHANGED });
-        }
 
         return sceneUtils.generateNodeDump(resultNode) as INode;
     }
@@ -471,10 +482,15 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
         if (!node) {
             return false;
         }
-        return this._undo.recordNodeSnapshot(node, {
+        const result = await this._undo.recordNodeSnapshot(node, {
             label: `Set ${options.path}`,
             type: 'node:set-property',
             record: options.record,
+            scope: {
+                editorType: 'scene',
+                nodePath: options.nodePath,
+                propPath: options.path,
+            },
         }, async () => {
             if (options.path === 'name' && options.dump.value !== node.name) {
                 // 这里相当于是做个hack的补充功能，因为setProperty并没有改变path。
@@ -486,6 +502,14 @@ export class NodeService extends BaseService<INodeEvents> implements INodeServic
             }
             return await nodeMgr.setProperty(node.uuid, options.path, options.dump, options.record);
         });
+        if (result && options.record !== false && !isUndoApplying()) {
+            broadcastAnimationPropertyCommitted({
+                nodePath: options.nodePath,
+                propPath: options.path,
+                source: 'editor',
+            });
+        }
+        return result;
     }
 
     public async reset(path: string): Promise<boolean> {

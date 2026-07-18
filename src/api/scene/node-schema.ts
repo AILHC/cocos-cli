@@ -5,7 +5,7 @@ import { INodeInfo } from '../../core/scene';
 import { SchemaVec3 } from '../base/schema-value-types';
 import { SchemaNodeIdentifier, SchemaComponentIdentifier } from '../base/schema-identifier';
 import { SchemaPrefabInfo } from './prefab-info-schema';
-import { SchemaUrl } from '../base/schema-identifier';
+import { SchemaAssetDbUrl } from '../base/schema-asset-db-url';
 import { SchemaComponent } from './component-schema';
 
 // 节点属性的 schema，
@@ -87,7 +87,7 @@ const SchemaNodeCreateBase = z.object({
 }).describe('To configure options for node creation, the Scene must be open first.'); // 创建节点的选项参数, 需先打开场景;
 
 export const SchemaNodeCreateByAsset = SchemaNodeCreateBase.extend({
-    dbURL: SchemaUrl.describe('Prefab asset path, if created from a prefab, please pass this parameter, format is custom db path e.g. db://assets/abc.prefab'), // 预制体资源路径，如果是从某个预制体创建，请传入这个参数，格式为自定义的db 路径比如 db://assets/abc.prefab
+    dbURL: SchemaAssetDbUrl.describe('Prefab asset path, if created from a prefab, please pass this parameter, format is custom db path e.g. db://assets/abc.prefab'), // 预制体资源路径，如果是从某个预制体创建，请传入这个参数，格式为自定义的db 路径比如 db://assets/abc.prefab
 });
 
 export const SchemaNodeCreateByType = SchemaNodeCreateBase.extend({

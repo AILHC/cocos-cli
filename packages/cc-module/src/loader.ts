@@ -21,6 +21,8 @@ export class EngineLoader {
     }
 
     private static loader: IEngineLoader | undefined;
+    private static resolveFilenameHook: typeof ModuleInternal._resolveFilename | undefined;
+    private static loadHook: typeof ModuleInternal._load | undefined;
 
     private static createEngineLoader(engineDevPath: string): IEngineLoader {
         const loaderModule = require(resolve(join(engineDevPath, 'editor'), 'loader')) as {
@@ -31,11 +33,34 @@ export class EngineLoader {
     }
 
     public static async init(engineDevPath: string, modules: string[]) {
+        this.engineModules = {};
         this.loader = this.createEngineLoader(engineDevPath);
         await this.requiredModules(modules);
+        this.registerModsManager();
+        this.installModuleHooks();
+    }
 
+    private static registerModsManager(): void {
+        const syncImport = (id: string): any => {
+            if (!Object.prototype.hasOwnProperty.call(EngineLoader.engineModules, id)) {
+                throw new Error(
+                    `Can not sync import engine module: ${id}. Module was not preloaded. `
+                    + `Valid engine modules are: ${Object.keys(EngineLoader.engineModules).join(',')}`,
+                );
+            }
+
+            return EngineLoader.engineModules[id];
+        };
+
+        EngineLoader.engineModules['cc/mods-mgr'] = { syncImport };
+    }
+
+    private static installModuleHooks(): void {
+        if (ModuleInternal._resolveFilename === this.resolveFilenameHook && ModuleInternal._load === this.loadHook) {
+            return;
+        }
         const vendorResolveFilename = ModuleInternal._resolveFilename;
-        ModuleInternal._resolveFilename = function (request: string) {
+        const resolveFilenameHook = function (request: string) {
             if (EngineLoader.isEngineModule(request)) {
                 return request;
             } else {
@@ -44,9 +69,10 @@ export class EngineLoader {
                 return vendorResolveFilename.apply(this, arguments);
             }
         };
+        ModuleInternal._resolveFilename = resolveFilenameHook;
 
         const vendorLoad = ModuleInternal._load;
-        ModuleInternal._load = function (request: string) {
+        const loadHook = function (request: string) {
             if (EngineLoader.isEngineModule(request)) {
                 const module = EngineLoader.getEngineModuleById(request);
                 if (module) {
@@ -62,6 +88,9 @@ export class EngineLoader {
                 return vendorLoad.apply(this, arguments);
             }
         };
+        ModuleInternal._load = loadHook;
+        this.resolveFilenameHook = resolveFilenameHook;
+        this.loadHook = loadHook;
     }
 
     public static async requiredModules(modules: string[]) {

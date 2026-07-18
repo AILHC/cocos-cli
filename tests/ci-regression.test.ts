@@ -12,13 +12,19 @@ function readText(relativePath: string) {
 }
 
 describe('CI regression guards', () => {
-    it('keeps @cocos/asset-db version consistent in package.json and package-lock.json', () => {
+    it('keeps the vendored @cocos/asset-db workspace link consistent in package.json and package-lock.json', () => {
         const packageJson = readJson('package.json');
         const packageLock = readJson('package-lock.json');
-        const expectedVersion = packageJson.dependencies['@cocos/asset-db'];
+        const expectedDependency = packageJson.dependencies['@cocos/asset-db'];
+        const assetDbLink = packageLock.packages['node_modules/@cocos/asset-db'];
 
-        expect(packageLock.packages[''].dependencies['@cocos/asset-db']).toBe(expectedVersion);
-        expect(packageLock.packages['node_modules/@cocos/asset-db'].version).toBe(expectedVersion);
+        expect(expectedDependency).toBe('file:./packages/asset-db');
+        expect(packageLock.packages[''].dependencies['@cocos/asset-db']).toBe(expectedDependency);
+        expect(assetDbLink).toEqual({
+            resolved: 'packages/asset-db',
+            link: true,
+        });
+        expect(packageLock.packages['packages/asset-db'].name).toBe('@cocos/asset-db');
     });
 
     it('does not allow Jest to resolve .d.ts files as runtime modules', () => {

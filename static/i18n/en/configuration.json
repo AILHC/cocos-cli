@@ -94,6 +94,11 @@
     "exportsConditions": {
       "title": "Export Conditions"
     },
+    "sortingPlugin": {
+      "title": "Plugin Scripts Sorting Config",
+      "description": "Plugin script load order. Select plugin scripts with the asset picker; the configuration stores plugin script UUIDs.",
+      "itemTitle": "Plugin Script"
+    },
     "preserveSymlinks": {
       "title": "Preserve Symlinks"
     },
@@ -217,6 +222,24 @@
         "description": "Whether deprecated features are disabled"
       }
     },
+    "graphics": {
+      "title": "Graphics",
+      "pipeline": {
+        "title": "Render Pipeline",
+        "options": {
+          "custom": "Render Pipeline (New)",
+          "legacy": "Render Pipeline (Legacy)"
+        }
+      },
+      "pipelineName": {
+        "title": "Pipeline Name",
+        "description": "Custom render pipeline name, backed by engine.macroConfig.CUSTOM_PIPELINE_NAME."
+      },
+      "customPipelinePostProcess": {
+        "title": "Post Process Module",
+        "description": "Whether to enable the custom pipeline post process module."
+      }
+    },
     "rendering": {
       "title": "Rendering",
       "renderPipeline": {
@@ -236,6 +259,32 @@
       "customJointTextureLayouts": {
         "title": "Custom Joint Texture Layouts",
         "description": "Custom skeletal animation texture layouts"
+      }
+    },
+    "jointTextureLayout": {
+      "title": "Animation / Joint Texture Layout",
+      "customJointTextureLayouts": {
+        "title": "Custom Joint Texture Layouts",
+        "description": "Organize skeletal animation joint texture layouts by skeleton and animation clips. Build and preview automatically calculate texture size and convert asset UUIDs to runtime hashes.",
+        "itemTitle": "Joint Texture Layout",
+        "textureLength": {
+          "title": "Texture Length",
+          "description": "Automatically calculated from joint count, animation frames, and default pose. Below 1024 is usually valid on all devices, below 2048 may affect devices without float texture support, and 2048 or above may affect many mobile devices."
+        },
+        "contents": {
+          "title": "Layout Contents",
+          "description": "Each item contains one skeleton asset and a list of animation clip assets.",
+          "itemTitle": "Skeleton Content",
+          "skeleton": {
+            "title": "Skeleton UUID",
+            "description": "UUID of a cc.Skeleton asset."
+          },
+          "clips": {
+            "title": "Animation Clip UUIDs",
+            "description": "UUID list of cc.AnimationClip assets.",
+            "itemTitle": "Animation Clip UUID"
+          }
+        }
       }
     },
     "macroConfig": {

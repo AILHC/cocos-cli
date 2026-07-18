@@ -1,7 +1,7 @@
 'use strict';
 
 import { Asset, VirtualAsset, queryUUID, Utils as dbUtils, queryAsset as dbQueryAsset, queryPath } from '@cocos/asset-db/index';
-import { extname, isAbsolute, join, relative, resolve } from 'path';
+import { extname, isAbsolute, join, resolve } from 'path';
 import { readFile, readJSON } from 'fs-extra';
 import type { Asset as CCAsset, Details } from 'cc';
 import type { CCON } from 'cc/editor/serialization';
@@ -11,6 +11,8 @@ import { IAsset, IExportData, ISerializedOptions, SerializedAsset } from './@typ
 import { DeleteAssetOptions } from './@types/public';
 import { removeAssetSource } from './manager/filesystem';
 import { MissingClass } from '../engine/editor-extends/missing-reporter/missing-class-reporter';
+import { resolveDecodeCCONBinary, resolveEngineModuleFunction } from './asset-handler/assets/gltf/serialization-namespace';
+export { pathToDbUrlIfAssetDBPath } from './asset-db-url';
 
 export function url2path(url: string) {
     if (isAbsolute(url)) {
@@ -22,42 +24,6 @@ export function url2path(url: string) {
     }
 
     return Utils.Path.resolveToRaw(url);
-}
-
-export function pathToDbUrlIfAssetDBPath(pathOrUrlOrUUID: string, assetDBInfo: Record<string, { name: string; target: string }>) {
-    if (!pathOrUrlOrUUID || pathOrUrlOrUUID.startsWith('db://')) {
-        return pathOrUrlOrUUID;
-    }
-
-    if (!isAbsolute(pathOrUrlOrUUID)) {
-        const normalizedRelativePath = pathOrUrlOrUUID
-            .replace(/\\/g, '/')
-            .replace(/^\.\/+/, '')
-            .replace(/\/+$/, '');
-        const [dbName, ...relativeParts] = normalizedRelativePath.split('/').filter(Boolean);
-        const dbInfo = dbName && assetDBInfo[dbName];
-
-        if (dbInfo) {
-            return relativeParts.length ? `db://${dbInfo.name}/${relativeParts.join('/')}` : `db://${dbInfo.name}`;
-        }
-
-        return pathOrUrlOrUUID;
-    }
-
-    const matchedDBInfo = Object.values(assetDBInfo)
-        .filter((info) => info?.target && Utils.Path.contains(info.target, pathOrUrlOrUUID))
-        .sort((a, b) => Utils.Path.normalize(b.target).length - Utils.Path.normalize(a.target).length)[0];
-
-    if (!matchedDBInfo) {
-        return pathOrUrlOrUUID;
-    }
-
-    const relativePath = relative(
-        Utils.Path.normalize(matchedDBInfo.target),
-        Utils.Path.normalize(pathOrUrlOrUUID),
-    ).replace(/\\/g, '/');
-
-    return relativePath ? `db://${matchedDBInfo.name}/${relativePath}` : `db://${matchedDBInfo.name}`;
 }
 
 export function dirnameForDbUrlOrPath(pathOrUrlOrUUID: string) {
@@ -239,7 +205,16 @@ export async function getRawInstanceFromImportFile(path: string, assetInfo: { uu
         asset: null,
         detail: null,
     };
-    const { deserialize } = await import('cc');
+    const ccModule = await import('cc');
+    const engineRealm = (globalThis as typeof globalThis & {
+        cc?: { deserialize?: typeof ccModule.deserialize };
+    }).cc;
+    const deserialize = resolveEngineModuleFunction<typeof ccModule.deserialize>(
+        ccModule,
+        'deserialize',
+        'cc',
+        engineRealm?.deserialize,
+    );
     const deserializeDetails = new deserialize.Details();
     // detail 里面的数组分别一一对应，并且指向 asset 依赖资源的对象，不可随意更改 / 排序
     deserializeDetails.reset();
@@ -310,12 +285,14 @@ export async function getRawInstanceFromImportFile(path: string, assetInfo: { uu
     result.asset = deserializedAsset;
     result.detail = deserializeDetails;
     // this.depend[asset.uuid] = [...new Set(deserializeDetails.uuidList)] as string[];
+    return result;
 }
 
 async function transformCCON(path: string) {
     const buffer = await readFile(path);
     const bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    const { decodeCCONBinary } = await import('cc/editor/serialization');
+    const serialization = await import('cc/editor/serialization');
+    const decodeCCONBinary = resolveDecodeCCONBinary(serialization);
     return decodeCCONBinary(bytes);
 }
 

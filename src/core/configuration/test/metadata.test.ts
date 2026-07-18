@@ -37,6 +37,10 @@ function tryFindNode(nodes: ICocosConfigurationNode[], id: string): ICocosConfig
     return nodes.find((item) => item.id === id);
 }
 
+function countPropertyOccurrences(nodes: ICocosConfigurationNode[], key: string): number {
+    return nodes.filter((node) => Object.prototype.hasOwnProperty.call(node.properties, key)).length;
+}
+
 async function loadFreshRuntime(): Promise<IMetadataRuntime> {
     jest.resetModules();
     try {
@@ -83,13 +87,31 @@ describe('configuration metadata', () => {
         await runtime.Engine.init(TestGlobalEnv.engineRoot);
 
         const nodes = await runtime.getMetadata();
+        const engineRenderingNode = findNode(nodes, 'engine.rendering');
+        const engineJointTextureLayoutNode = findNode(nodes, 'engine.jointTextureLayout');
         const engineModuleNode = findNode(nodes, 'engine.moduleConfig');
         const engineMacroNode = findNode(nodes, 'engine.macroConfig');
+        const jointTextureLayoutsProperty = findProperty(engineJointTextureLayoutNode, 'engine.customJointTextureLayouts');
         const globalConfigKeyProperty = findProperty(engineModuleNode, 'engine.globalConfigKey');
         const configsProperty = findProperty(engineModuleNode, 'engine.configs');
         const macroProperty = findProperty(engineMacroNode, 'engine.macroConfig.ENABLE_TILEDMAP_CULLING');
         const configItemSchema = configsProperty.additionalProperties as ICocosConfigurationPropertySchema | undefined;
+        const jointTextureLayoutItemSchema = Array.isArray(jointTextureLayoutsProperty.items)
+            ? jointTextureLayoutsProperty.items[0]
+            : jointTextureLayoutsProperty.items;
+        const jointTextureContentSchema = jointTextureLayoutItemSchema?.properties?.contents;
+        const jointTextureContentItemSchema = Array.isArray(jointTextureContentSchema?.items)
+            ? jointTextureContentSchema.items[0]
+            : jointTextureContentSchema?.items;
 
+        expect(engineRenderingNode.properties['engine.customJointTextureLayouts']).toBeUndefined();
+        expect(jointTextureLayoutsProperty.type).toBe('array');
+        expect(jointTextureLayoutItemSchema?.type).toBe('object');
+        expect(jointTextureLayoutItemSchema?.properties?.textureLength?.type).toBe('number');
+        expect(jointTextureContentSchema?.type).toBe('array');
+        expect(jointTextureContentItemSchema?.type).toBe('object');
+        expect(jointTextureContentItemSchema?.properties?.skeleton?.type).toBe('string');
+        expect(jointTextureContentItemSchema?.properties?.clips?.type).toBe('array');
         expect(engineModuleNode.properties['engine.includeModules']).toBeUndefined();
         expect(engineModuleNode.properties['engine.flags.LOAD_PHYSX_MANUALLY']).toBeUndefined();
         expect(engineModuleNode.properties['engine.noDeprecatedFeatures']).toBeUndefined();
@@ -137,6 +159,31 @@ describe('configuration metadata', () => {
         expect(macroCustomItemSchema?.properties?.value?.type).toBe('boolean');
     });
 
+    it('should expose Graphics metadata without duplicating CUSTOM_PIPELINE_NAME', async () => {
+        const runtime = await loadFreshRuntime();
+        await runtime.project.open(TestGlobalEnv.projectRoot);
+        await runtime.Engine.init(TestGlobalEnv.engineRoot);
+
+        const nodes = await runtime.getMetadata();
+        const engineGraphicsNode = findNode(nodes, 'engine.graphics');
+        const engineRenderingNode = findNode(nodes, 'engine.rendering');
+        const engineMacroNode = findNode(nodes, 'engine.macroConfig');
+        const pipelineProperty = findProperty(engineGraphicsNode, 'engine.graphics.pipeline');
+        const pipelineNameProperty = findProperty(engineGraphicsNode, 'engine.macroConfig.CUSTOM_PIPELINE_NAME');
+        const postProcessProperty = findProperty(engineGraphicsNode, 'engine.graphics.custom-pipeline-post-process');
+
+        expect(pipelineProperty.type).toBe('string');
+        expect(pipelineProperty.enum).toEqual(['custom-pipeline', 'legacy-pipeline']);
+        expect(pipelineProperty.default).toBe(runtime.Engine.getConfig(true).graphics?.pipeline);
+        expect(pipelineNameProperty.type).toBe('string');
+        expect(pipelineNameProperty.default).toBe(runtime.Engine.getConfig(true).macroConfig?.CUSTOM_PIPELINE_NAME);
+        expect(postProcessProperty.type).toBe('boolean');
+        expect(postProcessProperty.default).toBe(runtime.Engine.getConfig(true).graphics?.['custom-pipeline-post-process']);
+        expect(engineMacroNode.properties['engine.macroConfig.CUSTOM_PIPELINE_NAME']).toBeUndefined();
+        expect(engineRenderingNode.properties['engine.customPipeline']).toBeUndefined();
+        expect(countPropertyOccurrences(nodes, 'engine.macroConfig.CUSTOM_PIPELINE_NAME')).toBe(1);
+    });
+
     it('should only expose builder platform metadata after the corresponding platform plugin has registered', async () => {
         const runtime = await loadFreshRuntime();
         await runtime.project.open(TestGlobalEnv.projectRoot);
@@ -166,7 +213,20 @@ describe('configuration metadata', () => {
         await runtime.pluginManager.register('web-mobile');
 
         const afterPlatformRegister = await runtime.getMetadata();
-        expect(findNode(afterPlatformRegister, 'builder.platforms.web-mobile')).toBeDefined();
+        const webMobileNode = findNode(afterPlatformRegister, 'builder.platforms.web-mobile');
+        const packageProperty = findProperty(webMobileNode, 'builder.platforms.web-mobile.packages.web-mobile');
+
+        expect(webMobileNode).toBeDefined();
+        expect(packageProperty.properties?.useWebGPU).toBeDefined();
+        expect(packageProperty.properties?.orientation).toBeDefined();
+        expect(packageProperty.properties?.embedWebDebugger).toBeDefined();
+        expect(packageProperty.properties?.platform).toBeUndefined();
+        expect(packageProperty.properties?.name).toBeUndefined();
+        expect(packageProperty.properties?.startScene).toBeUndefined();
+        expect(packageProperty.properties?.mainBundleCompressionType).toBeUndefined();
+        expect(packageProperty.properties?.polyfills).toBeUndefined();
+        expect(packageProperty.properties?.nativeCodeBundleMode).toBeUndefined();
+        expect(packageProperty.properties?.overwriteProjectSettings).toBeUndefined();
     });
 
     it('should expose import and script metadata only after those modules register themselves', async () => {
@@ -184,11 +244,29 @@ describe('configuration metadata', () => {
         const afterRegister = await runtime.getMetadata();
         const importNode = findNode(afterRegister, 'import');
         const scriptNode = findNode(afterRegister, 'script');
+        const sortingPluginProperty = findProperty(scriptNode, 'script.sortingPlugin');
+        const sortingPluginItemSchema = Array.isArray(sortingPluginProperty.items)
+            ? sortingPluginProperty.items[0]
+            : sortingPluginProperty.items;
 
         expect(findProperty(importNode, 'import.restoreAssetDBFromCache').type).toBe('boolean');
         expect(findProperty(importNode, 'import.fbx.material.smart').type).toBe('boolean');
         expect(importNode.properties['import.fbx']).toBeUndefined();
         expect(findProperty(scriptNode, 'script.useDefineForClassFields').type).toBe('boolean');
+        expect(sortingPluginProperty.type).toBe('array');
+        expect(sortingPluginProperty.default).toEqual([]);
+        expect(sortingPluginItemSchema).toMatchObject({
+            type: 'string',
+            ui: 'asset-picker',
+            assetType: 'cc.Script',
+            valueField: 'uuid',
+            displayFields: ['url', 'name'],
+            query: {
+                userData: {
+                    isPlugin: true,
+                },
+            },
+        });
     });
 
     it('should expose scene metadata only after the scene module registers itself', async () => {
@@ -259,6 +337,8 @@ describe('configuration metadata', () => {
         expect(findProperty(importNode, 'import.globList').description).toBe('资源导入 glob 匹配规则');
         expect(scriptNode.title).toBe('脚本');
         expect(findProperty(scriptNode, 'script.useDefineForClassFields').title).toBe('使用 defineProperty 定义类字段');
+        expect(findProperty(scriptNode, 'script.sortingPlugin').title).toBe('插件脚本排序配置');
+        expect(findProperty(scriptNode, 'script.sortingPlugin').description).toBe('插件脚本加载顺序配置，使用资源选择器选择插件脚本，配置文件中保存插件脚本 UUID。');
         expect(sceneTickNode.title).toBe('启用 Tick');
         expect(findProperty(sceneTickNode, 'scene.tick').title).toBe('启用 Tick');
         expect(findProperty(sceneTickNode, 'scene.tick').description).toBe('保持场景主循环运行');
@@ -282,6 +362,8 @@ describe('configuration metadata', () => {
 
         expect(findNode(zhNodes, 'script').title).toBe('脚本');
         expect(findNode(enNodes, 'script').title).toBe('Script');
+        expect(findProperty(findNode(zhNodes, 'script'), 'script.sortingPlugin').title).toBe('插件脚本排序配置');
+        expect(findProperty(findNode(enNodes, 'script'), 'script.sortingPlugin').title).toBe('Plugin Scripts Sorting Config');
         expect(findProperty(findNode(zhNodes, 'builder.common'), 'builder.common.platform').title).toBe('平台');
         expect(findProperty(findNode(enNodes, 'builder.common'), 'builder.common.platform').title).toBe('Platform');
         expect(findProperty(findNode(zhNodes, 'import'), 'import.globList').description).toBe('资源导入 glob 匹配规则');

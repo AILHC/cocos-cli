@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { getFixturePaths } from '@shared/fixture-paths';
+import { getCliIntegrationFixturePaths, getFixturePaths } from '@shared/fixture-paths';
 import { captureJsonAssetHttpRuntimeUrls, captureRepresentativeHttpRuntimeUrls } from '@shared/http-url-capture';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import { startRuntimePreviewServer } from '@runtime-preview/server/runtime-preview-server';
@@ -418,6 +418,77 @@ describe('runtime preview production asset routes', () => {
     } finally {
       await server.close();
     }
+  }, 120_000);
+
+  it('keeps runtime preview builtin assets browser-owned across Launcher engine initialization and browser config', async () => {
+    const paths = getCliIntegrationFixturePaths();
+    const repoRoot = join(process.cwd(), '..');
+    const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
+    const code = `
+      import Launcher from './src/core/launcher.ts';
+      import { Engine } from './src/core/engine/index.ts';
+
+      let cliNodeBuiltinAssetsState = 'not-captured';
+      const originalEngineInit = Engine.initEngine.bind(Engine);
+      Engine.initEngine = async function patchedEngineInit(info, onBeforeGameInit, onAfterGameInit) {
+        return originalEngineInit(info, async () => {
+          await onBeforeGameInit?.();
+          const originalGameInit = cc.game.init.bind(cc.game);
+          cc.game.init = async (config) => {
+            cc.game.init = originalGameInit;
+            cliNodeBuiltinAssetsState = typeof config?.overrideSettings?.engine?.builtinAssets;
+            return originalGameInit(config);
+          };
+        }, onAfterGameInit);
+      };
+
+      void (async () => {
+        const serverUrl = 'http://127.0.0.1:1/';
+        const launcher = new Launcher(process.env.COCOS_CLI_TEST_PROJECT_ROOT);
+        await launcher.init({ serverURL: serverUrl });
+        const browserConfig = await Engine.getGameConfig(serverUrl, serverUrl, serverUrl, true);
+        const browserBuiltinAssets = browserConfig.overrideSettings.engine.builtinAssets;
+        process.stdout.write('RESULT ' + JSON.stringify({
+          cliNodeBuiltinAssetsState,
+          browserBuiltinAssetCount: browserBuiltinAssets.length,
+          defaultPhysicsMaterialIncluded: browserBuiltinAssets.includes('ba21476f-2866-4f81-9c4d-6e359316e448'),
+        }) + '\\n');
+      })().catch((error) => {
+        process.stderr.write(String(error && (error.stack || error.message || error)) + '\\n');
+        process.exit(1);
+      });
+    `;
+
+    let stdout = '';
+    try {
+      ({ stdout } = await execFileAsync(process.execPath, [tsxCli, '-e', code], {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          COCOS_CLI_TEST_PROJECT_ROOT: paths.projectRoot,
+          COCOS_CLI_TEST_ENGINE_ROOT: paths.engineRoot,
+        },
+        timeout: 90_000,
+      }));
+    } catch (error: any) {
+      throw new Error([
+        error?.message,
+        'stdout:',
+        error?.stdout ?? '',
+        'stderr:',
+        error?.stderr ?? '',
+      ].join('\n'));
+    }
+    const resultLine = stdout.trim().split(/\r?\n/).find((line) => line.startsWith('RESULT '));
+    expect(resultLine).toBeTruthy();
+    const result = JSON.parse(resultLine!.slice('RESULT '.length)) as {
+      cliNodeBuiltinAssetsState: string;
+      browserBuiltinAssetCount: number;
+      defaultPhysicsMaterialIncluded: boolean;
+    };
+    expect(result.cliNodeBuiltinAssetsState).toBe('undefined');
+    expect(result.browserBuiltinAssetCount).toBeGreaterThan(0);
+    expect(result.defaultPhysicsMaterialIncluded).toBe(true);
   }, 120_000);
 
   it('starts the real Launcher runtime preview path and warms settings before browser settings requests', async () => {

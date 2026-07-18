@@ -1,32 +1,144 @@
-import type { IAssetMeta } from '../../src/core/assets/@types/public';
-import { assetManager } from '../../src/core/assets';
+const mockAssetManager = {
+    updateUserData: jest.fn(),
+    updateUserDataByPath: jest.fn(),
+    querySerializedData: jest.fn(),
+    saveSerializedData: jest.fn(),
+    queryPropertySchema: jest.fn(),
+    queryMaterialAllEffects: jest.fn(),
+    queryMaterialEffect: jest.fn(),
+    queryMaterial: jest.fn(),
+    saveMaterial: jest.fn(),
+};
+
+jest.mock('../../src/core/assets', () => ({
+    assetDBManager: {},
+    assetManager: mockAssetManager,
+}));
+
 import * as Assets from '../../src/lib/assets/assets';
 
 describe('lib assets api', () => {
     afterEach(() => {
-        jest.restoreAllMocks();
+        jest.clearAllMocks();
     });
 
-    it('exposes saveAssetMeta and delegates to assetManager', async () => {
-        const meta = {
-            ver: 'ver',
-            importer: 'database',
-            imported: true,
-            uuid: 'test-uuid',
-            files: [],
-            subMetas: {},
-            userData: {},
-        } as IAssetMeta;
-        const spy = jest.spyOn(assetManager, 'saveAssetMeta').mockResolvedValue(undefined);
-        const saveAssetMeta = (Assets as { saveAssetMeta?: typeof assetManager.saveAssetMeta }).saveAssetMeta;
+    it('does not expose saveAssetMeta from the public lib API', () => {
+        expect((Assets as { saveAssetMeta?: unknown }).saveAssetMeta).toBeUndefined();
+    });
 
-        expect(saveAssetMeta).toEqual(expect.any(Function));
+    it('does not expose updateAssetMetaUserData from the public lib API', () => {
+        expect((Assets as { updateAssetMetaUserData?: unknown }).updateAssetMetaUserData).toBeUndefined();
+    });
 
-        if (!saveAssetMeta) {
-            throw new Error('saveAssetMeta is not exposed from lib/assets/assets');
+    it('updateAssetUserData delegates complete userData replacement to assetManager', async () => {
+        const userData = { minfilter: 'nearest', wrapMode: 'clamp' };
+        const result = { ...userData };
+        mockAssetManager.updateUserData.mockResolvedValue(result);
+        const updateAssetUserData = (Assets as {
+            updateAssetUserData?: (
+                urlOrUuidOrPath: string,
+                userData: Record<string, unknown>
+            ) => Promise<unknown>;
+        }).updateAssetUserData;
+
+        expect(updateAssetUserData).toEqual(expect.any(Function));
+
+        if (!updateAssetUserData) {
+            throw new Error('updateAssetUserData is not exposed from lib/assets/assets');
         }
 
-        await expect(saveAssetMeta('test-uuid', meta)).resolves.toBeUndefined();
-        expect(spy).toHaveBeenCalledWith('test-uuid', meta);
+        await expect(updateAssetUserData('parent-uuid@6c48a', userData)).resolves.toBe(result);
+        expect(mockAssetManager.updateUserData).toHaveBeenCalledWith('parent-uuid@6c48a', userData);
+    });
+
+    it('updateAssetUserDataByPath delegates path updates to assetManager', async () => {
+        const result = { minfilter: 'nearest' };
+        mockAssetManager.updateUserDataByPath.mockResolvedValue(result);
+        const updateAssetUserDataByPath = (Assets as {
+            updateAssetUserDataByPath?: (
+                urlOrUuidOrPath: string,
+                path: string,
+                value: unknown
+            ) => Promise<unknown>;
+        }).updateAssetUserDataByPath;
+
+        expect(updateAssetUserDataByPath).toEqual(expect.any(Function));
+
+        if (!updateAssetUserDataByPath) {
+            throw new Error('updateAssetUserDataByPath is not exposed from lib/assets/assets');
+        }
+
+        await expect(updateAssetUserDataByPath('parent-uuid@6c48a', 'minfilter', 'nearest')).resolves.toBe(result);
+        expect(mockAssetManager.updateUserDataByPath).toHaveBeenCalledWith('parent-uuid@6c48a', 'minfilter', 'nearest');
+    });
+
+    it('exposes serializedData namespace and delegates query/save to assetManager', async () => {
+        const result = {
+            uuid: 'test-uuid',
+            url: 'db://assets/test.pmtl',
+            type: 'cc.PhysicsMaterial',
+            importer: 'physics-material',
+            dump: {},
+        };
+        mockAssetManager.querySerializedData.mockResolvedValue(result);
+        mockAssetManager.saveSerializedData.mockResolvedValue(result);
+
+        expect(Assets.serializedData.query).toEqual(expect.any(Function));
+        expect(Assets.serializedData.save).toEqual(expect.any(Function));
+
+        await expect(Assets.serializedData.query('test-uuid')).resolves.toEqual(result);
+        await expect(Assets.serializedData.save('test-uuid', {})).resolves.toEqual(result);
+        expect(mockAssetManager.querySerializedData).toHaveBeenCalledWith('test-uuid');
+        expect(mockAssetManager.saveSerializedData).toHaveBeenCalledWith('test-uuid', {});
+    });
+
+    it('exposes material namespace and delegates query/save to assetManager', async () => {
+        const effects = {
+            'effect-uuid': {
+                uuid: 'effect-uuid',
+                name: 'builtin-standard',
+                hideInEditor: false,
+                assetPath: 'db://internal/effects/builtin-standard.effect',
+            },
+        };
+        const effectDump = [{ name: 'default', passes: [] }];
+        const materialDump = {
+            effect: 'effect-uuid',
+            technique: 0,
+            data: effectDump,
+        };
+        mockAssetManager.queryMaterialAllEffects.mockResolvedValue(effects);
+        mockAssetManager.queryMaterialEffect.mockResolvedValue(effectDump);
+        mockAssetManager.queryMaterial.mockResolvedValue(materialDump);
+        mockAssetManager.saveMaterial.mockResolvedValue(undefined);
+
+        expect(Assets.material.query).toEqual(expect.any(Function));
+        expect(Assets.material.queryEffect).toEqual(expect.any(Function));
+        expect(Assets.material.queryAllEffects).toEqual(expect.any(Function));
+        expect(Assets.material.save).toEqual(expect.any(Function));
+
+        await expect(Assets.material.queryAllEffects()).resolves.toEqual(effects);
+        await expect(Assets.material.queryEffect('effect-uuid')).resolves.toEqual(effectDump);
+        await expect(Assets.material.query('material-uuid')).resolves.toEqual(materialDump);
+        await expect(Assets.material.save('material-uuid', materialDump)).resolves.toBeUndefined();
+
+        expect(mockAssetManager.queryMaterialAllEffects).toHaveBeenCalledWith();
+        expect(mockAssetManager.queryMaterialEffect).toHaveBeenCalledWith('effect-uuid');
+        expect(mockAssetManager.queryMaterial).toHaveBeenCalledWith('material-uuid');
+        expect(mockAssetManager.saveMaterial).toHaveBeenCalledWith('material-uuid', materialDump);
+    });
+
+    it('exposes queryPropertySchema and delegates to assetManager', async () => {
+        const schema = {
+            type: {
+                label: 'Import Type',
+                type: 'enum' as const,
+                default: 'sprite-frame',
+            },
+        };
+        mockAssetManager.queryPropertySchema.mockResolvedValue(schema);
+
+        await expect(Assets.queryPropertySchema('image')).resolves.toEqual(schema);
+        expect(mockAssetManager.queryPropertySchema).toHaveBeenCalledWith('image');
     });
 });

@@ -1,4 +1,4 @@
-import type { IUndoCommand, IUndoGroupOptions, IUndoRedoResult } from '../../../common';
+import type { IUndoCheckpoint, IUndoCommand, IUndoGroupOptions, IUndoOperationOptions, IUndoPushWithPreviousOptions, IUndoRedoResult, IUndoScope } from '../../../common';
 import { SceneUndoCommand, SceneUndoCommandID } from './undo-command';
 import { CompositeCommand } from './commands/composite-command';
 import { ISnapshotAdapter, SnapshotCommand } from './commands/snapshot-command';
@@ -9,6 +9,7 @@ interface ISceneUndoOption {
     label?: string;
     tag?: string;
     auto?: boolean;
+    scope?: IUndoScope;
     customCommand?: IUndoCommand;
 }
 
@@ -26,6 +27,7 @@ interface IActiveGroup {
 interface IActiveSnapshotRecording {
     id: string;
     label: string;
+    scope: IUndoScope;
     uuids: string[];
     before: Map<string, any> | Promise<Map<string, any>>;
 }
@@ -34,6 +36,7 @@ class SceneUndoManager {
     private _commandArray: IUndoCommand[] = [];
     private _index = -1;
     private _lastSavedCommandId: string | null = null;
+    private _checkpointGeneration = 0;
     private _autoCommands: SceneUndoCommand[] = [];
     private _manualCommands: SceneUndoCommand[] = [];
     private _snapshotRecordings: Map<string, IActiveSnapshotRecording> = new Map();
@@ -57,13 +60,54 @@ class SceneUndoManager {
         this._pushToStack(command);
     }
 
-    async undo(): Promise<IUndoRedoResult> {
+    pushWithPrevious(command: IUndoCommand, options: IUndoPushWithPreviousOptions): void {
+        if (this._activeGroup) {
+            this._activeGroup.children.push(command);
+            return;
+        }
+
+        if (this._index !== this._commandArray.length - 1) {
+            this._pushToStack(command);
+            return;
+        }
+
+        const previousCommands: IUndoCommand[] = [];
+        let previousIndex = this._index;
+        while (previousIndex >= 0) {
+            const previous = this._commandArray[previousIndex];
+            if (!previous || !matchesUndoScope(previous.meta.scope, options.previousScope) || !matchesUndoType(previous.meta.type, options.previousTypes)) {
+                break;
+            }
+            previousCommands.unshift(previous);
+            previousIndex--;
+        }
+
+        if (previousCommands.length === 0) {
+            this._pushToStack(command);
+            return;
+        }
+
+        this._commandArray.splice(previousIndex + 1, previousCommands.length);
+        this._index = previousIndex;
+        this._pushToStack(new CompositeCommand({
+            id: this._createId(options.type),
+            label: options.label ?? command.meta.label,
+            type: options.type,
+            scope: options.scope,
+            timestamp: Date.now(),
+        }, [...previousCommands, command]));
+    }
+
+    async undo(options?: IUndoOperationOptions): Promise<IUndoRedoResult> {
         return this._enqueue(async () => {
             if (this._index === -1) {
                 return { success: false, reason: 'Cannot undo' };
             }
             const command = this._commandArray[this._index];
             if (!command) {
+                return { success: false, reason: 'Cannot undo' };
+            }
+            if (!matchesUndoScope(command.meta.scope, options?.scope)) {
                 return { success: false, reason: 'Cannot undo' };
             }
             const result = await this._applyCommand(command, 'undo');
@@ -74,13 +118,16 @@ class SceneUndoManager {
         });
     }
 
-    async redo(): Promise<IUndoRedoResult> {
+    async redo(options?: IUndoOperationOptions): Promise<IUndoRedoResult> {
         return this._enqueue(async () => {
             if (this._index >= this._commandArray.length - 1) {
                 return { success: false, reason: 'Cannot redo' };
             }
             const command = this._commandArray[this._index + 1];
             if (!command) {
+                return { success: false, reason: 'Cannot redo' };
+            }
+            if (!matchesUndoScope(command.meta.scope, options?.scope)) {
                 return { success: false, reason: 'Cannot redo' };
             }
             const result = await this._applyCommand(command, 'redo');
@@ -95,6 +142,7 @@ class SceneUndoManager {
         this._commandArray.length = 0;
         this._index = -1;
         this._lastSavedCommandId = null;
+        this._checkpointGeneration++;
         this._autoCommands.length = 0;
         this._manualCommands.length = 0;
         this._snapshotRecordings.clear();
@@ -115,12 +163,24 @@ class SceneUndoManager {
         return this._lastSavedCommandId !== this._currentCommandId();
     }
 
-    canUndo(): boolean {
-        return this._index >= 0;
+    createCheckpoint(): IUndoCheckpoint {
+        return { commandId: this._currentCommandId(), generation: this._checkpointGeneration };
     }
 
-    canRedo(): boolean {
-        return this._index < this._commandArray.length - 1;
+    hasScopedDifference(checkpoint: IUndoCheckpoint, scope: Partial<IUndoScope>): boolean {
+        return this._hasDifferenceSince(checkpoint, command => matchesUndoScope(command.meta.scope, scope));
+    }
+
+    hasDifferenceOutsideScope(checkpoint: IUndoCheckpoint, scope: Partial<IUndoScope>): boolean {
+        return this._hasDifferenceSince(checkpoint, command => !matchesUndoScope(command.meta.scope, scope));
+    }
+
+    canUndo(options?: IUndoOperationOptions): boolean {
+        return this._index >= 0 && this._commandMatchesAt(this._index, options?.scope);
+    }
+
+    canRedo(options?: IUndoOperationOptions): boolean {
+        return this._index < this._commandArray.length - 1 && this._commandMatchesAt(this._index + 1, options?.scope);
     }
 
     isApplying(): boolean {
@@ -179,6 +239,11 @@ class SceneUndoManager {
         return [...this._commandArray];
     }
 
+    private _commandMatchesAt(index: number, scope?: Partial<IUndoScope>): boolean {
+        const command = this._commandArray[index];
+        return Boolean(command && matchesUndoScope(command.meta.scope, scope));
+    }
+
     hasActiveRecording(uuid?: string): boolean {
         if (uuid === undefined) {
             return this._snapshotRecordings.size > 0 || this._autoCommands.length > 0 || this._manualCommands.length > 0;
@@ -205,6 +270,7 @@ class SceneUndoManager {
             this._snapshotRecordings.set(id, {
                 id,
                 label: option.label ?? option.tag ?? id,
+                scope: option.scope ?? {},
                 uuids: [...uuidSet],
                 before: this._snapshotAdapter.capture([...uuidSet]),
             });
@@ -226,22 +292,25 @@ class SceneUndoManager {
     async endRecording(id: SceneUndoCommandID): Promise<boolean> {
         if (this._snapshotAdapter && this._snapshotRecordings.has(id)) {
             const recording = this._snapshotRecordings.get(id)!;
-            const before = isPromiseLike(recording.before) ? await recording.before : recording.before;
-            const capturedAfter = this._snapshotAdapter.capture(recording.uuids);
-            const after = isPromiseLike(capturedAfter) ? await capturedAfter : capturedAfter;
-            this._snapshotRecordings.delete(id);
-            this._removeActiveRecordingUuids(recording.uuids);
-            if (this._snapshotAdapter.equals(before, after)) {
-                return false;
+            try {
+                const before = isPromiseLike(recording.before) ? await recording.before : recording.before;
+                const capturedAfter = this._snapshotAdapter.capture(recording.uuids);
+                const after = isPromiseLike(capturedAfter) ? await capturedAfter : capturedAfter;
+                if (this._snapshotAdapter.equals(before, after)) {
+                    return false;
+                }
+                this.push(new SnapshotCommand({
+                    id,
+                    label: recording.label,
+                    type: 'recording:snapshot',
+                    scope: recording.scope,
+                    timestamp: Date.now(),
+                }, before, after, this._snapshotAdapter));
+                return true;
+            } finally {
+                this._snapshotRecordings.delete(id);
+                this._removeActiveRecordingUuids(recording.uuids);
             }
-            this.push(new SnapshotCommand({
-                id,
-                label: recording.label,
-                type: 'recording:snapshot',
-                scope: {},
-                timestamp: Date.now(),
-            }, before, after, this._snapshotAdapter));
-            return true;
         }
 
         const command = this._autoCommands.find(t => t.id === id) ??
@@ -340,6 +409,36 @@ class SceneUndoManager {
         return this._index === -1 ? null : this._commandArray[this._index]?.meta.id ?? null;
     }
 
+    private _hasDifferenceSince(checkpoint: IUndoCheckpoint, matches: (command: IUndoCommand) => boolean): boolean {
+        if (checkpoint.generation !== this._checkpointGeneration) {
+            return false;
+        }
+        const checkpointIndex = this._resolveCheckpointIndex(checkpoint);
+        if (checkpointIndex === undefined) {
+            return this._currentCommandId() !== checkpoint.commandId;
+        }
+        if (checkpointIndex === this._index) {
+            return false;
+        }
+        const start = Math.min(checkpointIndex, this._index) + 1;
+        const end = Math.max(checkpointIndex, this._index);
+        for (let i = start; i <= end; i++) {
+            const command = this._commandArray[i];
+            if (command && matches(command)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private _resolveCheckpointIndex(checkpoint: IUndoCheckpoint): number | undefined {
+        if (checkpoint.commandId === null) {
+            return -1;
+        }
+        const index = this._commandArray.findIndex(command => command.meta.id === checkpoint.commandId);
+        return index === -1 ? undefined : index;
+    }
+
     // 降级路径：仅在未注入 snapshotAdapter 时使用（主要是单测）。
     // 运行时 UndoService 始终注入 adapter，beginRecording/endRecording 走 snapshot 分支，不会到这里。
     private _createCommand(option: ISceneUndoOption): SceneUndoCommand {
@@ -371,7 +470,7 @@ class SceneUndoManager {
             id,
             label: command.tag || id,
             type: command.custom ? 'custom' : 'recording:snapshot',
-            scope: {},
+            scope: option.scope ?? {},
             timestamp: Date.now(),
         };
         return command;
@@ -449,6 +548,22 @@ class SceneUndoManager {
 
 function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
     return !!value && typeof (value as Promise<T>).then === 'function';
+}
+
+function matchesUndoScope(commandScope: IUndoScope, expectedScope?: Partial<IUndoScope>): boolean {
+    if (!expectedScope) {
+        return true;
+    }
+    for (const [key, value] of Object.entries(expectedScope) as [keyof IUndoScope, unknown][]) {
+        if (value !== undefined && commandScope[key] !== value) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function matchesUndoType(commandType: string, expectedTypes?: string[]): boolean {
+    return !expectedTypes || expectedTypes.includes(commandType);
 }
 
 export { SceneUndoManager, ISceneUndoOption };

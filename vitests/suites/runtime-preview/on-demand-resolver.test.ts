@@ -107,6 +107,51 @@ describe('runtime preview on-demand resolvers', () => {
     expect(resolved?.absolutePath).toBe(join(projectLibraryRoot, 'bb', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.json'));
   });
 
+  it('serves canonical root library artifacts generated from empty engine bases', async () => {
+    const { context, projectLibraryRoot, internalLibraryRoot } = await createResolverFixture();
+    const jsonTail = '97/970b0598-bcb0-4714-91fb-2e81440dccd8.json';
+    const subAssetTail = '21/21a3957d-d7e1-4fdb-8903-c63948195ada@b47c0@40c10.bin';
+    const versionedNativeTail = 'cc/cccccccc-cccc-4ccc-8ccc-cccccccccccc.a12bc.png';
+    const ttfTail = 'dd/dddddddd-dddd-4ddd-8ddd-dddddddddddd.9a8b7/font.ttf';
+    await createLibraryFile(projectLibraryRoot, jsonTail, '{"root":true}');
+    await createLibraryFile(projectLibraryRoot, subAssetTail, 'subasset');
+    await createLibraryFile(projectLibraryRoot, versionedNativeTail, 'native');
+    await createLibraryFile(internalLibraryRoot, ttfTail, 'font');
+
+    await expect(resolveLibraryRequest(context, `/${jsonTail}`)).resolves.toEqual({
+      absolutePath: join(projectLibraryRoot, ...jsonTail.split('/')),
+    });
+    await expect(resolveLibraryRequest(context, `/${subAssetTail}`)).resolves.toEqual({
+      absolutePath: join(projectLibraryRoot, ...subAssetTail.split('/')),
+    });
+    await expect(resolveLibraryRequest(context, `/${versionedNativeTail}`)).resolves.toEqual({
+      absolutePath: join(projectLibraryRoot, ...versionedNativeTail.split('/')),
+    });
+    await expect(resolveLibraryRequest(context, `/${ttfTail}`)).resolves.toEqual({
+      absolutePath: join(internalLibraryRoot, ...ttfTail.split('/')),
+    });
+  });
+
+  it('keeps canonical root library requests inside the engine URL contract', async () => {
+    const { context, projectLibraryRoot } = await createResolverFixture();
+    const wrongShard = 'aa/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.json';
+    const arbitraryFile = 'aa/arbitrary.json';
+    const arbitraryNestedFile = 'aa/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/texture.png';
+    const nonTtfNestedFile = 'aa/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/__original-animation-0.cconb';
+    const rootMetadata = '.internal-data.json';
+    for (const tail of [wrongShard, arbitraryFile, arbitraryNestedFile, nonTtfNestedFile, rootMetadata]) {
+      await createLibraryFile(projectLibraryRoot, tail, 'must-not-be-served');
+    }
+
+    await expect(resolveLibraryRequest(context, `/${wrongShard}`)).resolves.toBeNull();
+    await expect(resolveLibraryRequest(context, `/${arbitraryFile}`)).resolves.toBeNull();
+    await expect(resolveLibraryRequest(context, `/${arbitraryNestedFile}`)).resolves.toBeNull();
+    await expect(resolveLibraryRequest(context, `/${nonTtfNestedFile}`)).resolves.toBeNull();
+    await expect(resolveLibraryRequest(context, `/${rootMetadata}`)).resolves.toBeNull();
+    await expect(resolveLibraryRequest(context, '/aa/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/%2e%2e/secret.ttf')).resolves.toBeNull();
+    await expect(resolveLibraryRequest(context, '/aa/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa%5cfont.ttf')).resolves.toBeNull();
+  });
+
   it('does not enter library file lookup for import or native base URLs', async () => {
     const { context } = await createResolverFixture();
 
@@ -132,6 +177,23 @@ describe('runtime preview on-demand resolvers', () => {
     await expect(resolveLibraryRequest(context, uncapturedRoute)).resolves.toEqual({
       absolutePath: join(projectLibraryRoot, 'ff', 'ffffffff-ffff-4fff-8fff-ffffffffffff.json'),
     });
+  });
+
+  it('applies the captured URL allowlist exactly to canonical root requests', async () => {
+    const { context, projectLibraryRoot } = await createResolverFixture();
+    const allowedRoute = '/ee/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.json';
+    const uncapturedRoute = '/ff/ffffffff-ffff-4fff-8fff-ffffffffffff.json';
+    await createLibraryFile(projectLibraryRoot, allowedRoute.slice(1), '{"allowed":true}');
+    await createLibraryFile(projectLibraryRoot, uncapturedRoute.slice(1), '{"uncaptured":true}');
+
+    await expect(resolveLibraryRequest(context, allowedRoute, {
+      allowedRequestPaths: [allowedRoute],
+    })).resolves.toEqual({
+      absolutePath: join(projectLibraryRoot, 'ee', 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.json'),
+    });
+    await expect(resolveLibraryRequest(context, uncapturedRoute, {
+      allowedRequestPaths: [allowedRoute],
+    })).resolves.toBeNull();
   });
 
   it('rejects decoded traversal, backslash, drive, and absolute tails', async () => {

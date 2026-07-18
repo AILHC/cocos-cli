@@ -77,43 +77,23 @@ describe('SceneConfig', () => {
         });
     });
 
-    describe('set + get - write then read back', () => {
-        it('should update tick value', async () => {
-            await sceneConfigInstance.set('tick', true);
-            expect(await sceneConfigInstance.get('tick')).toBe(true);
-        });
-
-        it('should update nested camera property', async () => {
-            await sceneConfigInstance.set('camera.fov', 60);
-            expect(await sceneConfigInstance.get('camera.fov')).toBe(60);
-        });
-
-        it('should update gizmo boolean flag', async () => {
-            await sceneConfigInstance.set('gizmo.is2D', true);
-            expect(await sceneConfigInstance.get('gizmo.is2D')).toBe(true);
-        });
-
-        it('should update gizmo viewMode', async () => {
-            await sceneConfigInstance.set('gizmo.viewMode', 'view');
-            expect(await sceneConfigInstance.get('gizmo.viewMode')).toBe('view');
-        });
-
-        it('should update gizmo snapConfigs as a whole object', async () => {
-            const newSnapConfigs = {
+    describe('project writes', () => {
+        it.each([
+            ['tick', true],
+            ['camera.fov', 60],
+            ['gizmo.is2D', true],
+            ['gizmo.viewMode', 'view'],
+            ['gizmo.snapConfigs', {
                 position: { x: 2, y: 2, z: 2 },
                 rotation: 15,
                 scale: 0.5,
                 isPositionSnapEnabled: true,
                 isRotationSnapEnabled: true,
                 isScaleSnapEnabled: false,
-            };
-            await sceneConfigInstance.set('gizmo.snapConfigs', newSnapConfigs);
-            expect(await sceneConfigInstance.get('gizmo.snapConfigs')).toEqual(newSnapConfigs);
-        });
-
-        it('should update sceneView config', async () => {
-            await sceneConfigInstance.set('sceneView.sceneLightOn', false);
-            expect(await sceneConfigInstance.get('sceneView.sceneLightOn')).toBe(false);
+            }],
+            ['sceneView.sceneLightOn', false],
+        ])('should reject CLI persistence for Editor-owned path %s', async (path, value) => {
+            await expect(sceneConfigInstance.set(path, value)).rejects.toThrow('maintained by Cocos Creator Editor');
         });
     });
 
@@ -123,9 +103,9 @@ describe('SceneConfig', () => {
             expect(await sceneConfigInstance.get('tick', 'default')).toBe(true);
         });
 
-        it('should write to project scope and read back', async () => {
-            await sceneConfigInstance.set('camera.fov', 90, 'project');
-            expect(await sceneConfigInstance.get('camera.fov', 'project')).toBe(90);
+        it('should reject explicit project scope for Editor-owned config', async () => {
+            await expect(sceneConfigInstance.set('camera.fov', 90, 'project'))
+                .rejects.toThrow('maintained by Cocos Creator Editor');
             expect(await sceneConfigInstance.get('camera.fov', 'default')).toBe(45);
         });
     });

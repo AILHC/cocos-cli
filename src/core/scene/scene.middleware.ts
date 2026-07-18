@@ -61,12 +61,15 @@ export default {
             },
         },
         {
-            url: /^\/query-extname\/(.+)$/,
+            // Keep this scene-specific path distinct from the preview scripting
+            // route, whose legacy extension policy is registered earlier.
+            url: /^\/scene\/query-extname\/(.+)$/,
             async handler(req: Request, res: Response) {
                 const uuid = req.params[0];
                 const { assetManager } = await import('../assets');
                 const assetInfo = assetManager.queryAssetInfo(uuid);
-                if (assetInfo && assetInfo.library['.bin'] && Object.keys(assetInfo.library).length === 1) {
+                if (assetInfo?.library?.['.cconb']
+                    || (assetInfo?.library?.['.bin'] && !assetInfo.library['.json'])) {
                     res.status(200).send('.cconb');
                 } else {
                     res.status(200).send('');
@@ -110,7 +113,7 @@ export default {
                 const { uuid, ext, nativeName } = req.params;
                 const { assetManager } = await import('../assets');
                 const assetInfo = assetManager.queryAssetInfo(uuid);
-                const filePath = assetInfo && assetInfo.library[`${nativeName}.${ext}`];
+                const filePath = assetInfo?.library?.[`${nativeName}.${ext}`];
                 if (!filePath) {
                     console.warn(`Asset not found: ${req.url}`);
                     return res.status(404).json({
@@ -150,7 +153,11 @@ export default {
                 const { uuid, ext } = req.params;
                 const { assetManager } = await import('../assets');
                 const assetInfo = assetManager.queryAssetInfo(uuid);
-                const filePath = assetInfo && assetInfo.library[`.${ext}`];
+                const library = assetInfo?.library;
+                const libraryKey = ext === 'bin' && !library?.['.bin'] && library?.['.cconb']
+                    ? '.cconb'
+                    : `.${ext}`;
+                const filePath = library?.[libraryKey];
                 if (!filePath) {
                     console.warn(`Asset not found: ${req.url}`);
                     return res.status(404).json({

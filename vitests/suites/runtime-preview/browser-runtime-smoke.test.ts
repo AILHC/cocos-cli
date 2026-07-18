@@ -25,7 +25,7 @@ describe('runtime preview browser runtime smoke', () => {
   it('opens production root and waits for browser ready after a real resources.load marker', async () => {
     const paths = getFixturePaths();
     const { config, samples } = await buildEditorLibraryResourcesBundle(paths.editorLibraryRef, { buildFileIndex: false });
-    const internalBundle = await buildEditorLibraryInternalBundle(paths.engineRoot);
+    const internalBundle = await buildEditorLibraryInternalBundle(paths.engineRoot, paths.editorLibraryRef);
     const evidenceFilePath = join(paths.projectRoot, 'temp', 'runtime-preview-browser-smoke-evidence.json');
 
     expect(samples.jsonAsset?.resourcePath).toBeTruthy();
@@ -37,7 +37,7 @@ describe('runtime preview browser runtime smoke', () => {
       projectLibraryRoot: paths.editorLibraryRef,
       projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
       cliProgrammingRoot: join(paths.projectRoot, 'temp', 'cli', 'programming'),
-      internalLibraryRoot: join(paths.engineRoot, 'editor', 'library'),
+      internalLibraryRoot: paths.editorLibraryRef,
       host: '127.0.0.1',
       port: 0,
       settingsProvider: new PreviewSettingsProvider({

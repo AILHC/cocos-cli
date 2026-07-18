@@ -1,7 +1,9 @@
 import { Node } from 'cc';
 import { NodeEventType, type IUndoCommandMeta, type IUndoRedoResult } from '../../../../common';
+import { Service } from '../../core';
 import nodeMgr from '../../node/index';
 import { editorPrefabUtils } from '../../prefab/prefab-editor-utils';
+import { prefabUtils } from '../../prefab/utils';
 import {
     createUndoId,
     success,
@@ -17,6 +19,8 @@ export { success, failure } from './command-utils-shared';
 export interface INodeUuidSnapshot {
     uuid: string;
     componentUuids: string[];
+    mountedRootUuid: string | null;
+    componentMountedRootUuids: Array<string | null>;
     children: INodeUuidSnapshot[];
 }
 
@@ -27,6 +31,8 @@ export interface INodeStructureSnapshot {
     parentPath: string;
     siblingIndex: number;
     serializedJson: string;
+    serialization: ResolvedNodeStructureSerialization;
+    prefabAssetUuid?: string;
     /** 子树 uuid 树（前序遍历的树根），用于 deserialize 后修复整棵树的 uuid */
     uuidTree: INodeUuidSnapshot;
 }
@@ -34,6 +40,13 @@ export interface INodeStructureSnapshot {
 export interface INodeStructureCaptureTarget {
     node: Node;
     path?: string;
+}
+
+export type NodeStructureSerialization = 'auto' | 'node' | 'prefab';
+export type ResolvedNodeStructureSerialization = Exclude<NodeStructureSerialization, 'auto'>;
+
+export interface INodeStructureCaptureOptions {
+    serialization?: NodeStructureSerialization;
 }
 
 export function createNodeCommandMeta(type: string, label: string): IUndoCommandMeta {
@@ -46,15 +59,20 @@ export function createNodeCommandMeta(type: string, label: string): IUndoCommand
     };
 }
 
-export function captureNodeStructureSnapshot(node: Node, fallbackPath = ''): INodeStructureSnapshot | null {
+export function captureNodeStructureSnapshot(
+    node: Node,
+    fallbackPath = '',
+    options: INodeStructureCaptureOptions = {},
+): INodeStructureSnapshot | null {
     if (!node?.isValid) {
         return null;
     }
 
     const parent = node.parent as Node | null;
     let serializedJson = '';
+    const serialization = resolveNodeStructureSerialization(node, options.serialization ?? 'auto');
     try {
-        serializedJson = editorPrefabUtils.serialize(node);
+        serializedJson = serializeNodeStructure(node, serialization);
         if (!serializedJson) {
             return null;
         }
@@ -62,21 +80,54 @@ export function captureNodeStructureSnapshot(node: Node, fallbackPath = ''): INo
         return null;
     }
 
-    return {
+    const snapshot: INodeStructureSnapshot = {
         uuid: node.uuid,
         path: getNodePath(node) || fallbackPath,
         parentUuid: parent?.uuid ?? null,
         parentPath: parent ? getNodePath(parent) : '/',
         siblingIndex: node.getSiblingIndex(),
         serializedJson,
+        serialization,
+        prefabAssetUuid: getPrefabAssetUuid(node),
         uuidTree: captureUuidTree(node),
     };
+
+    return snapshot;
+}
+
+function serializeNodeStructure(node: Node, serialization: ResolvedNodeStructureSerialization): string {
+    const serialized = serialization === 'prefab'
+        ? editorPrefabUtils.serialize(node)
+        : EditorExtends.serialize(node);
+    return typeof serialized === 'string' ? serialized : JSON.stringify(serialized);
+}
+
+function resolveNodeStructureSerialization(
+    node: Node,
+    serialization: NodeStructureSerialization,
+): ResolvedNodeStructureSerialization {
+    if (serialization !== 'auto') {
+        return serialization;
+    }
+    return hasPrefabData(node) ? 'prefab' : 'node';
+}
+
+function hasPrefabData(node: Node): boolean {
+    if (node['_prefab']) {
+        return true;
+    }
+
+    return (node.children ?? []).some(child => hasPrefabData(child));
 }
 
 function captureUuidTree(node: Node): INodeUuidSnapshot {
     return {
         uuid: node.uuid,
         componentUuids: (node.components ?? []).map(c => c.uuid).filter(Boolean),
+        mountedRootUuid: prefabUtils.getMountedRoot(node)?.uuid ?? null,
+        componentMountedRootUuids: (node.components ?? []).map(component => (
+            prefabUtils.getMountedRoot(component)?.uuid ?? null
+        )),
         children: (node.children ?? []).map(child => captureUuidTree(child)),
     };
 }
@@ -97,6 +148,7 @@ export async function restoreNodeStructureSnapshot(snapshot: INodeStructureSnaps
     }
 
     try {
+        await relinkPrefabAsset(restoredNode, snapshot);
         nodeMgr.emit('node:before-add', restoredNode);
         nodeMgr.emit('node:before-change', parent);
 
@@ -105,6 +157,7 @@ export async function restoreNodeStructureSnapshot(snapshot: INodeStructureSnaps
             restoredNode.setSiblingIndex(snapshot.siblingIndex);
         }
         restoreSubtreeUuids(restoredNode, snapshot.uuidTree);
+        restoreSubtreeMountedRoots(restoredNode, snapshot.uuidTree);
 
         nodeMgr.emit('node:add', restoredNode);
         nodeMgr.emit('node:change', parent, { source: 'undo', type: NodeEventType.CHILD_CHANGED });
@@ -112,6 +165,27 @@ export async function restoreNodeStructureSnapshot(snapshot: INodeStructureSnaps
     } catch (error) {
         return failure(meta, error instanceof Error ? error.message : String(error));
     }
+}
+
+function getPrefabAssetUuid(node: Node): string | undefined {
+    const prefabInfo = node['_prefab'];
+    if (!prefabInfo?.instance) {
+        return undefined;
+    }
+
+    const asset = prefabInfo.asset as { _uuid?: string; uuid?: string } | undefined;
+    return asset?._uuid || asset?.uuid || undefined;
+}
+
+async function relinkPrefabAsset(node: Node, snapshot: INodeStructureSnapshot): Promise<void> {
+    if (!snapshot.prefabAssetUuid) {
+        return;
+    }
+
+    const prefabService = Service.Prefab as unknown as {
+        linkNodeWithPrefabAsset: (node: Node, assetUuid: string) => Promise<void>;
+    };
+    await prefabService.linkNodeWithPrefabAsset(node, snapshot.prefabAssetUuid);
 }
 
 export function removeNodeStructureSnapshot(
@@ -203,6 +277,29 @@ function restoreSubtreeUuids(node: Node, snapshot: INodeUuidSnapshot): void {
     }
 }
 
+function restoreSubtreeMountedRoots(node: Node, snapshot: INodeUuidSnapshot): void {
+    prefabUtils.setMountedRoot(node, findMountedRoot(snapshot.mountedRootUuid));
+
+    const components = node.components ?? [];
+    for (let i = 0; i < components.length && i < snapshot.componentMountedRootUuids.length; i++) {
+        prefabUtils.setMountedRoot(components[i], findMountedRoot(snapshot.componentMountedRootUuids[i]));
+    }
+
+    const children = node.children ?? [];
+    for (let i = 0; i < children.length && i < snapshot.children.length; i++) {
+        restoreSubtreeMountedRoots(children[i], snapshot.children[i]);
+    }
+}
+
+function findMountedRoot(uuid: string | null): Node | undefined {
+    if (!uuid) {
+        return undefined;
+    }
+
+    const node = getEditorNodeManager()?.getNode?.(uuid) as Node | null;
+    return isNodeInCurrentScene(node) ? node : undefined;
+}
+
 function unregisterNodeTree(node: Node): void {
     const editorNode = getEditorNodeManager();
     const editorComponent = getEditorExtends()?.Component;
@@ -222,7 +319,33 @@ function unregisterNodeTree(node: Node): void {
     }
 }
 
-function deserializeNode(snapshot: INodeStructureSnapshot): Promise<Node | null> {
+async function deserializeNode(snapshot: INodeStructureSnapshot): Promise<Node | null> {
+    let json: unknown;
+    try {
+        json = JSON.parse(snapshot.serializedJson);
+    } catch (_error) {
+        return null;
+    }
+
+    if (snapshot.serialization === 'node') {
+        try {
+            const deserializeFull = getEditorExtends()?.deserializeFull?.deserializeFull;
+            if (typeof deserializeFull !== 'function') {
+                return null;
+            }
+            const node = await deserializeFull(json);
+            if (!(node instanceof Node)) {
+                return null;
+            }
+            if (node.parent) {
+                node.setParent(null);
+            }
+            return node;
+        } catch (_error) {
+            return null;
+        }
+    }
+
     return new Promise((resolve) => {
         try {
             const loadWithJson = (cc as any).assetManager?.loadWithJson;
@@ -231,7 +354,6 @@ function deserializeNode(snapshot: INodeStructureSnapshot): Promise<Node | null>
                 return;
             }
 
-            const json = JSON.parse(snapshot.serializedJson);
             loadWithJson.call((cc as any).assetManager, json, null, (error: Error | null, asset: any) => {
                 if (error) {
                     resolve(null);

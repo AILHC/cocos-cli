@@ -747,31 +747,6 @@ describe('engine editor i18n - _loadEngineI18n 加载测试', () => {
         });
     });
 
-    // ========== modules/terrain ==========
-    describe('modules/terrain - 精确值测试', () => {
-        test('Terrain 英文', () => {
-            i18n.setLanguage('en');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties._asset.tooltip' as any)).toBe('The terrain asset.');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.effectAsset.tooltip' as any)).toBe('The terrain effect asset.');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.receiveShadow.tooltip' as any)).toBe('Receive shadow.');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.useNormalMap.tooltip' as any)).toBe('Use normal map.');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.usePBR.tooltip' as any)).toBe('Use pbr material.');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.lodEnable.tooltip' as any)).toBe('Enable lod.');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.LodBias.tooltip' as any)).toBe('Lod bias.');
-        });
-
-        test('Terrain 中文', () => {
-            i18n.setLanguage('zh');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties._asset.tooltip' as any)).toBe('地形所使用的资源。');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.effectAsset.tooltip' as any)).toBe('地形特效资源。');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.receiveShadow.tooltip' as any)).toBe('是否接受阴影。');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.useNormalMap.tooltip' as any)).toBe('是否使用法线贴图。');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.usePBR.tooltip' as any)).toBe('是否使用物理材质。');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.lodEnable.tooltip' as any)).toBe('是否允许 lod。');
-            expect(i18n.t('ENGINE.classes.cc.Terrain.properties.LodBias.tooltip' as any)).toBe('Lod 偏移距离。');
-        });
-    });
-
     // ========== modules/ui ==========
     describe('modules/ui - 精确值测试', () => {
         test('UIRenderer 英文', () => {
@@ -864,7 +839,6 @@ describe('engine editor i18n - _loadEngineI18n 加载测试', () => {
             { name: 'en/localization.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/en/localization.js') },
             { name: 'en/modules/physics.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/en/modules/physics.js') },
             { name: 'en/modules/rendering.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/en/modules/rendering.js') },
-            { name: 'en/modules/terrain.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/en/modules/terrain.js') },
             { name: 'en/modules/ui.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/en/modules/ui.js') },
         ];
 
@@ -875,7 +849,6 @@ describe('engine editor i18n - _loadEngineI18n 加载测试', () => {
             { name: 'zh/localization.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/zh/localization.js') },
             { name: 'zh/modules/physics.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/zh/modules/physics.js') },
             { name: 'zh/modules/rendering.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/zh/modules/rendering.js') },
-            { name: 'zh/modules/terrain.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/zh/modules/terrain.js') },
             { name: 'zh/modules/ui.js', file: path.resolve(ENGINE_PATH, 'editor/i18n/zh/modules/ui.js') },
         ];
 

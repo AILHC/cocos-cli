@@ -161,6 +161,62 @@ export const SchemaSourcePath = z.string().min(1).describe('Source file path, lo
 export const SchemaSaveAssetPath = SchemaUrlOrUUIDOrPath.describe('Required existing asset URL, UUID, or file path to save. This must refer to an asset that already exists in the asset database.'); // 保存已有资源时使用的 URL、UUID 或文件路径
 export const SchemaAssetData = z.string().min(1).describe('Required complete file content to save. Do not omit this field, pass an empty string, or pass partial/truncated script content.'); // 要保存的完整资源数据
 
+// Serialized asset data related // 序列化资源数据相关
+export const SchemaSerializedAssetProperty: z.ZodType<any> = z.lazy(() => z.object({
+    name: z.string().optional().describe('Property name'), // 属性名
+    value: z.any().describe('Property value or nested property map'), // 属性值或嵌套属性映射
+    default: z.any().optional().describe('Default value'), // 默认值
+    type: z.string().optional().describe('Cocos class or value type'), // Cocos 类或值类型
+    path: z.string().optional().describe('Dump property path'), // dump 属性路径
+    readonly: z.boolean().optional().describe('Whether property is read-only'), // 是否只读
+    visible: z.boolean().optional().describe('Whether property is visible'), // 是否可见
+    isArray: z.boolean().optional().describe('Whether property value is an array'), // 是否数组
+    enumList: z.array(z.unknown()).optional().describe('Enum option list'), // 枚举选项列表
+    optionalTypes: z.array(z.string()).optional().describe('Optional concrete types for variable type properties'), // 可变类型的可选类型列表
+    elementTypeData: z.lazy(() => SchemaSerializedAssetProperty).optional().describe('Default dump data for array elements'), // 数组元素默认 dump
+}).passthrough().describe('Creator-compatible serialized asset IProperty dump'));
+
+export const SchemaSerializedAssetDump = z.union([
+    z.record(z.string(), SchemaSerializedAssetProperty),
+    SchemaSerializedAssetProperty,
+]).describe('Creator-compatible serialized asset dump. PhysicsMaterial returns a property map, RenderPipeline returns a top-level IProperty.');
+
+export const SchemaSerializedAssetPatch = z.union([
+    SchemaSerializedAssetDump,
+    z.record(z.string(), z.any()),
+]).describe('Serialized asset patch. Prefer IProperty or full dump patches; raw value maps are accepted only for convenience.');
+
+// Material API related // Material API 相关
+export const SchemaMaterialEffectNameOrUuid = z.string().min(1).describe('Effect UUID, asset URL/path, or effect name');
+export const SchemaMaterialEffectInfo = z.object({
+    uuid: z.string().min(1).describe('Effect asset UUID'),
+    name: z.string().describe('Effect name'),
+    hideInEditor: z.boolean().optional().describe('Whether this effect should be hidden in editor UI'),
+    assetPath: z.string().describe('Effect asset file path or URL'),
+}).describe('Material effect list item');
+
+export const SchemaMaterialPassDump = z.object({
+    index: z.number().int().nonnegative().describe('Pass index'),
+    name: z.string().optional().describe('Pass name'),
+    phase: z.string().optional().describe('Render phase'),
+    switch: SchemaSerializedAssetProperty.optional().describe('Pass switch define dump'),
+    propertyIndex: SchemaSerializedAssetProperty.describe('Property source pass index dump'),
+    props: z.array(SchemaSerializedAssetProperty).describe('Material property dumps'),
+    defines: z.array(SchemaSerializedAssetProperty).describe('Material define dumps'),
+    states: SchemaSerializedAssetProperty.describe('Pipeline state dump'),
+}).describe('Material pass dump');
+
+export const SchemaMaterialTechniqueDump = z.object({
+    name: z.string().optional().describe('Technique name'),
+    passes: z.array(SchemaMaterialPassDump).describe('Technique pass dumps'),
+}).describe('Material technique dump');
+
+export const SchemaMaterialDump = z.object({
+    effect: z.string().min(1).describe('Referenced effect UUID'),
+    technique: z.number().int().nonnegative().describe('Selected technique index'),
+    data: z.array(SchemaMaterialTechniqueDump).describe('Technique dump list'),
+}).describe('Creator-compatible Material dump');
+
 // Return value Schema // 返回值 Schema
 export const SchemaAssetInfoResult = SchemaAssetInfo.nullable().describe('Asset detailed information object, including name, type, path, UUID, etc.'); // 资源详细信息对象，包含名称、类型、路径、UUID 等字段
 export const SchemaAssetMetaResult = SchemaAssetMeta.nullable().describe('Asset metadata object, including import configuration, user data, etc.'); // 资源元数据对象，包含导入配置、用户数据等
@@ -171,10 +227,36 @@ export const SchemaCreatedAssetResult = SchemaAssetInfo.nullable().describe('Cre
 export const SchemaImportedAssetResult = z.array(SchemaAssetInfo).describe('Imported asset information array, includes folder and all its sub-assets information when importing folder'); // 导入的资源信息数组，当导入文件夹时会包含文件夹及其所有子资源的信息
 export const SchemaReimportResult = SchemaAssetInfo.nullable().describe('Re-import operation result'); // 重新导入操作结果
 export const SchemaSaveAssetResult = SchemaAssetInfo.nullable().describe('Asset information object after saving asset'); // 保存资源后的资源信息对象
+export const SchemaSerializedAssetResult = z.object({
+    uuid: z.string().describe('Asset UUID'), // 资源 UUID
+    url: z.string().describe('Asset db URL'), // 资源 db URL
+    type: z.string().describe('Cocos asset type'), // Cocos 资源类型
+    importer: z.string().describe('Asset importer name'), // 资源导入器名称
+    dump: SchemaSerializedAssetDump.describe('Creator-compatible raw dump'), // Creator 兼容 raw dump
+}).nullable().describe('Serialized asset query/save result'); // 序列化资源 query/save 结果
+export const SchemaMaterialEffectsResult = z.record(z.string(), SchemaMaterialEffectInfo).describe('Available material effects keyed by effect UUID');
+export const SchemaMaterialEffectResult = z.array(SchemaMaterialTechniqueDump).describe('Material effect technique dump list');
+export const SchemaMaterialResult = SchemaMaterialDump.describe('Material dump result');
 export const SchemaRefreshDirResult = z.null().describe('Refresh asset directory result'); // 刷新资源目录结果
 export const SchemaUUIDResult = z.string().nullable().describe('Unique identifier UUID of the asset'); // 资源的唯一标识符 UUID
 export const SchemaPathResult = z.string().nullable().describe('File system path of the asset'); // 资源的文件系统路径
 export const SchemaUrlResult = z.string().nullable().describe('Database URL address of the asset'); // 资源的数据库 URL 地址
+export const SchemaAnimationMaskJoint: z.ZodType<any> = z.lazy(() => z.object({
+    path: z.string().min(1).describe('Joint path relative to the skeleton root, for example "spine/leftArm"'), // 相对骨骼根节点的关节路径
+    enabled: z.boolean().describe('Whether this joint is enabled in the animation mask'), // 关节是否启用
+    children: z.array(SchemaAnimationMaskJoint).optional().describe('Child joint masks'), // 子关节遮罩
+}));
+export const SchemaAnimationMaskDump = z.object({
+    version: z.literal(1).describe('Animation mask DTO schema version'), // DTO 版本
+    assetUuid: z.string().min(1).describe('AnimationMask asset UUID'), // AnimationMask 资源 UUID
+    joints: z.array(SchemaAnimationMaskJoint).describe('Animation mask joint tree'), // 关节遮罩树
+}).describe('Stable AnimationMask DTO for panel and CLI consumption'); // 面板/CLI 专用稳定 AnimationMask DTO
+export const SchemaAnimationMaskChanges = z.array(z.object({
+    path: z.string().min(1).describe('Joint path to update'), // 要更新的关节路径
+    enabled: z.boolean().describe('New enabled state'), // 新的启用状态
+    recursive: z.boolean().optional().describe('Whether to apply the change to descendant joint paths. Defaults to false.'), // 是否递归更新子树
+})).describe('AnimationMask path patch list'); // AnimationMask 路径 patch 列表
+export const SchemaVoidResult = z.null().describe('No result data'); // 无返回数据
 
 // Asset operation related // 资源操作相关
 export const SchemaQueryAssetType = z.enum(['asset', 'script', 'all']).describe('Query asset type: asset (normal asset), script (script), all (all)'); // 查询资源类型：asset(普通资源)、script(脚本)、all(全部)
@@ -226,6 +308,9 @@ export type TAssetNewName = z.infer<typeof SchemaAssetNewName>;
 export type TAssetOperationOption = z.infer<typeof SchemaAssetOperationOption> | undefined;
 export type TSourcePath = z.infer<typeof SchemaSourcePath>;
 export type TAssetData = z.infer<typeof SchemaAssetData>;
+export type TSerializedAssetPatch = z.infer<typeof SchemaSerializedAssetPatch>;
+export type TMaterialEffectNameOrUuid = z.infer<typeof SchemaMaterialEffectNameOrUuid>;
+export type TMaterialDump = z.infer<typeof SchemaMaterialDump>;
 export type TAssetInfoResult = z.infer<typeof SchemaAssetInfoResult>;
 export type TAssetMetaResult = z.infer<typeof SchemaAssetMetaResult>;
 export type TCreateMapResult = z.infer<typeof SchemaCreateMapResult>;
@@ -237,10 +322,17 @@ export type TCreateAssetOptions = z.infer<typeof SchemaCreateAssetOptions>;
 export type TImportedAssetResult = z.infer<typeof SchemaImportedAssetResult>;
 export type TReimportResult = z.infer<typeof SchemaAssetInfoResult>;
 export type TSaveAssetResult = z.infer<typeof SchemaSaveAssetResult>;
+export type TSerializedAssetResult = z.infer<typeof SchemaSerializedAssetResult>;
+export type TMaterialEffectsResult = z.infer<typeof SchemaMaterialEffectsResult>;
+export type TMaterialEffectResult = z.infer<typeof SchemaMaterialEffectResult>;
+export type TMaterialResult = z.infer<typeof SchemaMaterialResult>;
 export type TRefreshDirResult = z.infer<typeof SchemaRefreshDirResult>;
 export type TUUIDResult = z.infer<typeof SchemaUUIDResult>;
 export type TPathResult = z.infer<typeof SchemaPathResult>;
 export type TUrlResult = z.infer<typeof SchemaUrlResult>;
+export type TAnimationMaskDump = z.infer<typeof SchemaAnimationMaskDump>;
+export type TAnimationMaskChanges = z.infer<typeof SchemaAnimationMaskChanges>;
+export type TVoidResult = z.infer<typeof SchemaVoidResult>;
 export type TQueryAssetType = z.infer<typeof SchemaQueryAssetType>;
 export type TFilterPluginOptions = z.infer<typeof SchemaFilterPluginOptions>;
 export type TPluginScriptInfo = z.infer<typeof SchemaPluginScriptInfo>;
@@ -250,6 +342,9 @@ export type TUpdateUserDataOptions = z.infer<typeof SchemaUpdateUserDataOptions>
 export type TUserDataHandler = z.infer<typeof SchemaUserDataHandler>;
 
 // Update Asset User Data related Schema // Update Asset User Data 相关 Schema
+export const SchemaUpdateAssetUserData = z.record(z.string(), z.any()).describe('Complete asset userData object to replace the existing userData'); // 用于整体替换现有 userData 的完整资源 userData 对象
+export type TUpdateAssetUserData = z.infer<typeof SchemaUpdateAssetUserData>;
+
 export const SchemaUpdateAssetUserDataPath = z.string().min(1).describe('User data path, separated by dots, e.g. "texture.wrapMode"'); // 用户数据路径，使用点号分隔，如 "texture.wrapMode"
 export type TUpdateAssetUserDataPath = z.infer<typeof SchemaUpdateAssetUserDataPath>;
 
@@ -289,3 +384,38 @@ export const SchemaAssetConfig = z.object({
 
 export const SchemaAssetConfigMapResult = z.record(z.string(), SchemaAssetConfig).describe('Asset configuration map, key is asset handler name, value is corresponding configuration information'); // 资源配置映射表，键为资源处理器名称，值为对应的配置信息
 export type TAssetConfigMapResult = z.infer<typeof SchemaAssetConfigMapResult>;
+
+export const SchemaAssetPropertySchemaOption = z.object({
+    label: z.string().describe('Option display label'), // 选项显示名称
+    value: z.union([z.string(), z.number(), z.boolean()]).describe('Option value'), // 选项值
+}).describe('Asset property schema option'); // 资源属性 schema 选项
+
+export const SchemaAssetPropertySchema: z.ZodType<any> = z.lazy(() => z.object({
+    label: z.string().describe('Property display label'), // 属性显示名称
+    description: z.string().optional().describe('Property description'), // 属性描述
+    type: z.enum(['string', 'number', 'boolean', 'enum', 'asset', 'array', 'object']).describe('Property value/control type'), // 属性值或控件类型
+    default: z.any().optional().describe('Static default value'), // 静态默认值
+    options: z.array(SchemaAssetPropertySchemaOption).optional().describe('Enum/select options'), // 枚举/下拉选项
+    assetType: z.string().optional().describe('Allowed Cocos asset type for asset picker'), // Asset Picker 允许的 Cocos 资源类型
+    min: z.number().optional().describe('Minimum number value'), // 数值最小值
+    max: z.number().optional().describe('Maximum number value'), // 数值最大值
+    step: z.number().optional().describe('Number input step'), // 数值步进
+    readOnly: z.boolean().optional().describe('Whether the property is read-only'), // 是否只读
+    order: z.number().optional().describe('Display order'), // 展示顺序
+    properties: z.record(z.string(), SchemaAssetPropertySchema).optional().describe('Nested object properties'), // 嵌套对象属性
+    items: z.union([SchemaAssetPropertySchema, z.array(SchemaAssetPropertySchema)]).optional().describe('Array item schema'), // 数组元素 schema
+}).describe('Standardized asset import property schema')); // 标准化资源导入属性 schema
+
+export const SchemaAssetPropertySchemaResult = z.record(z.string(), SchemaAssetPropertySchema).describe('Asset import property schema map, key is property name'); // 资源导入属性 schema 映射
+export type TAssetPropertySchemaResult = z.infer<typeof SchemaAssetPropertySchemaResult>;
+
+export const SchemaAnimationGraphVariantDump = z.object({
+    graphUuid: z.string().min(1).nullable().describe('UUID of the referenced AnimationGraph asset. Null clears the graph reference.'),
+    clips: z.record(z.string().min(1), z.string()).describe('Animation clip override map: original clip UUID to substitute clip UUID. Empty substitute means no override.'),
+    invalids: z.record(z.string().min(1), z.string()).optional().describe('Saved override entries whose original clip is not found in the current graph. These entries are returned for display only and are not saved.'),
+}).describe('AnimationGraphVariant editable dump');
+export const SchemaAnimationGraphVariantResult = SchemaAnimationGraphVariantDump.describe('AnimationGraphVariant editable dump result');
+export const SchemaAnimationGraphVariantSaveResult = z.null().describe('AnimationGraphVariant save result');
+export type TAnimationGraphVariantDump = z.infer<typeof SchemaAnimationGraphVariantDump>;
+export type TAnimationGraphVariantResult = z.infer<typeof SchemaAnimationGraphVariantResult>;
+export type TAnimationGraphVariantSaveResult = z.infer<typeof SchemaAnimationGraphVariantSaveResult>;

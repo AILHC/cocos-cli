@@ -262,4 +262,40 @@ describe('runtime preview HTTP route contract', () => {
     expect(response.statusCode).toBe(200);
     expect((await responseBodyJson(response)).__type__).toBe('cc.JsonAsset');
   }, 120_000);
+
+  it('serves only captured canonical root library URLs in capture mode', async () => {
+    const paths = getFixturePaths();
+    const runtimeContext = createRuntimePreviewContext({
+      projectRoot: paths.projectRoot,
+      engineRoot: paths.engineRoot,
+      projectLibraryRoot: paths.editorLibraryRef,
+      projectProgrammingRoot: join(paths.editorProgrammingRef, 'programming'),
+    });
+    const capturedUrls = await captureJsonAssetHttpRuntimeUrls();
+    const capturedImport = capturedUrls.find((entry) => entry.routeCategory === 'import');
+    expect(capturedImport?.probe).toBe('http-base');
+    const rootLibraryUrl = capturedImport!.url.replace(/^\/assets\/[^/]+\/import/, '');
+    expect(rootLibraryUrl).toMatch(/^\/[0-9a-f]{2}\/[0-9a-f-]+\.json$/i);
+    const settingsProvider = new PreviewSettingsProvider({
+      loadPreviewSettings: async () => {
+        throw new Error('settings generation should not run for captured root library routes');
+      },
+    });
+
+    const allowedResponse = await handleRuntimePreviewRequest({
+      runtimeContext,
+      settingsProvider,
+      capturedRuntimeUrls: [{ url: rootLibraryUrl }],
+    }, rootLibraryUrl);
+    expect(allowedResponse.kind).toBe('file');
+    expect(allowedResponse.statusCode).toBe(200);
+    expect((await responseBodyJson(allowedResponse)).__type__).toBe('cc.JsonAsset');
+
+    const uncapturedResponse = await handleRuntimePreviewRequest({
+      runtimeContext,
+      settingsProvider,
+      capturedRuntimeUrls: capturedUrls,
+    }, rootLibraryUrl);
+    expect(uncapturedResponse.statusCode).toBe(404);
+  }, 120_000);
 });

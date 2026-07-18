@@ -20,7 +20,7 @@ export class PrefabUndoHelper {
         if (!node?.isValid) {
             return null;
         }
-        return captureNodeStructureSnapshot(node);
+        return captureNodeStructureSnapshot(node, '', { serialization: 'prefab' });
     }
 
     pushNodeStructureCommand(

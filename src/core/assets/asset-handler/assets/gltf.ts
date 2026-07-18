@@ -16,6 +16,7 @@ import {
     ImageMeta,
     LODsOption,
 } from '../../@types/userDatas';
+import { NormalImportSetting, TangentImportSetting } from '../../@types/interface';
 import { convertsEncodedSeparatorsInURI } from './utils/uri-utils';
 import { AnimationClip, MeshRenderer, Node } from 'cc';
 
@@ -46,6 +47,138 @@ const lodash = require('lodash');
 export const GltfHandler: AssetHandlerBase = {
     // Handler 的名字，用于指定 Handler as 等
     name: 'gltf',
+
+    propertySchemaConfig: {
+            dumpMaterials: {
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.dumpMaterials.name',
+                description: 'i18n:ENGINE.assets.fbx.GlTFUserData.dumpMaterials.title',
+                default: false,
+                render: { ui: 'ui-checkbox' },
+            },
+            mountAllAnimationsOnPrefab: {
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.mountAllAnimationsOnPrefab.name',
+                default: false,
+                render: { ui: 'ui-checkbox' },
+            },
+            allowMeshDataAccess: {
+                label: 'i18n:ENGINE.assets.fbx.allowMeshDataAccess.name',
+                description: 'i18n:ENGINE.assets.fbx.allowMeshDataAccess.title',
+                default: true,
+                render: { ui: 'ui-checkbox' },
+            },
+            addVertexColor: {
+                label: 'i18n:ENGINE.assets.fbx.addVertexColor.name',
+                description: 'i18n:ENGINE.assets.fbx.addVertexColor.title',
+                default: false,
+                render: { ui: 'ui-checkbox' },
+            },
+            promoteSingleRootNode: {
+                label: 'i18n:ENGINE.assets.fbx.promoteSingleRootNode.name',
+                description: 'i18n:ENGINE.assets.fbx.promoteSingleRootNode.title',
+                default: false,
+                render: { ui: 'ui-checkbox' },
+            },
+            generateLightmapUVNode: {
+                label: 'i18n:ENGINE.assets.fbx.generateLightmapUVNode.name',
+                description: 'i18n:ENGINE.assets.fbx.generateLightmapUVNode.title',
+                default: false,
+                render: { ui: 'ui-checkbox' },
+            },
+            normals: {
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.name',
+                description: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.title',
+                default: NormalImportSetting.require,
+                render: {
+                    ui: 'ui-select',
+                    items: [
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.optional.name', value: String(NormalImportSetting.optional) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.exclude.name', value: String(NormalImportSetting.exclude) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.require.name', value: String(NormalImportSetting.require) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.normals.recalculate.name', value: String(NormalImportSetting.recalculate) },
+                    ],
+                },
+            },
+            tangents: {
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.name',
+                description: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.title',
+                default: TangentImportSetting.require,
+                render: {
+                    ui: 'ui-select',
+                    items: [
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.exclude.name', value: String(TangentImportSetting.exclude) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.optional.name', value: String(TangentImportSetting.optional) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.require.name', value: String(TangentImportSetting.require) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.tangents.recalculate.name', value: String(TangentImportSetting.recalculate) },
+                    ],
+                },
+            },
+            morphNormals: {
+                label: 'i18n:ENGINE.assets.fbx.GlTFUserData.morphNormals.name',
+                description: 'i18n:ENGINE.assets.fbx.GlTFUserData.morphNormals.title',
+                default: NormalImportSetting.exclude,
+                render: {
+                    ui: 'ui-select',
+                    items: [
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.morphNormals.exclude.name', value: String(NormalImportSetting.exclude) },
+                        { label: 'i18n:ENGINE.assets.fbx.GlTFUserData.morphNormals.optional.name', value: String(NormalImportSetting.optional) },
+                    ],
+                },
+            },
+            meshOptimizer: {
+                label: 'i18n:importer.property_schema.gltf.mesh_optimizer',
+                type: 'object',
+                default: {
+                    enable: false,
+                    algorithm: 'simplify',
+                    simplifyOptions: getDefaultSimplifyOptions(),
+                },
+                itemConfigs: {
+                    enable: {
+                        label: 'i18n:importer.property_schema.gltf.mesh_optimizer_enable',
+                        default: false,
+                        render: { ui: 'ui-checkbox' },
+                    },
+                    algorithm: {
+                        label: 'i18n:importer.property_schema.gltf.mesh_optimizer_algorithm',
+                        default: 'simplify',
+                        render: {
+                            ui: 'ui-select',
+                            items: [
+                                { label: 'i18n:importer.property_schema.gltf.mesh_optimizer_simplify', value: 'simplify' },
+                                { label: 'i18n:importer.property_schema.gltf.mesh_optimizer_gltfpack', value: 'gltfpack' },
+                            ],
+                        },
+                    },
+                    simplifyOptions: {
+                        label: 'i18n:importer.property_schema.gltf.simplify_options',
+                        type: 'object',
+                        default: getDefaultSimplifyOptions(),
+                        itemConfigs: {
+                            targetRatio: {
+                                label: 'i18n:ENGINE.assets.fbx.meshSimplify.targetRatio.name',
+                                default: 1,
+                                render: { ui: 'ui-number-input', attributes: { min: 0, max: 1, step: 0.01 } },
+                            },
+                            enableSmartLink: {
+                                label: 'i18n:importer.property_schema.gltf.enable_smart_link',
+                                default: true,
+                                render: { ui: 'ui-checkbox' },
+                            },
+                            agressiveness: {
+                                label: 'i18n:importer.property_schema.gltf.agressiveness',
+                                default: 7,
+                                render: { ui: 'ui-number-input', attributes: { min: 0, step: 1 } },
+                            },
+                            maxIterationCount: {
+                                label: 'i18n:importer.property_schema.gltf.max_iteration_count',
+                                default: 100,
+                                render: { ui: 'ui-number-input', attributes: { min: 1, step: 1 } },
+                            },
+                        },
+                    },
+                },
+            },
+    },
 
     importer: {
         // 版本号如果变更，则会强制重新导入

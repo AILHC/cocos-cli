@@ -205,6 +205,8 @@ rtk pwsh -NoProfile -Command '$root=Join-Path $env:TEMP "cocos-cli-official-sync
 
 Expected：engine fixture 只修改 `cc.config.json`，两个 project fixtures 初始都只修改 `package.json`；`pal/system-info/web/system-info.ts` source 确实存在。只读 project fixture 用于 project-bound Vitest、CLI 和不落盘 browser tests；mutable fixture 仅用于 MCP save / restart / realm-isolation 验收，必须逐项记录预期资产变化并在验收后恢复。extensionless 候选数必须大于 0。
 
+执行记录（2026-07-14）：初始 `FIXTURE_ENGINE_COMMIT` 为 `16089a1b6e61a83fedd8c2ece921edf6efaf8523`。Task 8 的 strict DTS 诊断确认 `cocos/dragon-bones/ArmatureDisplay.ts` 输出的 3 处原生 `Map<K, V>` 在 bundle namespace 中被误解析为 DragonBones 的 `Map<T>`；经确认后在 3.8.6 engine 提交 `1f00541ac8092f7f591f3b5378554c8c20b9c2f9 fix: disambiguate dragonbones socket map types` 修复，并将 engine fixture 重新冻结到该提交。该提交只修改上述 engine runtime source，fixture 相对新提交仍只保留预期的 `cc.config.json` 测试配置变化。
+
 - [ ] 为长期 worktree 建立独立可运行环境。不得链接或复用主工作区 `node_modules`：
 
 ```powershell
@@ -691,9 +693,12 @@ Expected：解析到 local `packages/asset-db@3.0.0-alpha.10` 和预期 watcher�
 
 - `.github/workflows/check-dts.yml`
 - 新增 `packages/cocos-cli-types/tsconfig.typecheck.json`
+- 新增 `packages/cocos-cli-types/tsconfig.engine-consumer.json`
+- 新增 `packages/cocos-cli-types/typecheck/cc-contract.ts`
+- 新增 `packages/cocos-cli-types/typecheck/engine-cc-consumer.ts`
 
-- [ ] 先验证固定 `TARGET` 的 `check-dts.yml` 引用不存在的 `packages/cocos-cli-types/tsconfig.typecheck.json`，并用 `grep "^packages/cocos-cli-types/" || true` 吞掉 `TS5058` 等不匹配该前缀的 config 级错误。新增 config，`files` 精确列出 `index.d.ts`、`assets.d.ts`、`base.d.ts`、`configuration.d.ts`、`engine.d.ts`、`project.d.ts`、`scripting.d.ts`、`builder.d.ts`、`cli.d.ts` 和 CI 在 typecheck 前复制的 `cc.d.ts`；compiler options 固定为 `noEmit: true`、`skipLibCheck: false`、`target: ES2022`、`module: Node16`、`moduleResolution: Node16`。
-- [ ] 将 workflow 的 Typecheck step 简化为直接执行 `npx tsc -p packages/cocos-cli-types/tsconfig.typecheck.json --noEmit`，由 shell 保留真实退出码；不保留 output grep、`|| true` 或其它错误过滤。使用不存在 config 的同形式对照命令验证非零，再用正确 config 验证为 0；两次都使用与 CI 相同的 bash shell 形式。
+- [ ] 先验证固定 `TARGET` 的 `check-dts.yml` 引用不存在的 `packages/cocos-cli-types/tsconfig.typecheck.json`，并用 `grep "^packages/cocos-cli-types/" || true` 吞掉 `TS5058` 等不匹配该前缀的 config 级错误。新增 strict CLI config，`files` 精确列出 `index.d.ts`、`assets.d.ts`、`base.d.ts`、`configuration.d.ts`、`engine.d.ts`、`project.d.ts`、`scripting.d.ts`、`builder.d.ts`、`cli.d.ts` 和最小外部 `cc` symbol contract；compiler options 固定为 `noEmit: true`、`skipLibCheck: false`、`target: ES2022`、`module: Node16`、`moduleResolution: Node16`。该 contract 只隔离 engine declaration 内部错误，不能作为真实 engine compatibility 证据。
+- [ ] 新增 engine consumer config：加载 CI 复制的真实 `cc.d.ts` 和 `.ts` consumer，使用 3.8.6 engine 支持的 `skipLibCheck: true`，但仍要求 consumer 引用的 `Component`、`Node`、`Scene`、`SpriteFrame`、`Vec3` 和 sorting private type 实际存在。workflow 顺序执行 strict CLI gate 与 engine consumer gate，两个命令都保留真实退出码，不保留 output grep、`|| true` 或其它错误过滤。使用不存在 config 的同形式对照命令验证非零，再验证两个正确 config 都为 0；三次都使用与 CI 相同的 bash shell形式。
 
 - [ ] build 前记录 unstaged / staged 状态和当前 generated declarations hashes，避免 merge index 中的大量 staged files掩盖 generator 变化：
 
@@ -758,23 +763,26 @@ Expected：无 unmerged paths；types package pack 文件清单包含生成后�
 rtk pwsh -NoProfile -Command '$gitBash="C:\Program Files\Git\bin\bash.exe"; if(-not (Test-Path -LiteralPath $gitBash)){ throw "Git Bash not found: $gitBash" }; Copy-Item -LiteralPath packages/engine/bin/.declarations/cc.d.ts -Destination packages/cocos-cli-types/cc.d.ts -Force'
 rtk "C:\Program Files\Git\bin\bash.exe" -lc 'npx tsc -p packages/cocos-cli-types/does-not-exist.json --noEmit'
 rtk "C:\Program Files\Git\bin\bash.exe" -lc 'npx tsc -p packages/cocos-cli-types/tsconfig.typecheck.json --noEmit'
+rtk "C:\Program Files\Git\bin\bash.exe" -lc 'npx tsc -p packages/cocos-cli-types/tsconfig.engine-consumer.json --noEmit'
 rtk node -e "console.log(require.resolve('@cocos/asset-db/libs/filesystem'))"
 rtk pwsh -NoProfile -Command 'Select-String -Path packages/cocos-cli-types/builder.d.ts -Pattern "@cocos/asset-db/libs/filesystem","StatsQuery.ConstantManager"'
 ```
 
-Expected：第一条 typecheck 对照命令因 `TS5058` 非 0，第二条与 workflow 相同的 command 退出 0；vendored filesystem type 可解析；builder declaration 不再引用旧 `./filesystem`，namespace 外 bare `ConstantManager` 已修正。`cc.d.ts` 是 ignored CI 临时文件，不 stage。
+Expected：第一条 typecheck 对照命令因 `TS5058` 非 0，后两个与 workflow 相同的 command 都退出 0；strict CLI gate 不加载真实 engine declaration，engine consumer gate 加载真实 `cc.d.ts` 并验证 CLI 依赖的 engine symbols。vendored filesystem type 可解析；builder declaration 不再引用旧 `./filesystem`，namespace 外 bare `ConstantManager` 已修正。`cc.d.ts` 是 ignored CI 临时文件，不 stage。
+
+执行记录（2026-07-14）：重新生成 engine declaration 后，同一 isolated strict command 的错误数由 87 降至 84，3 个 `TS2314 Generic type 'Map<T>' requires 1 type argument(s)` 均消失。随后修正 `builder.d.ts` postprocess 的 import/local declaration 冲突，并让 consumer typecheck 不再同时载入 workspace `packages/cc-module` 和 `packages/engine` declarations；原单一 gate 从 187 个错误降至 50 个，且只剩复制的 engine `cc.d.ts`：23 个 WebGPU global、11 个 PAL module reference、16 个 marionette private name/bundler 错误。经确认这些错误属于官方 3.8.6 declaration baseline，且 engine 自身 declaration consumer 配置使用 `skipLibCheck: true`，本计划改为上述 split gate：CLI 自有 declarations 保持 `skipLibCheck: false`，真实 engine declaration 只在独立 consumer gate 使用 `skipLibCheck: true`。两条 gate 必须分别通过，不能把 engine consumer gate 扩大解释为 engine declaration 内部 strict clean。
 
 - [ ] Stage CI typecheck config：
 
 ```powershell
-rtk git add -- .github/workflows/check-dts.yml packages/cocos-cli-types/tsconfig.typecheck.json
+rtk git add -- .github/workflows/check-dts.yml packages/cocos-cli-types/tsconfig.typecheck.json packages/cocos-cli-types/tsconfig.engine-consumer.json packages/cocos-cli-types/typecheck/cc-contract.ts packages/cocos-cli-types/typecheck/engine-cc-consumer.ts
 rtk git diff --cached --check
 ```
 
 - [ ] 生成并 stage snapshot 后再执行 conflict-marker / whitespace gate：
 
 ```powershell
-rtk rg -n "^(<<<<<<<|=======|>>>>>>>)" . --glob "!node_modules/**" --glob "!.git/**" --glob "!packages/engine/**" --glob "!.worktrees/**"
+rtk rg -n "^(<<<<<<< .+|=======|>>>>>>> .+)$" . --glob "!node_modules/**" --glob "!.git/**" --glob "!packages/engine/**" --glob "!.worktrees/**"
 rtk git diff --check
 rtk git diff --cached --check
 ```

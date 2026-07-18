@@ -1,0 +1,30 @@
+{
+    "compilerOptions": {
+        "noEmit": true,
+        "skipLibCheck": false,
+        "target": "ES2022",
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "baseUrl": ".",
+        "paths": {
+            "cc": [
+                "./typecheck/cc-contract.ts"
+            ]
+        },
+        "types": [
+            "node"
+        ]
+    },
+    "files": [
+        "index.d.ts",
+        "assets.d.ts",
+        "base.d.ts",
+        "configuration.d.ts",
+        "engine.d.ts",
+        "project.d.ts",
+        "scripting.d.ts",
+        "builder.d.ts",
+        "cli.d.ts",
+        "typecheck/cc-contract.ts"
+    ]
+}

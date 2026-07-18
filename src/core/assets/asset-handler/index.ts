@@ -1,12 +1,18 @@
+import { resolveFsExtraSync } from './fs-extra-namespace';
+
 export async function compileEffect(force?: boolean) {
-    // TODO 暂不支持 effect 导入
-    // 需要做好容错，要保证能执行这个返回数据的函数，否则后续流启动程会被中断
-    const { afterImport } = await import('./assets/effect');
-    try {
-        await afterImport(force);
-    } catch (error) {
-        console.error(error);
+    const { afterImport, autoGenEffectBinInfo } = await import('./assets/effect');
+    await afterImport(force);
+    const { existsSync, statSync } = resolveFsExtraSync(await import('fs-extra'));
+    const binPath = autoGenEffectBinInfo.effectBinPath;
+    if (!existsSync(binPath)) {
+        throw new Error(`[compileEffect] effect.bin was not generated at: ${binPath}`);
     }
+    const size = statSync(binPath).size;
+    if (size <= 0) {
+        throw new Error(`[compileEffect] effect.bin is empty at: ${binPath}`);
+    }
+    console.log(`[compileEffect] effect.bin generated: ${binPath} (${size} bytes)`);
 }
 
 export async function startAutoGenEffectBin() {
@@ -16,8 +22,13 @@ export async function startAutoGenEffectBin() {
 
 export async function getEffectBinPath() {
     const { autoGenEffectBinInfo, afterImport } = await import('./assets/effect');
-    if (!autoGenEffectBinInfo.effectBinPath) {
+    const { existsSync, statSync } = resolveFsExtraSync(await import('fs-extra'));
+    const effectBinPath = autoGenEffectBinInfo.effectBinPath;
+    if (!existsSync(effectBinPath) || statSync(effectBinPath).size <= 0) {
         await afterImport(true);
     }
-    return autoGenEffectBinInfo.effectBinPath;
+    if (!existsSync(effectBinPath) || statSync(effectBinPath).size <= 0) {
+        throw new Error(`[getEffectBinPath] effect.bin is missing or empty at: ${effectBinPath}`);
+    }
+    return effectBinPath;
 }

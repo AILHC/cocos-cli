@@ -26,6 +26,8 @@ import { SnapshotCommand, type ISnapshotAdapter } from './undo/commands/snapshot
 import { AddComponentCommand } from './undo/commands/add-component-command';
 import { RemoveComponentCommand } from './undo/commands/remove-component-command';
 import { createUndoId, restoreComponentSnapshotDump, snapshotMapsEqual } from './undo/commands/command-utils-shared';
+import { isUndoApplying } from './undo/applying-state';
+import { broadcastAnimationPropertyCommitted } from './animation/property-commit-event';
 
 const NodeMgr = EditorExtends.Node;
 
@@ -248,7 +250,6 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
             this.checkComponentsCollision(node);
             this.checkDynamicBodyShape(node);
 
-            this.emit('component:add', comp);
             compMgr.onComponentAddedFromEditor(comp);
             this.emit('node:change', node, { type: NodeEventType.CREATE_COMPONENT });
 
@@ -339,11 +340,7 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
                 ? RemoveComponentCommand.capture(comp)
                 : null;
 
-            this.emit('component:before-remove-component', comp);
             const result = compMgr.removeComponent(comp);
-            // 需要立刻执行removeComponent操作，否则会延迟到下一帧
-            cc.Object._deferredDestroy();
-            this.emit('component:remove', comp);
             if (result && command) {
                 Service.Undo?.push(command);
             }
@@ -363,8 +360,7 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
             console.warn(`Query component failed: ${params.path} does not exist`);
             return null;
         }
-        const dump = dumpUtil.dumpComponent(comp as Component) as IComponent;
-        return dump;
+        return dumpUtil.dumpComponent(comp as Component) as IComponent;
     }
 
     async query(params: IQueryComponentOptions | string): Promise<IComponent | null> {
@@ -407,9 +403,10 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
             return false;
         }
 
-        return this._recordComponentPropertySnapshot(node, {
+        const result = await this._recordComponentPropertySnapshot(node, {
             label: `Set ${options.path}`,
             type: 'component:set-property',
+            nodePath: options.nodePath,
             path: options.path,
             record: options.record,
         }, async () => {
@@ -443,6 +440,14 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
             }
             return true;
         });
+        if (result && options.record !== false && !isUndoApplying()) {
+            broadcastAnimationPropertyCommitted({
+                nodePath: options.nodePath,
+                propPath: options.path,
+                source: 'editor',
+            });
+        }
+        return result;
     }
 
     private _shouldRecordComponentCommand(): boolean {
@@ -495,7 +500,7 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
 
     private async _recordComponentPropertySnapshot(
         node: Node,
-        options: { label: string; type: string; path: string; record?: boolean },
+        options: { label: string; type: string; nodePath: string; path: string; record?: boolean },
         mutate: () => Promise<boolean>,
     ): Promise<boolean> {
         if (options.record === false || Service.Undo?.isApplying?.()) {
@@ -530,7 +535,11 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
             id: this._createUndoSnapshotId(options.type),
             label: options.label,
             type: options.type,
-            scope: { editorType: 'scene' },
+            scope: {
+                editorType: 'scene',
+                nodePath: options.nodePath,
+                propPath: this._createComponentAnimationPropPath(node, options.path),
+            },
             timestamp: Date.now(),
         }, before, after, this._createComponentPropertySnapshotAdapter()));
         return result;
@@ -626,6 +635,16 @@ export class ComponentService extends BaseService<IComponentEvents> implements I
         }
 
         return { component, index };
+    }
+
+    private _createComponentAnimationPropPath(node: Node, path: string): string {
+        const target = this._resolveComponentPropertyTarget(node, path);
+        const propName = path.replace(/^__comps__\.\d+\.?/, '');
+        const componentType = target ? this._getComponentType(target.component) : '';
+        if (!target || !propName || !componentType) {
+            return path;
+        }
+        return `${componentType}.${propName}`;
     }
 
     private _findSnapshotComponent(snapshot: IComponentPropertySnapshot): Component | null {

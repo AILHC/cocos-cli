@@ -6,6 +6,7 @@ import { TextureCubeAssetUserData } from '../../@types/userDatas';
 import { getDependUUIDList } from '../utils';
 import { makeDefaultTextureBaseAssetUserData, applyTextureBaseAssetUserData } from './texture-base';
 import { loadAssetSync } from './utils/load-asset-sync';
+import { writePath } from '../../manager/filesystem';
 
 type FaceName = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
@@ -26,10 +27,18 @@ export const TextureCubeHandler: AssetHandler = {
                 {
                     label: 'i18n:ENGINE.assets.newCubeMap',
                     fullFileName: 'cubemap.cubemap',
-                    template: 'db://internal/default_file_content/texture-cube/default.cubemap',
                     name: 'default',
                 },
             ];
+        },
+        async create(options) {
+            const content = options.content !== undefined && options.content !== null
+                ? typeof options.content === 'object' && !Buffer.isBuffer(options.content)
+                    ? JSON.stringify(options.content, null, 4)
+                    : options.content
+                : '';
+            await writePath(options.target, content);
+            return options.target;
         },
     },
     importer: {

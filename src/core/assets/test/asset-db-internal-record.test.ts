@@ -350,7 +350,7 @@ describe('asset-db internal record editor parity', () => {
         expect(runtime.assetConfig.data.tempRoot)
             .toBe(join(TestGlobalEnv.projectRoot, 'temp', 'cli', 'asset-db'));
         expect(runtime.assetConfig.data.assetDBList.find((assetDB) => assetDB.name === 'assets')?.library)
-            .toBe(join(TestGlobalEnv.projectRoot, 'library', 'cli'));
+            .toBe(join(TestGlobalEnv.projectRoot, 'library'));
         expect(runtime.assetConfig.data.assetDBList.find((assetDB) => assetDB.name === 'internal')?.library)
             .toBe(join(TestGlobalEnv.projectRoot, 'library'));
     });
