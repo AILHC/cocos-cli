@@ -72,8 +72,8 @@ export default {
             },
         },
         {
-            // Keep this scene-specific path distinct from the preview scripting
-            // route, whose legacy extension policy is registered earlier.
+            // The scene-specific URL stays independent from game preview's root
+            // /query-extname route, while both use the same extension predicate.
             url: /^\/scene\/query-extname\/(.+)$/,
             async handler(req: Request, res: Response) {
                 const uuid = req.params[0];

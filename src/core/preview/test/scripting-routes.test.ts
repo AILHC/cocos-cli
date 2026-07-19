@@ -2,6 +2,7 @@ const mockGetModules = jest.fn();
 const mockGetConfigPath = jest.fn();
 const mockPathExists = jest.fn();
 const mockReadJSON = jest.fn();
+const mockQueryAssetInfo = jest.fn();
 
 jest.mock('../../engine', () => ({
     Engine: {
@@ -12,6 +13,12 @@ jest.mock('../../engine', () => ({
 jest.mock('../../configuration', () => ({
     configurationManager: {
         getConfigPath: mockGetConfigPath,
+    },
+}));
+
+jest.mock('../../assets', () => ({
+    assetManager: {
+        queryAssetInfo: mockQueryAssetInfo,
     },
 }));
 
@@ -57,5 +64,45 @@ describe('preview scripting routes', () => {
         await route!.handler({} as any, res as any, jest.fn());
 
         expect(res.json).toHaveBeenCalledWith(['base', 'legacy-pipeline']);
+    });
+
+    it.each([
+        ['a .cconb library output', { '.cconb': 'E:/project/library/example.cconb' }],
+        ['a lone .bin library output', { '.bin': 'E:/project/library/example.bin' }],
+    ])('reports .cconb for %s', async (_label, library) => {
+        mockQueryAssetInfo.mockReturnValue({ library });
+        const route = scriptingRoutes.find((item) => item.url instanceof RegExp && item.url.test('/query-extname/example-uuid'));
+        const res = {
+            status: jest.fn().mockReturnThis(),
+            send: jest.fn(),
+        };
+
+        expect(route).toBeDefined();
+
+        await route!.handler({ params: ['example-uuid'] } as any, res as any, jest.fn());
+
+        expect(mockQueryAssetInfo).toHaveBeenCalledWith('example-uuid');
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.send).toHaveBeenCalledWith('.cconb');
+    });
+
+    it.each([
+        ['a .bin output accompanied by .json', { '.bin': 'E:/project/library/example.bin', '.json': 'E:/project/library/example.json' }],
+        ['a .json-only output', { '.json': 'E:/project/library/example.json' }],
+        ['no asset info', undefined],
+    ])('reports an empty extension for %s', async (_label, library) => {
+        mockQueryAssetInfo.mockReturnValue(library ? { library } : undefined);
+        const route = scriptingRoutes.find((item) => item.url instanceof RegExp && item.url.test('/query-extname/example-uuid'));
+        const res = {
+            status: jest.fn().mockReturnThis(),
+            send: jest.fn(),
+        };
+
+        expect(route).toBeDefined();
+
+        await route!.handler({ params: ['example-uuid'] } as any, res as any, jest.fn());
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.send).toHaveBeenCalledWith('');
     });
 });

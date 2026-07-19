@@ -201,7 +201,8 @@ export const scriptingRoutes = [
                 const uuid = req.params[0];
                 const { assetManager } = await import('../assets');
                 const assetInfo = assetManager.queryAssetInfo(uuid);
-                if (assetInfo?.library?.['.bin'] && Object.keys(assetInfo.library).length === 1) {
+                if (assetInfo?.library?.['.cconb']
+                    || (assetInfo?.library?.['.bin'] && !assetInfo.library['.json'])) {
                     res.status(200).send('.cconb');
                 } else {
                     res.status(200).send('');
