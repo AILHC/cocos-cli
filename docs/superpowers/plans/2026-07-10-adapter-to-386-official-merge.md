@@ -2,6 +2,8 @@
 
 > 本计划固定到 2026-07-13 的官方 target。旧 target 的批准仅继续适用于未受增量影响的 `C-05`、`C-06`；`C-01` 到 `C-04`、`C-07` 到 `C-15` 必须按最新业务流程重新确认。执行时逐项勾选并记录命令结果；任何 stop condition 命中时保留现场，返回合并前报告重新决策。
 
+> **2026-07-19 范围变更：** 用户明确取消“只合入固定 snapshot”的约束，要求把执行时最新 `upstream/main` 的全部提交整体合入，禁止 cherry-pick。原 `TARGET=3b526b9d...` 及下文命令保留为第一阶段的历史执行输入；第二阶段已完整 merge `upstream/main@539d25754dc79049390b6537bdc2781649777557`，形成 merge commit `7ecc7d1cf18b636508713f26cef989f45d745dda`。该 commit 的 parents 为第一阶段结果 `4f8e8c785f4260426ac35efc2613bc9061720166` 与完整官方 head `539d2575...`，并已用 ancestry gate 证明最新官方 head 属于结果历史。最终验证和 `adapter-to-386` 的 `ff-only` 接收仍按本文门禁执行。
+
 **Goal:** 将 `origin/main@3b526b9d86519df1ee5046550aaa202d860ab15d` 以 merge commit 合入长期分支 `adapter-to-386`，完整吸收官方 preview、PreviewService、builder、assets API、scene service、四个平台 Pink views、plugin script order、Joint Texture Layout、engine graphics config、prefab/atlas 和 animation session refresh 修复，同时保留 adapter 的 runtime preview、3.8.6 engine / AssetDB、project extension、wechatgame 和 vendored dependency 目标。
 
 **Architecture:** 使用长期 `.worktrees/official-sync`，每轮从当前 `adapter-to-386` 新建独立 `SYNC_BRANCH`。先 `git merge --no-ff --no-commit 3b526b9d86519df1ee5046550aaa202d860ab15d`，按已确认业务主题解决直接与 semantic conflict，完成分层验证后创建单一 merge commit。随后补复盘文档 commit，最终让 `adapter-to-386` 通过 `ff-only` 接收结果。

@@ -122,3 +122,46 @@ CLI 侧只保留有源码依据的 3.8.6 兼容层，包括 engine path resolver
 5. 上述结果落盘后再决定 `adapter-to-386` 的 `ff-only` 接收；push 仍需单独确认，禁止 force push。
 
 本复盘记录的是已经发生的 merge 和现有证据，不修改原执行计划中的完成状态，也不将未运行、失败或范围较窄的测试描述为通过。
+
+## 2026-07-19 最新官方 head 追加同步
+
+用户明确将本轮范围从固定 `TARGET=3b526b9d...` 改为“完整合入执行时最新官方提交，不能挑拣”。因此没有 cherry-pick 已知的 web-desktop 修复，而是先执行 `git fetch upstream main`，再把 `upstream/main@539d25754dc79049390b6537bdc2781649777557` 作为整体 merge 到当前同步分支。
+
+### Git 拓扑
+
+- 追加同步前 first parent：`4f8e8c785f4260426ac35efc2613bc9061720166`
+- 最新官方 second parent：`539d25754dc79049390b6537bdc2781649777557`
+- 追加 merge commit：`7ecc7d1cf18b636508713f26cef989f45d745dda`
+- 官方增量：19 commits（18 个内容提交和最终 merge commit），103 files，merge 结果相对 first parent 为 18,084 insertions / 325 deletions
+- `git merge-base --is-ancestor upstream/main HEAD`：退出码 0
+
+这 19 个 commits 全部通过 merge parent 进入结果历史，不存在挑选提交或以 patch 模拟官方历史的情况。
+
+### 冲突与定制保护
+
+实际 content conflict 只有 `.gitignore`、`src/core/builder/index.ts`、`src/core/scene/scene-process/engine-bootstrap.ts` 三个。处理结果分别为：
+
+- `.gitignore` 同时保留 versioned Creator 3.8.6 tools 例外和官方 `config.local.json` 忽略项。
+- builder 同时保留 adapter 的 preview/debug/includeModules 合并语义和官方对 preview options 的 deep clone，避免跨次调用 state leakage。
+- scene engine bootstrap 接收官方 `serverURL` 绝对 URL，同时保留 adapter 已验证的 `/scene/query-extname` route、native fetch 显式失败和 3.8.6 compatibility 路径。
+
+其余与 adapter 重叠的自动合并文件逐项复核，runtime preview、project engine resolver、AssetDB/shared library、project extension builder、wechatgame/windows 和 scene 定制仍存在。三个官方 generated Pink declarations 自带的 trailing whitespace 保持与 `upstream/main` blob 一致，没有为制造 clean diff 改写官方生成物。
+
+### 追加验证
+
+- focused Jest：10 suites、54 tests 全部通过，覆盖 platform package registration/view build、web preview URL API、preview debug、scene middleware、scene close/recovery、gizmo reload、message callsite 和 scripting routes。
+- `npm run compile`：退出码 0，包含 TypeScript、八个平台 view/assets、static web 和 schema。
+- `npm run build`：退出码 0；9 个 DTS snapshots 全部通过。API Extractor 仍输出既存 release-tag/forgotten-export warning，不把它描述为 warning-free。
+- 主测试项目：`E:\own_space\engines\cocos-test-projects`。
+- 专项 engine 覆盖：`COCOS_CLI_TEST_ENGINE_ROOT=D:\workspace\engines\cocos\.worktrees\official-sync-runtime-3.8.6`，engine HEAD 为 `2b0c2bc2be776ce4635ab52c26717aed9dcbbbed`；该 commit 从本地最新 Cocos 4 official source 迁移 `BufferBuilder` 和 `encodeCCONBinary` exports，并包含前序 `d0d7f2b023...`。
+- 默认 game preview URL：`http://localhost:9527/?scene=42e68f34-5f5f-4a8a-938a-ec9d5fe61b0d`。
+- HTTP：`/static/web/game-boot.js` 为 200、11,330 bytes；对应 `/preview/settings.js` 为 200、208,298 bytes。
+- Browser：TestList 最终实际渲染出分类列表，canvas 为 1280x720，目标页 `console.error` 为 0。首次冷加载需要等待 settings/build 和资源完成，不能把初始空背景当作最终画面。
+
+验收进程通过无点号 Junction 加载同步 worktree，原因是 Express `sendFile` 默认会拒绝绝对路径中的 `.worktrees` dot segment；这是验收路径约束，不是 production fallback。该专项覆盖同时显式设置 `COCOS_CLI_TEST_PROJECT_ROOT` 和上述候选 engine root，不能冒充项目当前 `package.json` 默认 engine lineage 已切换。
+
+### 当前边界
+
+- `adapter-to-386` 尚未 `ff-only` 接收 `7ecc7d1c...`，当前仍停在用户验收节点。
+- 本次追加验证闭环了用户指定的 TestList default game preview，以及前序 scene-editor `BufferBuilder` 问题；没有补齐旧复盘列出的五 mode helper、Animation restart E2E 和完整 root Jest 9 个 Engine Proxy timeout，因此这些 residual risk 继续保留。
+- 当前验收 server 保持在 `localhost:9527`，供用户直接检查；它不是发布或 push 证据。
