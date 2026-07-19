@@ -48,6 +48,7 @@ e2e/reports/
 # auto generated files
 src/i18n/types/generated.d.ts
 CLAUDE.md
+config.local.json
 
 # versioned Creator tools intentionally checked in
 !static/tools/creator-3.8.6/

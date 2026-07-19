@@ -287,7 +287,9 @@ function readBuildTaskOptions(root: string): IBuildTaskOption<any> {
 
 export async function getPreviewSettings<P extends Platform>(options?: IBuildTaskOption<P>): Promise<IPreviewSettingsResult> {
     const defaultBuildOptions = await pluginManager.getOptionsByPlatform('web-desktop');
-    const buildOptions = createPreviewBuildOptions(defaultBuildOptions as IBuildTaskOption<P>, options);
+    const buildOptions = JSON.parse(JSON.stringify(
+        createPreviewBuildOptions(defaultBuildOptions as IBuildTaskOption<P>, options),
+    ));
     await fillIncludeModulesFromProjectConfig(buildOptions);
     // TODO 预览 settings 的排队之类的
     const { BuildTask } = await import('./worker/builder/index');

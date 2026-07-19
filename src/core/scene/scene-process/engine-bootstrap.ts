@@ -19,11 +19,11 @@ declare const cc: any;
 export async function startup(options: {
     serverURL: string;
 }) {
-    const defaultConfig = await fetch('/scripting/engine/game-config');
-    const config = await defaultConfig.json();
-    const modules = await fetch('/scripting/engine/modules');
-    const features = (await modules.json()) as string[];
     const { serverURL } = options;
+    const defaultConfig = await fetch(`${serverURL}/scripting/engine/game-config`);
+    const config = await defaultConfig.json();
+    const modules = await fetch(`${serverURL}/scripting/engine/modules`);
+    const features = (await modules.json()) as string[];
 
     serviceManager.initialize(serverURL);
 
@@ -149,7 +149,7 @@ export async function startup(options: {
     // are available before preview services initialize.
     await (async () => {
         try {
-            const res = await fetch('/query-asset-infos/cc.EffectAsset');
+            const res = await fetch(`${serverURL}/query-asset-infos/cc.EffectAsset`);
             if (!res.ok) return;
             const effectInfos: any[] = await res.json();
             if (!effectInfos.length) return;
@@ -164,7 +164,7 @@ export async function startup(options: {
                     const encodedUuid = encodeURIComponent(uuid);
                     const ext = (lib['.bin'] && !lib['.json']) ? 'bin' : 'json';
 
-                    const r = await fetch(`/import/${encodedUuid}.${ext}?isBrowser=true`);
+                    const r = await fetch(`${serverURL}/import/${encodedUuid}.${ext}?isBrowser=true`);
                     if (!r.ok) return;
 
                     const isBinary = ext === 'bin';
@@ -271,7 +271,7 @@ export async function startup(options: {
         // reports width 0, and every SpriteFrame on it fails checkRect and gets
         // its rect reset (e.g. sprite frames from a plist atlas in a prefab).
         try {
-            const res = await fetch(`/query-asset-info/${encodeURIComponent(uuid)}`);
+            const res = await fetch(`${serverURL}/query-asset-info/${encodeURIComponent(uuid)}`);
             if (!res.ok) return '';
             const info: any = await res.json();
             const lib = info?.library;
@@ -302,8 +302,8 @@ export async function startup(options: {
         const encodedUuid = encodeURIComponent(uuid);
         const isSubAsset = nativeExt.length > 0 && nativeExt[0] !== '.';
         const nativeUrl = isSubAsset
-            ? `/native/${encodedUuid}/${nativeExt}?isBrowser=true`
-            : `/native/${encodedUuid}${nativeExt}?isBrowser=true`;
+            ? `${serverURL}/native/${encodedUuid}/${nativeExt}?isBrowser=true`
+            : `${serverURL}/native/${encodedUuid}${nativeExt}?isBrowser=true`;
 
         const res = await fetch(nativeUrl);
         if (!res.ok) {
@@ -336,12 +336,12 @@ export async function startup(options: {
             // binary (.bin/cconb) instead of .json.
             let ext = 'json';
             try {
-                const extRes = await fetch(`/scene/query-extname/${encodedUuid}`);
+                const extRes = await fetch(`${serverURL}/scene/query-extname/${encodedUuid}`);
                 const queryExt = (await extRes.text()).trim();
                 if (queryExt === '.cconb') ext = 'bin';
             } catch { /* default to json */ }
 
-            const res = await fetch(`/import/${encodedUuid}.${ext}?isBrowser=true`);
+            const res = await fetch(`${serverURL}/import/${encodedUuid}.${ext}?isBrowser=true`);
             if (!res.ok) throw new Error(`Asset fetch failed (${res.status}): ${uuid}`);
 
             const isBinary = ext === 'bin';
