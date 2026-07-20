@@ -1607,10 +1607,15 @@ class PackTarget {
             return callback();
         }
 
+        if (typeof middleware.workspace !== 'string' || middleware.workspace.trim().length === 0) {
+            throw new Error('QuickPack output lock requires a non-empty middleware workspace.');
+        }
+
         const originalLock = middleware.lock;
         const originalUnlock = middleware.unlock;
         let unlock: (() => Promise<void>) | undefined;
         try {
+            await fs.ensureDir(middleware.workspace);
             unlock = await originalLock.call(middleware);
             middleware.lock = async () => async () => undefined;
             middleware.unlock = async () => undefined;

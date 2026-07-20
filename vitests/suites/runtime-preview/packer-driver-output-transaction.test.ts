@@ -393,6 +393,39 @@ describe('PackerDriver output transaction', () => {
     await rm(workspace, { recursive: true, force: true });
   });
 
+  it('creates a cold QuickPack workspace before acquiring the output lock', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'packer-driver-output-cold-lock-'));
+    const workspace = join(root, 'targets', 'editor');
+    const lockEvents: string[] = [];
+    const quickPack = createQuickPack(workspace, async () => {
+      lockEvents.push('build');
+      return { depsGraph: {} };
+    });
+    const middleware = quickPack._middleware as any;
+    const lockSpy = vi.fn(async () => {
+      lockEvents.push(`outer-lock:${existsSync(workspace)}`);
+      return async () => {
+        lockEvents.push('outer-unlock');
+      };
+    });
+    middleware.lock = lockSpy;
+    const target = createPackTargetForTest({
+      name: 'editor',
+      modLo: createModLo() as any,
+      quickPack: quickPack as any,
+      logger: createLogger(),
+    });
+
+    expect(existsSync(workspace)).toBe(false);
+    const result = await target.build();
+
+    expect(result.err).toBeUndefined();
+    expect(target.ready).toBe(true);
+    expect(lockEvents).toEqual(['outer-lock:true', 'build', 'outer-unlock']);
+    expect(lockSpy).toHaveBeenCalledTimes(1);
+    await rm(root, { recursive: true, force: true });
+  });
+
   it('keeps rollback and cache reload inside the QuickPack workspace lock', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'packer-driver-output-lock-'));
     await createLastGoodOutput(workspace);
