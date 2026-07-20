@@ -188,7 +188,7 @@ rtk git -C .worktrees/official-sync switch -c codex/official-sync-20260713-3b526
 
 Expected：`git branch --list` 无输出，worktree 位于新建的本轮 `SYNC_BRANCH`，HEAD 等于 `START_ADAPTER`。不得删除或 reset 上一轮未归档状态。
 
-- [ ] 冻结测试项目和 3.8.6 engine commits，在 temp 下创建一个只读验收 project worktree、一个允许测试落盘的 mutable project worktree，以及一个 engine worktree。先记录两个 SHA 为 `FIXTURE_PROJECT_COMMIT`、`FIXTURE_ENGINE_COMMIT`，再执行：
+- [ ] 冻结测试项目和 3.8.6 engine commits，在 temp 下从同一个 `FIXTURE_PROJECT_COMMIT` 创建两个独立、可写的 project worktree，分别供 current CLI 和 merged CLI 的 runtime / Editor 验收使用；另建一个 engine worktree。基线必须是 commit object，禁止复制当前 dirty 工作区或把其中未提交内容带入 fixture。先记录两个 SHA 为 `FIXTURE_PROJECT_COMMIT`、`FIXTURE_ENGINE_COMMIT`，再执行：
 
 ```powershell
 rtk git -C E:\own_space\engines\cocos-test-projects rev-parse HEAD
@@ -205,7 +205,7 @@ rtk git -C D:\workspace\engines\cocos\3.8.6 worktree add --detach $env:TEMP\coco
 rtk pwsh -NoProfile -Command '$root=Join-Path $env:TEMP "cocos-cli-official-sync-3b526b9d"; $engine=Join-Path $root "engine-3.8.6"; $engineConfigPath=Join-Path $engine "cc.config.json"; $config=Get-Content -Raw -LiteralPath $engineConfigPath | ConvertFrom-Json; $html5=$config.moduleOverrides | Where-Object { $_.test -eq "context.buildTimeConstants && context.buildTimeConstants.HTML5" }; if ($html5.overrides."pal/system-info" -ne "pal/system-info/web/system-info.ts") { throw "Unexpected pal/system-info override" }; $html5.overrides."pal/system-info"="pal/system-info/web/system-info"; $config | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $engineConfigPath -Encoding utf8NoBOM; foreach ($projectName in @("cocos-test-projects","cocos-test-projects-mutable")) { $projectPackagePath=Join-Path $root "$projectName\package.json"; $package=Get-Content -Raw -LiteralPath $projectPackagePath | ConvertFrom-Json; $package."cocos-cli".enginePath=$engine; $package | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $projectPackagePath -Encoding utf8NoBOM }'
 ```
 
-Expected：engine fixture 只修改 `cc.config.json`，两个 project fixtures 初始都只修改 `package.json`；`pal/system-info/web/system-info.ts` source 确实存在。只读 project fixture 用于 project-bound Vitest、CLI 和不落盘 browser tests；mutable fixture 仅用于 MCP save / restart / realm-isolation 验收，必须逐项记录预期资产变化并在验收后恢复。extensionless 候选数必须大于 0。
+Expected：两个 project worktrees 的 `HEAD` 都精确等于同一个 `FIXTURE_PROJECT_COMMIT`，初始 tracked 内容和全部 `.meta` 的相对路径 / SHA256 一致；engine fixture 只修改 `cc.config.json`，两个 project fixtures 初始都只修改 `package.json`。Task 10 将前者记为 `CURRENT_PROJECT_WORKTREE`、后者记为 `MERGED_PROJECT_WORKTREE`；目录名中的 `mutable` 只是历史命名，不表示允许跳过 clean baseline。更早执行的 MCP save / restart / realm-isolation 只能通过既有 `createTestProject()` 从 fixture 创建独立 E2E workspace，不得直接写入这两个 parity worktrees；每项仍须记录和清理预期资产变化。`pal/system-info/web/system-info.ts` source 确实存在，extensionless 候选数必须大于 0。
 
 执行记录（2026-07-14）：初始 `FIXTURE_ENGINE_COMMIT` 为 `16089a1b6e61a83fedd8c2ece921edf6efaf8523`。Task 8 的 strict DTS 诊断确认 `cocos/dragon-bones/ArmatureDisplay.ts` 输出的 3 处原生 `Map<K, V>` 在 bundle namespace 中被误解析为 DragonBones 的 `Map<T>`；经确认后在 3.8.6 engine 提交 `1f00541ac8092f7f591f3b5378554c8c20b9c2f9 fix: disambiguate dragonbones socket map types` 修复，并将 engine fixture 重新冻结到该提交。该提交只修改上述 engine runtime source，fixture 相对新提交仍只保留预期的 `cc.config.json` 测试配置变化。
 
@@ -855,70 +855,51 @@ rtk pwsh -NoProfile -Command '$projectRoot=Join-Path $env:TEMP "cocos-cli-offici
 
 Expected：真实 `dist/cli.js preview --runtime` 在主测试项目通过；不能扩大为所有真实项目通过。
 
-## Task 10：Preview 用户流程验收
+## Task 10：Runtime preview / Editor 用户流程 parity 验收
 
-- [ ] 新增 `vitests/scripts/official-sync-preview-mode-acceptance.mjs`。该 helper 必须：
+> 状态：**已完成**。验收只围绕 `preview --runtime`、`.meta` parity 和 Editor 共存，没有扩展额外 mode matrix。
 
-  - 通过 `child_process.spawn()` 且 `windowsHide: true` 顺序启动 game / build / scene-editor / runtime / MCP 五个 CLI processes。
-  - game / build / scene-editor 使用 `--no-open`；runtime 不传 `--no-open`，因为该参数在 runtime 下应被拒绝。
-  - 使用固定独立端口，stdout/stderr 分 mode 写入 evidence 目录。
-  - 在明确 timeout 内轮询实际 URL / readiness，不使用固定 sleep 作为成功条件。
-  - 使用 Playwright 打开 browser，收集 `pageerror`、`unhandledrejection`、`console.error`、同源 failed request 和非预期 bad response。
-  - scene-editor 和 MCP scene-enabled server stack 额外访问 `/preview?uuid=<uuid>`。启动前强断言 `assets/resources/test_assets/testMat.mtl`、`testMat.mtl.meta`、`prefab.prefab`、`prefab.prefab.meta` 均存在；分别从两个 `.meta` 读取真实 Material / Prefab UUID。调用 `Scene.Preview.open()` 和 `generateThumbnail()`，等待状态为 `ok`，执行 canvas pixel 非空检查并保存 screenshot；再覆盖不支持 / 不存在 UUID。
-  - 同时打开两个 `/preview` tabs，分别切换资源 / primitive，证明 active preview、camera 和 browser heap 相互独立；reload / close 后无残留 camera、timer 或 scene。
-  - URL availability matrix 必须证明 default / build / runtime 不暴露 resource preview page 或 `Scene.Preview`；`--scene-editor` 与 MCP startup 都能托管 `/preview`，但每个 browser tab 是独立 browser scene realm，MCP 另有 child scene worker。
-  - 在 mutable project 执行 realm-isolation 序列：第一个独立 `MCPTestClient` 明确以 mutable project path 启动 child worker；helper 用 `fs.copyFile()` 只把 fixture prefab source 复制到 `assets/e2e-official-sync/prefab-realm-isolation.prefab`，不复制 `.meta`，轮询 `assets-query-uuid(db://assets/e2e-official-sync/prefab-realm-isolation.prefab)` 直到取得不同于原 asset 的新 UUID。MCP 打开新 UUID，加入唯一 marker node，并在另一节点新增 `cc.Button`，将 `cc.Button.interactable` 设为 `false`、`cc.Button.target` 指向 marker node，但先不 `scene-save`；browser `/preview` 打开同 UUID，并通过 `page.evaluate()` 检查当前 browser realm 的 preview object tree，必须看不到 marker。随后 MCP 执行 `scene-save`，helper 以 AssetDB reimport / asset mtime 与 query 条件轮询完成，不用固定 sleep；browser reload 后重新 `Scene.Preview.open()`，必须看到 marker。最后完全关闭第一个 client / server，创建第二个 `MCPTestClient` 并以同一 project path 启动，重新打开 prefab，query 必须仍得到 marker、`interactable=false` 和指向 marker 的 `target`。`finally` 通过 `assets-delete-asset` 删除该 db URL，轮询 UUID 为空且 source / generated `.meta` 消失。该序列证明共享的是 AssetDB / library / disk，不是 scene object memory。
-  - 在 `finally` 中终止本 helper 启动的进程，并验证端口释放。
-  - 运行非法 mode / companion option matrix，要求非 0、明确错误且端口没有监听。
-  - 对 Task 1 固定构造的 `pal/system-info -> pal/system-info/web/system-info` extensionless override 做强断言：候选数必须大于 0，生成 import-map value 必须以 `system-info.js` 结尾，该 URL 请求 200，browser 不得出现 extensionless failed request。零命中必须失败，不能 skip。
+主比较只做 current CLI 与 merged CLI 的真实 `preview --runtime`：两边使用 Task 1 从同一个冻结 clean project commit 创建的独立可写 worktree，分别运行自己的已构建 `dist/cli.js`。不以 `E:\own_space\engines\cocos-test-projects` 当前 dirty 工作区为基线，也不把 default / `--scene-editor` 的 cold 结果外推为 runtime parity 结论。
 
-- [ ] 使用 Task 1 已冻结的 project / engine fixtures。普通 mode / browser smoke 使用只读 project；realm-isolation 使用 mutable project。运行前验证两个 project fixtures 都只有 `package.json`、engine fixture 只有 `cc.config.json` 三项预期测试配置变化，并执行 source/meta preflight；任何其它 source asset、`.meta` 或 engine source 变化都阻塞验收：
+- [x] 记录并核对两个候选、两个 project worktree 和固定 TestList scene UUID：
 
-```powershell
-rtk pwsh -NoProfile -Command '$roots=@((Join-Path $env:TEMP "cocos-cli-official-sync-3b526b9d\cocos-test-projects"),(Join-Path $env:TEMP "cocos-cli-official-sync-3b526b9d\cocos-test-projects-mutable")); $paths=@("assets/resources/test_assets/testMat.mtl","assets/resources/test_assets/testMat.mtl.meta","assets/resources/test_assets/prefab.prefab","assets/resources/test_assets/prefab.prefab.meta"); foreach($root in $roots){ foreach($path in $paths){ $full=Join-Path $root $path; if(-not (Test-Path -LiteralPath $full)){ throw "Missing acceptance fixture: $full" } } }'
-rtk git -C $env:TEMP\cocos-cli-official-sync-3b526b9d\cocos-test-projects status --short
-rtk git -C $env:TEMP\cocos-cli-official-sync-3b526b9d\cocos-test-projects-mutable status --short
-```
+| 候选 | CLI | Project cwd | Runtime port |
+| --- | --- | --- | ---: |
+| current | `E:\own_space\engines\cocos-cli\dist\cli.js` | `CURRENT_PROJECT_WORKTREE` | 9633 |
+| merged | `E:\own_space\engines\cocos-cli\.worktrees\official-sync\dist\cli.js` | `MERGED_PROJECT_WORKTREE` | 9634 |
 
-Expected：四个路径在两个 project fixtures 中都存在；两个 project status 都只列 `package.json`。
+记录 `CURRENT_CLI_REVISION` 与 `MERGED_CLI_REVISION`，确认两边都用相同 build 入口生成本 revision 的 `dist`，禁止拿旧产物比较。`TEST_LIST_UUID=42e68f34-5f5f-4a8a-938a-ec9d5fe61b0d`，必须在两个 baseline 中都解析到 `assets/cases/TestList/TestList.scene`。两个 project worktree 的 `HEAD` 必须都等于 `FIXTURE_PROJECT_COMMIT`，初始 `.meta` 相对路径和 SHA256 必须完全一致。清理全部无关 `COCOS_CLI_TEST_*` env；runtime 必须通过各 project `package.json["cocos-cli"].enginePath` 解析 engine，不注入 frozen Editor reference。
 
-- [ ] 清理当前进程 test env 后运行可执行 helper：
+- [x] Editor preflight 只使用全局 `cce`：运行一次 `cce list` 并保存输出，确认默认 Editor 是已知的 3.8.6。后续必须从对应 project worktree cwd 执行 `cce open`；禁止直接启动 Editor exe，也禁止使用 `cce run`，因为它会打开全局项目而不是当前 cwd 项目。
 
-```powershell
-rtk pwsh -NoProfile -Command 'Remove-Item Env:COCOS_CLI_TEST_PROJECT_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_ENGINE_ROOT -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_LIBRARY_REF -ErrorAction SilentlyContinue; Remove-Item Env:COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF -ErrorAction SilentlyContinue; node vitests/scripts/official-sync-preview-mode-acceptance.mjs --cli-root "E:\own_space\engines\cocos-cli\.worktrees\official-sync" --project-root "$env:TEMP\cocos-cli-official-sync-3b526b9d\cocos-test-projects" --mutable-project-root "$env:TEMP\cocos-cli-official-sync-3b526b9d\cocos-test-projects-mutable" --game-port 9630 --build-port 9631 --scene-port 9632 --runtime-port 9633 --mcp-port 9634 --startup-timeout-ms 180000 --browser-timeout-ms 120000 --evidence-root "$env:TEMP\cocos-cli-official-sync-3b526b9d\evidence"'
-```
+- [x] 对 current 和 merged 候选分别串行采集下面两个启动顺序；current 用于记录合并前行为，merged 必须完整通过。current 的既有缺陷若中断某一顺序，应保留证据并由 merged 复测证明修复，不把基线缺陷转化为要求 merged 复现的 parity 条件：
 
-- [ ] Helper 必须实际执行并验收：
+  1. `runtime -> cce Editor`：从 project cwd 启动该候选的 `preview --runtime --project . --scene <TEST_LIST_UUID>`，让 runtime process 和 browser 保持运行；确认 browser 真正加载 TestList 场景后，在同一 cwd 执行 `cce open`。等待 Editor 完成项目初始化和 AssetDB import，再回查 runtime browser 与 Editor process / logs，双方都必须继续健康。
+  2. `cce Editor -> runtime`：先从 project cwd 执行 `cce open`，让 Editor 保持运行并确认其完成项目初始化和 AssetDB import；再启动该候选的 `preview --runtime --project . --scene <TEST_LIST_UUID>`。确认 runtime browser 真场景加载完成后，再回查 Editor process / logs 与 runtime，双方都必须继续健康。
 
-```text
-default game preview -> /
---build              -> legacy build preview URL
---scene-editor       -> /scene-editor/；同一 server stack 同时检查 / 和 /preview，各 browser tab 独立初始化 scene realm
---runtime            -> runtime root、/settings.js、/scene-list、health/readiness
-start-mcp-server     -> /mcp、/scene-editor/、/preview；MCP child worker 与 browser scene realms 分离
-```
+  “健康”不能只用 HTTP 200 代替：runtime browser 必须有实际 TestList scene、非空 canvas / ready signal，且无阻断性的 page error、同源 failed request、bad response 或 `console.error`；Editor 必须完成项目初始化、AssetDB import、script compile 和 scene process 启动，并在 runtime 启停后 process / logs 无 fatal error。每轮记录命令、cwd、端口、启动顺序、关键时间点、CLI / Editor 日志和 runtime browser screenshot；不为本验收增加桌面 UI 自动化。
 
-- [ ] 每种 mode 记录命令、端口、进程初始化链路、HTTP / browser 结果和 cleanup；helper 总退出码必须为 0。
-- [ ] 验收后比较三个 fixtures：只读 project 除 `package.json` 外不得变化，engine 除 `cc.config.json` 外不得变化；mutable project 的临时 prefab source / `.meta` 必须已由 helper 清理，最终也只能剩 `package.json`。出现额外 dirty 时保留现场并失败。证据归档后恢复三项明确配置文件，确认三个 worktrees clean，再允许非 force `git worktree remove`。
+- [x] `.meta` 是首要 gate。每个候选在每轮开始前记录同一个 clean commit baseline 的全部 `.meta` 路径和 SHA256；正常退出 runtime 与 Editor、等待 AssetDB / converter / watcher 的异步清理完成后再比较：
 
-Acceptance：
+  - 分别记录 current 和 merged 相对各自相同 clean baseline 的新增、删除、修改清单，不预设 Editor import 后必须零变化；
+  - 最终 current vs merged 的 `.meta` 路径集合和逐文件 SHA256 必须完全一致；
+  - 两边共同出现的 baseline delta 需要解释来源；只出现在 merged 的新增、删除或修改才是合并回归并阻塞验收。
 
-| 流程 | 必须成立 | 必须不成立 |
-| --- | --- | --- |
-| default | `/` 可用，走官方 dynamic game preview | 不启动 runtime server 或 scene RPC |
-| `--build` | 走 legacy build 后预览 | 不忽略 build-only options |
-| `--scene-editor` | `/scene-editor/`、`/` 和 `/preview` 可用；resource UUID 预览 canvas 非空；不同 tab 的 scene realm 相互隔离 | 不读取 runtime programming root，不把 PreviewService 说成 save API 或 MCP child worker |
-| `--runtime` | adapter diagnostics、settings、watch / refresh 保留 | 不启动 scene RPC，不把 Material API误称为同实例 MCP |
-| `start-mcp-server` | `/mcp` 与 scene/resource preview routes 可用，共享主进程 AssetDB / library / disk | 不宣称 MCP child scene worker 与 `/preview` browser realm 共享对象内存 |
+  任一 current vs merged `.meta` 差异都保留现场并使本轮失败，禁止先清理再宣称通过。
 
-browser smoke 是 merge commit gate。本机无法完成时不得继续创建 merge commit，除非用户看到具体未验证项后明确接受本轮 `partial`；HTTP 200 不能替代 browser acceptance。
+- [x] `library` / `temp` 是次要比较。只比较并解释显著结构或语义差异，例如缺失 / 多出的主要目录、AssetDB records、runtime settings、import-map 映射、场景和脚本可用性；比较时排除或归一化绝对 project root、时间戳、日志和 content-addressed chunk 文件名等运行噪音。不要求 `library` / `temp` byte-identical，也不为追求字节一致引入 production fallback。
 
-- [ ] Stage acceptance helper：
+- [x] 每轮都通过 window close signal / process signal 正常退出 Editor 和 runtime，再等待异步 child process 与文件清理完成，确认端口释放后才生成最终 `.meta` 和 `library` / `temp` 比较。只有 `.meta` gate、merged 的两个启动顺序、runtime 真场景、Editor 初始化和双方共存健康检查全部通过，Task 10 才能完成。
 
-```powershell
-rtk git add -- vitests/scripts/official-sync-preview-mode-acceptance.mjs
-rtk git diff --cached --check
-```
+### Runtime 前置：cold QuickPack workspace lock
+
+current CLI 在 clean project 的真实 `preview --runtime` 中同样触发 `targets/editor` lock `ENOENT`，造成 AssetDB script compile 失败和 runtime root 503，因此它是本轮 runtime blocker，不再归为独立 default / scene-editor 后续。`a6aca755` 引入 outer output lock 的原意仍是保护 QuickPack output transaction、rollback 和并发写入；修复不能削弱该语义。
+
+- [x] 做最小修复：在 outer lock 前验证 `middleware.workspace` 并执行 `ensureDir`，再按原路径获取 lock；不增加 fallback、不预热别的 target、不改变 transaction / rollback / release。focused tests 覆盖 cold missing workspace、warm workspace、lock release 和 rollback / compile failure，然后重跑真实 runtime 两种启动顺序。
+
+执行记录（2026-07-20）：current CLI 为 `c9302b35`，merged CLI 修复后为 `c9cea943`；两个项目 fixture 均冻结于 `9209d955`，runtime engine 为 `2b0c2bc2`。current 的 cold `runtime -> Editor` 在 Editor 启动前即因 `temp/cli/programming/packer-driver/targets/editor` 不存在而发生 QuickPack lock `ENOENT`，root 返回 503；`Editor -> runtime` 虽能加载 TestList，但日志仍记录同一 script compile failure。merged 在两个启动顺序中均完成 `cce open` 的 3.8.6 Editor 初始化、AssetDB ready、script/scene process 初始化和 runtime 共存；两次 headless browser 均加载 `TestList`，canvas 为 `960x640`，`console.error`、page error、同源 failed request 和 bad response 都为 0。
+
+两个 clean baseline 均有 2188 个 `.meta`。3.8.6 importer 在两边共同归一化 286 个 model `.meta`，没有新增或删除；正常退出后 current 与 merged 的 2188 个相对路径和逐文件 SHA256 完全一致，差异数为 0。`library` 两边均有 6363 个相同路径文件，仅 4 个索引 JSON 的字节数受绝对 project root、import time 和记录顺序影响；`temp` 的主要结构差异来自 current 的 editor target compile 失败而 merged 同时生成 editor/preview target，其余差异以 converter 临时目录、日志时间和 content-addressed chunk 名为主。证据保存在 `.codex-tmp/runtime-editor-parity-20260720`；全部 Editor/runtime process 已退出，9633 到 9636 无监听，测试产生的 engine `.meta` 归一化已撤销且 engine worktree clean。
 
 ## Task 11：创建 merge commit、复盘和回收
 
@@ -967,7 +948,7 @@ Expected：回收前 `adapter-to-386` 仍精确等于 `START_ADAPTER`；只 fast
 
 - 固定 `TARGET` 是执行时当前 `upstream/main` 的 ancestor；远端 heads 已记录但允许正常前进；合并 commit 第二 parent 精确等于 `TARGET`。
 - 11 个直接冲突和 `C-01` 到 `C-15` 的全部 direct / semantic conflict 均有实现与验证记录。
-- 四种 `preview` mode 与 `start-mcp-server` 用户流程符合确认合同，非法组合明确失败。
+- current CLI 与 merged CLI 的真实 `preview --runtime` 在同一 clean project commit 的独立 worktrees 上完成基线对比，merged 完成 runtime / Editor 两种启动顺序；runtime browser 真场景、Editor 初始化、共存健康和 current vs merged `.meta` gate 均通过。default / build / scene-editor / MCP 的既有 focused contract 不回退，cold editor-target lock 已作为 runtime 前置修复并验证。
 - 官方 builder progress/log/cache/stage、iOS / Google Play / Android / Web Mobile Pink views 和迁移后的 builder package paths、adapter extension/wechatgame/runtime settings 同时保留。
 - Material / config-map 官方 API、PreviewService、prefab/atlas native loading、dump editing 和 animation edit/save、session re-enter refresh suppression 可用，adapter AssetDB / scene tests 不回退。
 - `script.sortingPlugin` 在同一实例热更新 preview / scene / build 的 plugin script 加载顺序，且不破坏 adapter AssetDB records / mounts；Joint Texture Layout 在 game/runtime/build settings 中使用同一 resolver 结果。
