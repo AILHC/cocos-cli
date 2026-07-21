@@ -11,15 +11,15 @@ node .\dist\cli.js <command> --help
 
 ## 发布包边界
 
-- 发布包用于放在 `<p6Root>/tools/cocos-cli`，团队成员首次使用在该目录执行 `npm install`。
+- 发布产物为当前仓库 `publish/cocos-cli-v<version>.zip` 中的单个 ZIP，解压根目录为 `cocos-cli/`。
 - 发布包根 `package.json` 不应包含 root `postinstall`，首次 `npm install` 不应触发源码仓库的 engine 编译、CLI build 或 tools 下载。
 - 发布包不提交 `node_modules/`，该目录由使用者本机 `npm install` 生成。
 - 发布包不包含 `packages/engine`，也不允许运行时回退到 `<cliRoot>/packages/engine`。
-- 发布包包含 `static/`，其中 `static/tools/` 在发布所在 Git 仓库中应走 Git LFS。agent 在 clone 或切换提交后需要确认 LFS 文件已拉取到位。
+- 发布包包含完整 `static/`，包括 `static/tools/`。
 
 ## Tools helper scripts
 
-- 发布目录 `<p6Root>/tools/cocos-cli` 包含 `install-cocos-cli.cmd`。
+- 发布目录包含 `install-cocos-cli.cmd`。
 - Windows 用户可双击该脚本；脚本会在发布目录执行 `npm install`，成功后执行 `npm link`，把全局 `cocos` 命令指向当前发布目录。
 - 发布目录还包含 `preview-runtime.cmd`。将它复制到 Cocos 项目根目录后双击，可执行：
 
@@ -28,7 +28,7 @@ cocos preview --runtime --project <projectRoot> --watch-assets --refresh-on-relo
 ```
 
 - `preview-runtime.cmd` 只通过当前目录的 `package.json.creator.version` 判断是否为 Cocos 项目；不要把它放在子目录或非项目目录运行。
-- 如果提示找不到 `cocos` 命令，先回到 `<p6Root>/tools/cocos-cli` 运行 `install-cocos-cli.cmd`。
+- 如果提示找不到 `cocos` 命令，先回到 `<cliRoot>` 运行 `install-cocos-cli.cmd`。
 
 ## Engine 解析
 
@@ -55,7 +55,7 @@ Creator profile 只接受 custom engine，不接受 builtin engine。没有 proj
 这个路径里的 `packages/engine.json` 是 Creator profile 配置文件，不是发布包内置 engine。判断是否错误回退时，应检查是否访问了：
 
 ```text
-<p6Root>/tools/cocos-cli/packages/engine
+<cliRoot>/packages/engine
 ```
 
 不要用宽泛的 `packages/engine` 字符串直接判定失败。
@@ -74,7 +74,7 @@ node .\dist\cli.js preview --help
 
 - 项目配置 `cocos-cli.enginePath`：输出应能证明 `engineRootSource` 为 `project-config`。
 - 无项目配置但本机 Creator custom engine 可用：输出应能证明 `engineRootSource` 为 `creator-profile`。
-- 无项目配置且空 Creator profile：应失败，错误应指向 Creator profile 缺失或无可用 engine，且不应访问 `<p6Root>/tools/cocos-cli/packages/engine`。
+- 无项目配置且空 Creator profile：应失败，错误应指向 Creator profile 缺失或无可用 engine，且不应访问 `<cliRoot>/packages/engine`。
 
 测试用 `COCOS_CLI_TEST_ENGINE_ROOT` 只允许用于 unit/integration 专项验证，不能当作 production 默认策略的证据。
 

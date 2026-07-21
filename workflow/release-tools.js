@@ -223,9 +223,9 @@ function assertReleaseDirectory(targetRoot) {
 }
 
 function renderReadme(metadata) {
-    const readme = `# Cocos CLI tools runtime
+    const readme = `# Cocos CLI runtime
 
-本文档说明 \`<p6Root>/tools/cocos-cli\` 中的 Cocos CLI runtime 使用方式。当前支持的 Creator 版本为 \`3.8.6\`。
+本文档说明 Cocos CLI 发布包的安装和使用方式。当前支持的 Creator 版本为 \`3.8.6\`。
 
 给 agent 使用的注意事项见 \`docs/usage.md\`；CLI help 已覆盖的参数说明不在该文档重复。
 
@@ -236,7 +236,7 @@ function renderReadme(metadata) {
 
 ## 首次安装
 
-在 \`<p6Root>/tools/cocos-cli\` 目录双击：
+解压发布包后，在 \`cocos-cli\` 目录中双击：
 
 \`\`\`text
 install-cocos-cli.cmd
@@ -252,7 +252,7 @@ cocos --help
 
 runtime preview 常用启动：
 
-1. 将 \`<p6Root>/tools/cocos-cli/preview-runtime.cmd\` 复制到 Cocos 项目根目录。
+1. 将 CLI 发布目录中的 \`preview-runtime.cmd\` 复制到 Cocos 项目根目录。
 2. 双击项目根目录下的 \`preview-runtime.cmd\`。
 
 脚本默认执行：
@@ -269,14 +269,15 @@ CLI 运行时按以下顺序解析 engine source：
 2. CLI 初始化链路传入的 \`cliInitializedEngineRoot\`。
 3. Creator profile 中的 \`Creator profile custom engine\`。
 
-示例路径请使用 \`<projectRoot>\`、\`<engineRoot>\`、\`<p6Root>\` 这类占位符替换为本机真实路径。
+示例路径请使用 \`<projectRoot>\`、\`<engineRoot>\` 这类占位符替换为本机真实路径。
 
 ## 常见错误
 
 - profile 缺失：确认 Creator profile 已生成并包含 \`3.8.6\` 对应配置。
 - builtin engine：当前 workflow 需要 custom engine，不使用 Creator builtin engine。
 - engine path 不存在：确认 \`cocos-cli.enginePath\`、\`cliInitializedEngineRoot\` 或 Creator profile custom engine 指向有效的 \`<engineRoot>\`。
-- 依赖未安装：在 \`<p6Root>/tools/cocos-cli\` 执行 \`npm install\`。
+- static tools 缺失：确认发布包完整解压，并包含 \`static/tools\`。
+- 依赖未安装：在 CLI 发布目录执行 \`npm install\`。
 - 端口占用：将 preview 端口改为未占用的 \`<port>\`。
 `;
     assertNoLocalAbsolutePaths(readme);

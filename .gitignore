@@ -34,6 +34,7 @@ static/web/editor-extends.bundle.js
 
 # 构建文件
 /dist
+/publish/
 src/runtime-preview/preview-app/dist/
 src/core/builder/platforms/*/dist
 
