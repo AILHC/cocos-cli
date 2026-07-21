@@ -7,7 +7,7 @@
 - 当前目标是让 production `preview --runtime` 的核心预览流程跑通。
 - `D:\ps_copy\p6\trunk\Project\GameClient\feature-c` 已重新纳入核心流程专项验证。
 - 2026-06-11 最新 `diagnose:feature-c` 证据显示 core route / script / scene-ready 主链路已通过 strict acceptance：`readyTimedOut=false`、`pageErrors=0`、`failedRequests=0`、`badResponses=0`、`console.error=0`。
-- `settings.engine.builtinAssets` 必须包含 internal physics default material `ba21476f-2866-4f81-9c4d-6e359316e448`；该资源不能只挂到 `main` / `start-scene` launch bundle。
+- `settings.engine.builtinAssets` 必须与浏览器实际加载的 engine feature 集合一致。普通 preview 使用完整 engine，因此收集全部 feature 的 dependent assets；`preview --runtime` 使用项目 feature-filtered engine，只收集 `includeModules` feature graph 声明的 dependent assets。仅当该 graph 包含 3D physics 时才应包含 default physics material `ba21476f-2866-4f81-9c4d-6e359316e448`。
 - production `preview --runtime` 的 `engineRoot` 解析和启动日志重复问题已按当前计划修复：项目配置 `cocos-cli.enginePath` 可作为 `project-config` 来源，`server:listening` 只输出一次。修复记录见 [plans/engine-root-and-startup-log-fix-20260611.md](plans/engine-root-and-startup-log-fix-20260611.md)。
 - 2026-06-11 `internal` AssetDB / runtime preview 应优先使用项目级 `library`；engine-level `editor/library` 中部分 internal Texture2D 为 `content:null`，会触发 `Texture2D._deserialize` 读取 `content.base` 报错。见 [facts/project-internal-library-20260611.md](facts/project-internal-library-20260611.md)。
 - 浏览器脚本加载顺序当前只记录事实，不执行并发化修改；HTTP file response 已迁移到 Express `sendFile()` validator 路径，body response 通过 Express `res.send()` 可生成 body `ETag`，满足条件请求时可以返回 `304`。见 [facts/browser-loading-and-cache-20260611.md](facts/browser-loading-and-cache-20260611.md)。
