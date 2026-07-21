@@ -187,6 +187,7 @@ describe('runtime preview production asset routes', () => {
       expect(getPreviewSettings).toHaveBeenCalledWith(expect.objectContaining({
         server: finalServerUrl,
         startScene: diagnosticSceneUuid,
+        featureFilteredEngine: true,
       }));
       expect(() => capturedServerOptions[0].prepareRuntimePreview('http://127.0.0.1:20000')).toThrow(
         `Runtime preview was prepared for ${finalServerUrl}, not http://127.0.0.1:20000`,

@@ -680,6 +680,7 @@ export default class Launcher {
                         ...(buildOptions ?? {}),
                         server: activeServerUrl,
                         startScene,
+                        featureFilteredEngine: true,
                     } as never);
                     const scriptCount = Object.keys(result.script2library ?? {}).length;
                     const bundleCount = Array.isArray(result.bundleConfigs) ? result.bundleConfigs.length : 0;

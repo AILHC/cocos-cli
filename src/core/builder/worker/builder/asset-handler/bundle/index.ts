@@ -511,11 +511,9 @@ export class BundleManager extends BuildTaskBase implements IBundleManager {
         this.updateProcess('Init bundle root assets start...');
         if (this.bundleMap[INTERNAL]) {
             const enginePath = this.options.engineInfo.typescript.path;
-            // 预览用完整引擎，会初始化所有子系统（例如即便项目只用 2D 物理，3D PhysicsSystem 仍会构造并
-            // 加载其默认材质 default-physics-material）。因此预览下内置资源不按 includeModules 裁剪，
-            // 取「全部」feature 的 dependentAssets，与场景编辑器 Engine.queryInternalAssetList / 编辑器内置包
-            // 行为一致；否则会漏掉未选模块的内置资源，运行时报 "Failed to load builtinMaterial"。
-            const internalAssets = this.options.preview
+            // 普通预览仍使用完整引擎，因此需要全部 builtin assets。runtime preview 的 cc 入口按
+            // includeModules 裁剪，builtin assets 必须使用相同的 feature 集合，避免反序列化未注册类型。
+            const internalAssets = this.options.preview && !this.options.featureFilteredEngine
                 ? await queryAllPreloadAssetList(enginePath)
                 : await queryPreloadAssetList(this.options.includeModules, enginePath);
             // 添加引擎依赖的预加载内置资源/脚本到 internal 包内

@@ -185,6 +185,8 @@ export interface IImportMapOptions {
 
 
 export interface IInternalBundleBuildOptions extends MakeRequired<IBuildOptionBase, 'includeModules' | 'macroConfig' | 'engineModulesConfigKey' | 'customPipeline' | 'renderPipeline' | 'designResolution' | 'physicsConfig' | 'flags' | 'taskId'> {
+    /** Runtime preview uses the project feature-filtered engine entry instead of the full preview engine. */
+    featureFilteredEngine?: boolean;
     dest: string; // bundle 构建的输出地址，常规构建时为 assets 目录
     // 编译脚本配置选项
     buildScriptParam: IBuildScriptParam;
