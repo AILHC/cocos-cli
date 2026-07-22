@@ -8,6 +8,7 @@ import { CreateCommand } from './create';
 import { MakeCommand } from './make';
 import { RunCommand } from './run';
 import { UploadCommand } from './upload';
+import { CompileEngineCommand } from './compile-engine';
 
 export { BaseCommand, CommandUtils } from './base';
 export { BuildCommand } from './build';
@@ -16,11 +17,12 @@ export { CreateCommand } from './create';
 export { MakeCommand } from './make';
 export { RunCommand } from './run';
 export { UploadCommand } from './upload';
+export { CompileEngineCommand } from './compile-engine';
 
 /**
  * 所有命令类的类型
  */
-export type CommandClass = BuildCommand | McpServerCommand | CreateCommand | MakeCommand | RunCommand | UploadCommand;
+export type CommandClass = BuildCommand | McpServerCommand | CreateCommand | MakeCommand | RunCommand | UploadCommand | CompileEngineCommand;
 
 /**
  * 命令注册器

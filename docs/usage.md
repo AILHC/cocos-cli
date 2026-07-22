@@ -44,6 +44,8 @@ production 运行时 engine source 只允许来自明确配置或 Creator profil
 
 Creator profile 只接受 custom engine，不接受 builtin engine。没有 project `cocos-cli.enginePath` 且没有可用 custom engine 时，CLI 应报错并停止。
 
+合并或修改 engine source 后，使用 `cocos compile-engine --engine <engineRoot>` 显式重建 `<engineRoot>/bin/.cache/dev-cli`。该 cache 由同一 engine root 下的 preview 共享；不要在 preview 仍运行时重建，应先取得用户确认并停止相关 preview，重建完成后再重新启动。
+
 ## 容易误判的路径
 
 报错中可能出现 Creator profile 配置文件路径，例如：

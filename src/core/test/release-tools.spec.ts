@@ -68,6 +68,7 @@ function createReleaseSourceFixture(repoRoot: string): void {
     writeText(join(repoRoot, 'packages', 'cc-module', 'index.js'), 'module.exports = {};\n');
     writeText(join(repoRoot, 'packages', 'cc-module', 'node_modules', 'skip.txt'), 'skip\n');
     writeText(join(repoRoot, 'packages', 'asset-db', 'index.js'), 'module.exports = {};\n');
+    writeText(join(repoRoot, 'packages', 'engine-compiler', 'dist', 'index.js'), 'exports.compileEngine = async () => {};\n');
     writeText(join(repoRoot, 'packages', 'engine', 'index.js'), 'engine\n');
     for (const toolDir of [
         'static/tools/creator-3.8.6/PVRTexTool_win32',
@@ -279,6 +280,7 @@ describe('release tools workflow helpers', () => {
         expect(readme).toContain('--refresh-on-reload');
         expect(readme).toContain('docs/usage.md');
         expect(readme).toContain('preview --runtime');
+        expect(readme).toContain('cocos compile-engine --engine <engineRoot>');
         expect(readme).toContain('cocos-cli.enginePath');
         expect(readme).toContain('cliInitializedEngineRoot');
         expect(readme).toContain('Creator profile custom engine');
@@ -358,6 +360,7 @@ describe('release tools workflow helpers', () => {
         });
         createDir(join(targetRoot, 'packages', 'asset-db'));
         createDir(join(targetRoot, 'packages', 'cc-module'));
+        writeText(join(targetRoot, 'packages', 'engine-compiler', 'dist', 'index.js'), 'exports.compileEngine = async () => {};\n');
         writeText(join(targetRoot, 'docs', 'usage.md'), '# usage\n');
         writeText(join(targetRoot, 'install-cocos-cli.cmd'), '@echo off\r\necho install\r\n');
         writeText(join(targetRoot, 'preview-runtime.cmd'), '@echo off\r\necho preview\r\n');
@@ -404,6 +407,7 @@ describe('release tools workflow helpers', () => {
         });
         createDir(join(targetRoot, 'packages', 'asset-db'));
         createDir(join(targetRoot, 'packages', 'cc-module'));
+        writeText(join(targetRoot, 'packages', 'engine-compiler', 'dist', 'index.js'), 'exports.compileEngine = async () => {};\n');
         writeText(join(targetRoot, 'docs', 'usage.md'), '# usage\n');
         for (const toolDir of [
             'static/tools/creator-3.8.6/PVRTexTool_win32',
@@ -443,6 +447,7 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(targetRoot, 'old.txt'))).toBe(false);
         expect(existsSync(join(targetRoot, 'node_modules'))).toBe(false);
         expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
+        expect(existsSync(join(targetRoot, 'packages', 'engine-compiler', 'dist', 'index.js'))).toBe(true);
         expect(existsSync(join(targetRoot, 'dist', 'cli.js'))).toBe(true);
         expect(readFileSync(join(targetRoot, 'install-cocos-cli.cmd'), 'utf8')).toBe('@echo off\r\necho install\r\n');
         expect(readFileSync(join(targetRoot, 'preview-runtime.cmd'), 'utf8')).toBe('@echo off\r\necho preview\r\n');

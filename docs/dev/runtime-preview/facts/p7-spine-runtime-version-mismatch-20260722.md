@@ -90,6 +90,20 @@ npx tsc -p packages/engine-compiler/tsconfig.json --pretty false
 
 如果未来有明确需求让 runtime preview 支持 Spine 4.2，或出现另一个必须在 preview 中切换的多版本模块，应先取得 Editor 对应行为和真实项目需求，再单独设计；不能从本次 3.8 回归推导出通用 variant 架构。
 
+## 显式重编译入口
+
+第一性原理上，engine cache 是 engine source 的派生产物；合并或修改 engine source 后，用户只需要能够明确指定该 source 并重建对应 cache，不需要让 `preview` 猜测源码是否变化，也不需要引入 cache variant。
+
+发布版 CLI 提供以下命令：
+
+```powershell
+cocos compile-engine --engine <engineRoot>
+```
+
+命令固定重建 `<engineRoot>/bin/.cache/dev-cli/editor` 和 `<engineRoot>/bin/.cache/dev-cli/web`。为保证发布版可以独立执行，正常 CLI build 会编译 `packages/engine-compiler`，release archive 只携带其 `dist` 产物，不携带 `packages/engine` source。
+
+该命令不自动停止或重启 preview。若目标 cache 正被 preview 使用，应先由用户确认停止 preview，再执行重编译，随后重新启动 preview。
+
 ## 验收边界
 
 - Jest 单元测试：证明 preview feature policy 只保留 Spine 3.8，并且 cache policy version 已提升；不能证明真实 browser 渲染。

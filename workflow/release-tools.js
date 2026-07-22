@@ -10,6 +10,7 @@ const COPY_ENTRIES = [
     ['static'],
     ['packages', 'cc-module'],
     ['packages', 'asset-db'],
+    ['packages', 'engine-compiler', 'dist'],
 ];
 const HELPER_SCRIPT_ENTRIES = [
     {
@@ -205,6 +206,7 @@ function assertReleaseDirectory(targetRoot) {
     assertPathExists(resolvedTargetRoot, 'preview-runtime.cmd', 'file');
     assertPathExists(resolvedTargetRoot, 'packages/asset-db', 'directory');
     assertPathExists(resolvedTargetRoot, 'packages/cc-module', 'directory');
+    assertPathExists(resolvedTargetRoot, 'packages/engine-compiler/dist/index.js', 'file');
 
     for (const toolDir of REQUIRED_TOOL_DIRS) {
         assertPathExists(resolvedTargetRoot, toolDir, 'directory');
@@ -260,6 +262,14 @@ runtime preview 常用启动：
 \`\`\`powershell
 cocos preview --runtime --project <projectRoot> --watch-assets --refresh-on-reload
 \`\`\`
+
+合并或修改 engine source 后，显式重建 CLI preview 使用的 engine cache：
+
+\`\`\`powershell
+cocos compile-engine --engine <engineRoot>
+\`\`\`
+
+该命令只重建 \`<engineRoot>/bin/.cache/dev-cli\`，不会自动停止或重启正在运行的 preview。
 
 ## Engine 解析优先级
 

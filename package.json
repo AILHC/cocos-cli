@@ -1,6 +1,6 @@
 {
     "name": "cocos-cli",
-    "version": "0.0.1-alpha.35",
+    "version": "0.0.1-alpha.36",
     "displayName": "COCOS CLI",
     "icon": "static/logo/logo.png",
     "description": "COCOS CLI",
@@ -32,12 +32,13 @@
         "install:engine": "cd ./packages/engine && npm i",
         "compiler": "FORCE_UPDATE=true npm i",
         "compiler:engine": "node --max-old-space-size=8192 workflow/compiler-engine.js --force",
+        "build:engine-compiler": "tsc -p packages/engine-compiler/tsconfig.json",
         "build:cc-module": "node workflow/build-cc-module.js",
         "build:runtime-preview-app": "tsc -p src/runtime-preview/preview-app/tsconfig.json && node workflow/build-runtime-preview-app.js",
         "build:static-web": "node workflow/build-scene-bundle.js && node workflow/build-polyfills.js",
         "build:platform-views": "node workflow/build-platform-views.js && node workflow/build-platform-assets.js",
-        "build": "npm run build:clear && node workflow/prepare-dts.js && tsc -b && npm run build:static-web && node workflow/generate-schema.js && npm run generate:dts && npm run build:platform-views",
-        "compile": "npm run build:clear && node workflow/prepare-dts.js && tsc -b && npm run build:platform-views && npm run build:static-web && node workflow/generate-schema.js",
+        "build": "npm run build:clear && npm run build:engine-compiler && node workflow/prepare-dts.js && tsc -b && npm run build:static-web && node workflow/generate-schema.js && npm run generate:dts && npm run build:platform-views",
+        "compile": "npm run build:clear && npm run build:engine-compiler && node workflow/prepare-dts.js && tsc -b && npm run build:platform-views && npm run build:static-web && node workflow/generate-schema.js",
         "build:clear": "node workflow/build-clear.js",
         "build:watch": "tsc -b --watch",
         "postinstall": "node workflow/postinstall.js",
@@ -60,7 +61,8 @@
         "workflow",
         "writablePath",
         "packages/cc-module",
-        "packages/asset-db"
+        "packages/asset-db",
+        "packages/engine-compiler/dist"
     ],
     "overrides": {
         "fsevents": "2.3.3"
