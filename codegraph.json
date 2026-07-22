@@ -1,0 +1,14 @@
+{
+  "exclude": [
+    "/.agents/",
+    "/.codegraph/",
+    "/.codex/",
+    "/.codex-tmp/",
+    "/.github/",
+    "/.temp/",
+    "/.vscode/",
+    "/.worktrees/",
+    "/docs/",
+    "/specs/"
+  ]
+}
