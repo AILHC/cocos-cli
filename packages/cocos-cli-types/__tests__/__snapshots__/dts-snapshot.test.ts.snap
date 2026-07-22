@@ -3033,6 +3033,7 @@ export declare interface IInternalBuildUtils extends IBuildUtils {
 }
 export declare type IInternalBundleBaseHooks = (this: IBundleManager, options: IInternalBundleBuildOptions, bundles: IBundle[], cache: BuilderCache) => void;
 export declare interface IInternalBundleBuildOptions extends MakeRequired<IBuildOptionBase, 'includeModules' | 'macroConfig' | 'engineModulesConfigKey' | 'customPipeline' | 'renderPipeline' | 'designResolution' | 'physicsConfig' | 'flags' | 'taskId'> {
+    featureFilteredEngine?: boolean;
     dest: string;
     buildScriptParam: IBuildScriptParam;
     assetSerializeOptions: AssetSerializeOptions;

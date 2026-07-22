@@ -102,9 +102,6 @@ export async function startup(options: {
     await Rpc.startup({ serverURL });
     await initLocalI18n();
 
-    // Spine 版本：dev-cli 引擎同时编入 spine-3.8 与 spine-4.2，按项目 includeModules 选定。
-    // 必须在 game.init（spine WASM 实例化 + spine-define patch）之前写入全局，供 spine-instantiate-dynamic 读取。
-    (globalThis as any)._CC_SPINE_VERSION = features.includes('spine-4.2') ? '4.2' : '3.8';
     cc.physics.selector.runInEditor = true;
 
     installCCONBJsonDownloadFallback(cc.assetManager, { isBrowser: true, serverURL });

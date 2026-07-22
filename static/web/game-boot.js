@@ -118,13 +118,6 @@ export default async function gameBoot() {
             });
         }
 
-        // Spine 版本：dev-cli 预览引擎同时编入 spine-3.8 与 spine-4.2（见 engine-compiler / cc.config.json
-        // dynamic override），运行时按项目 includeModules 选定。必须在引擎初始化（spine WASM 实例化 +
-        // spine-define patch）之前写入全局，供 spine-instantiate-dynamic.ts 读取。改配置 + 硬刷新即切换，
-        // 无需重编引擎/重启。真机构建走独立管线、编译期单版本，不受影响。
-        if (Array.isArray(includeModules)) {
-            globalThis._CC_SPINE_VERSION = includeModules.includes('spine-4.2') ? '4.2' : '3.8';
-        }
         // selector 走全局 cc：System.import('cc') 是公开 ES 导出，不含 internal（cc.internal 为 undefined）；
         // 引擎加载后把完整命名空间（含 internal.physics2d.selector）挂在 window.cc / globalThis.cc 上。
         const ccGlobal = (typeof window !== 'undefined' && window.cc) || globalThis.cc || cc;

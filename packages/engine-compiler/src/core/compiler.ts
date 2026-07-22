@@ -5,8 +5,9 @@ import * as ps from 'path';
 import * as fsExtra from 'fs-extra';
 import { IFeatureItem, IModuleItem, ModuleRenderConfig } from './modules';
 import { fixImportMapExtensions } from './import-map-utils';
+import { PREVIEW_ENGINE_CACHE_VERSION, resolvePreviewEngineFeatures } from './preview-engine-policy';
 
-const VERSION = '3';
+const VERSION = PREVIEW_ENGINE_CACHE_VERSION;
 const TEMP_ENGINE_CONFIG: any = { configs: { defaultConfig: { name: '默认配置', cache: { base: { _value: true }, 'gfx-webgl': { _value: true }, 'gfx-webgl2': { _value: false }, 'gfx-webgpu': { _value: false }, animation: { _value: true }, 'skeletal-animation': { _value: true }, '3d': { _value: true }, meshopt: { _value: false }, '2d': { _value: true }, 'sorting-2d': { _value: false }, 'rich-text': { _value: true }, mask: { _value: true }, graphics: { _value: true }, 'ui-skew': { _value: true }, 'affine-transform': { _value: true }, ui: { _value: true }, particle: { _value: true }, physics: { _value: true, _option: 'physics-physx' }, 'physics-ammo': { _value: true, _flags: { LOAD_BULLET_MANUALLY: false } }, 'physics-cannon': { _value: false }, 'physics-physx': { _value: false, _flags: { LOAD_PHYSX_MANUALLY: false } }, 'physics-builtin': { _value: false }, 'physics-2d': { _value: true, _option: 'physics-2d-box2d' }, 'physics-2d-box2d': { _value: true }, 'physics-2d-box2d-wasm': { _value: false, _flags: { LOAD_BOX2D_MANUALLY: false } }, 'physics-2d-builtin': { _value: false }, 'physics-2d-box2d-jsb': { _value: false }, 'intersection-2d': { _value: true }, primitive: { _value: true }, profiler: { _value: true }, 'occlusion-query': { _value: false }, 'geometry-renderer': { _value: false }, 'debug-renderer': { _value: false }, 'particle-2d': { _value: true }, audio: { _value: true }, video: { _value: true }, webview: { _value: true }, tween: { _value: true }, websocket: { _value: true }, 'websocket-server': { _value: false }, terrain: { _value: true }, 'light-probe': { _value: true }, 'tiled-map': { _value: true }, 'vendor-google': { _value: false }, spine: { _value: true, _option: 'spine-3.8' }, 'spine-3.8': { _value: true, _flags: { LOAD_SPINE_MANUALLY: false } }, 'spine-4.2': { _value: false, _flags: { LOAD_SPINE_MANUALLY: false } }, 'dragon-bones': { _value: true }, marionette: { _value: true }, 'procedural-animation': { _value: true }, 'custom-pipeline-post-process': { _value: false }, 'render-pipeline': { _value: true, _option: 'custom-pipeline' }, 'custom-pipeline': { _value: true }, 'legacy-pipeline': { _value: false }, xr: { _value: false } }, flags: { LOAD_BULLET_MANUALLY: false, LOAD_SPINE_MANUALLY: false, LOAD_PHYSX_MANUALLY: false }, includeModules: ['2d', '3d', 'affine-transform', 'animation', 'audio', 'base', 'custom-pipeline', 'dragon-bones', 'gfx-webgl', 'graphics', 'intersection-2d', 'light-probe', 'marionette', 'mask', 'particle', 'particle-2d', 'physics-2d-box2d', 'physics-physx', 'primitive', 'procedural-animation', 'profiler', 'rich-text', 'skeletal-animation', 'spine-3.8', 'terrain', 'tiled-map', 'tween', 'ui', 'ui-skew', 'video', 'websocket', 'webview'], noDeprecatedFeatures: { value: false, version: '' } } }, globalConfigKey: 'defaultConfig', graphics: { pipeline: 'custom-pipeline', 'custom-pipeline-post-process': false } };
 interface IRebuildOptions {
     debugNative?: boolean;
@@ -83,18 +84,7 @@ export class EngineCompiler {
             await fsExtra.ensureDir(ps.dirname(logFile));
         }
         this.statsQuery = this.statsQuery || await StatsQuery.create(this.enginePath);
-        let allFeatures = this.statsQuery.getFeatures();
-        // Spine Hack Begin
-        // 先移除 spine 所有版本
-        allFeatures = allFeatures.filter((f) => !f.startsWith('spine-'));
-        // dev-cli 预览 / 场景编辑器引擎：同时编入 spine-3.8 与 spine-4.2，配合 cc.config.json 的
-        // moduleOverrides（SPINE_3_8 && SPINE_4_2 → spine-*-dynamic.ts）实现运行时按 cocos.config.json
-        // 选定 spine 版本（改配置 + 硬刷新即生效，无需重编引擎）。两份 spine WASM/asm external 都会被编入。
-        // 注意：这里是 dev-cli 引擎编译器，与项目构建引擎（src/core/builder/.../separate-engine.ts）是
-        // 两条独立管线；项目构建仍按 includeModules 编译期单版本，产物包体不受影响。
-        allFeatures.push('spine-3.8');
-        allFeatures.push('spine-4.2');
-        // Spine Hack End
+        const allFeatures = resolvePreviewEngineFeatures(this.statsQuery.getFeatures());
         const env: StatsQuery.ConstantManager.ConstantOptions = {
             platform: 'NODEJS',
             mode: 'EDITOR',
