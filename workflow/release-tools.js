@@ -21,6 +21,10 @@ const HELPER_SCRIPT_ENTRIES = [
         source: ['workflow', 'tools-runtime-scripts', 'preview-runtime.cmd'],
         destination: ['preview-runtime.cmd'],
     },
+    {
+        source: ['workflow', 'tools-runtime-scripts', 'compile-engine.cmd'],
+        destination: ['compile-engine.cmd'],
+    },
 ];
 const REQUIRED_TOOL_DIRS = [
     'static/tools/creator-3.8.6/PVRTexTool_win32',
@@ -204,6 +208,7 @@ function assertReleaseDirectory(targetRoot) {
     assertPathExists(resolvedTargetRoot, 'package-lock.json', 'file');
     assertPathExists(resolvedTargetRoot, 'install-cocos-cli.cmd', 'file');
     assertPathExists(resolvedTargetRoot, 'preview-runtime.cmd', 'file');
+    assertPathExists(resolvedTargetRoot, 'compile-engine.cmd', 'file');
     assertPathExists(resolvedTargetRoot, 'packages/asset-db', 'directory');
     assertPathExists(resolvedTargetRoot, 'packages/cc-module', 'directory');
     assertPathExists(resolvedTargetRoot, 'packages/engine-compiler/dist/index.js', 'file');
@@ -263,13 +268,20 @@ runtime preview 常用启动：
 cocos preview --runtime --project <projectRoot> --watch-assets --refresh-on-reload
 \`\`\`
 
-合并或修改 engine source 后，显式重建 CLI preview 使用的 engine cache：
+合并或修改 engine source 后：
+
+1. 将 CLI 发布目录中的 \`compile-engine.cmd\` 复制到 Cocos 项目根目录。
+2. 双击项目根目录下的 \`compile-engine.cmd\`。
+
+脚本默认执行：
 
 \`\`\`powershell
-cocos compile-engine --engine <engineRoot>
+cocos compile-engine --project <projectRoot>
 \`\`\`
 
-该命令只重建 \`<engineRoot>/bin/.cache/dev-cli\`，不会自动停止或重启正在运行的 preview。
+不在项目根目录时，可传入 \`--project <projectRoot>\` 从项目解析 engine source，或传入 \`--engine <engineRoot>\` 直接指定 engine source。两者互斥。
+
+该命令只重建解析所得 engine source 的 \`bin/.cache/dev-cli\`，不会自动停止或重启正在运行的 preview。
 
 ## Engine 解析优先级
 

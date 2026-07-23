@@ -28,6 +28,8 @@ cocos preview --runtime --project <projectRoot> --watch-assets --refresh-on-relo
 ```
 
 - `preview-runtime.cmd` 只通过当前目录的 `package.json.creator.version` 判断是否为 Cocos 项目；不要把它放在子目录或非项目目录运行。
+- 发布目录还包含 `compile-engine.cmd`。将它复制到 Cocos 项目根目录后双击，可执行 `cocos compile-engine --project <projectRoot>`；脚本使用自身所在目录作为项目根目录。
+- `compile-engine.cmd` 与 `preview-runtime.cmd` 使用相同的项目目录校验，不要把它放在子目录或非项目目录运行。
 - 如果提示找不到 `cocos` 命令，先回到 `<cliRoot>` 运行 `install-cocos-cli.cmd`。
 
 ## Engine 解析
@@ -44,7 +46,9 @@ production 运行时 engine source 只允许来自明确配置或 Creator profil
 
 Creator profile 只接受 custom engine，不接受 builtin engine。没有 project `cocos-cli.enginePath` 且没有可用 custom engine 时，CLI 应报错并停止。
 
-合并或修改 engine source 后，使用 `cocos compile-engine --engine <engineRoot>` 显式重建 `<engineRoot>/bin/.cache/dev-cli`。该 cache 由同一 engine root 下的 preview 共享；不要在 preview 仍运行时重建，应先取得用户确认并停止相关 preview，重建完成后再重新启动。
+合并或修改 engine source 后，在项目根目录使用 `cocos compile-engine`；CLI 会从 cwd 项目解析与 preview 相同的 engine source。也可用 `--project <projectRoot>` 指定项目，或用 `--engine <engineRoot>` 绕过项目解析。`--project` 与 `--engine` 互斥。
+
+该命令显式重建 `<engineRoot>/bin/.cache/dev-cli`。该 cache 由同一 engine root 下的 preview 共享；不要在 preview 仍运行时重建，应先取得用户确认并停止相关 preview，重建完成后再重新启动。
 
 ## 容易误判的路径
 

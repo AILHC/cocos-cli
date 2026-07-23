@@ -64,6 +64,7 @@ function createReleaseSourceFixture(repoRoot: string): void {
     writeText(join(repoRoot, 'static', 'keep.txt'), 'static\n');
     writeText(join(repoRoot, 'workflow', 'tools-runtime-scripts', 'install-cocos-cli.cmd'), '@echo off\r\necho install\r\n');
     writeText(join(repoRoot, 'workflow', 'tools-runtime-scripts', 'preview-runtime.cmd'), '@echo off\r\necho preview\r\n');
+    writeText(join(repoRoot, 'workflow', 'tools-runtime-scripts', 'compile-engine.cmd'), '@echo off\r\necho compile\r\n');
     writeText(join(repoRoot, 'static', 'node_modules', 'stale.txt'), 'skip\n');
     writeText(join(repoRoot, 'packages', 'cc-module', 'index.js'), 'module.exports = {};\n');
     writeText(join(repoRoot, 'packages', 'cc-module', 'node_modules', 'skip.txt'), 'skip\n');
@@ -275,12 +276,15 @@ describe('release tools workflow helpers', () => {
         expect(readme).toContain('npm install');
         expect(readme).toContain('install-cocos-cli.cmd');
         expect(readme).toContain('preview-runtime.cmd');
+        expect(readme).toContain('compile-engine.cmd');
         expect(readme).toContain('cocos --help');
         expect(readme).toContain('--watch-assets');
         expect(readme).toContain('--refresh-on-reload');
         expect(readme).toContain('docs/usage.md');
         expect(readme).toContain('preview --runtime');
-        expect(readme).toContain('cocos compile-engine --engine <engineRoot>');
+        expect(readme).toContain('cocos compile-engine');
+        expect(readme).toContain('--project <projectRoot>');
+        expect(readme).toContain('--engine <engineRoot>');
         expect(readme).toContain('cocos-cli.enginePath');
         expect(readme).toContain('cliInitializedEngineRoot');
         expect(readme).toContain('Creator profile custom engine');
@@ -364,6 +368,7 @@ describe('release tools workflow helpers', () => {
         writeText(join(targetRoot, 'docs', 'usage.md'), '# usage\n');
         writeText(join(targetRoot, 'install-cocos-cli.cmd'), '@echo off\r\necho install\r\n');
         writeText(join(targetRoot, 'preview-runtime.cmd'), '@echo off\r\necho preview\r\n');
+        writeText(join(targetRoot, 'compile-engine.cmd'), '@echo off\r\necho compile\r\n');
         for (const toolDir of [
             'static/tools/creator-3.8.6/PVRTexTool_win32',
             'static/tools/PVRTexTool_win32',
@@ -430,6 +435,9 @@ describe('release tools workflow helpers', () => {
         expect(() => assertReleaseDirectory(targetRoot)).toThrow('Release directory is missing preview-runtime.cmd');
 
         writeText(join(targetRoot, 'preview-runtime.cmd'), '@echo off\r\necho preview\r\n');
+        expect(() => assertReleaseDirectory(targetRoot)).toThrow('Release directory is missing compile-engine.cmd');
+
+        writeText(join(targetRoot, 'compile-engine.cmd'), '@echo off\r\necho compile\r\n');
         expect(() => assertReleaseDirectory(targetRoot)).not.toThrow();
     });
 
@@ -451,6 +459,7 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(targetRoot, 'dist', 'cli.js'))).toBe(true);
         expect(readFileSync(join(targetRoot, 'install-cocos-cli.cmd'), 'utf8')).toBe('@echo off\r\necho install\r\n');
         expect(readFileSync(join(targetRoot, 'preview-runtime.cmd'), 'utf8')).toBe('@echo off\r\necho preview\r\n');
+        expect(readFileSync(join(targetRoot, 'compile-engine.cmd'), 'utf8')).toBe('@echo off\r\necho compile\r\n');
         expect(readFileSync(join(targetRoot, 'docs', 'usage.md'), 'utf8')).toBe('# usage\n');
     });
 
@@ -520,6 +529,7 @@ describe('release tools workflow helpers', () => {
         expect(existsSync(join(targetRoot, 'packages', 'engine'))).toBe(false);
         expect(existsSync(join(targetRoot, 'install-cocos-cli.cmd'))).toBe(true);
         expect(existsSync(join(targetRoot, 'preview-runtime.cmd'))).toBe(true);
+        expect(existsSync(join(targetRoot, 'compile-engine.cmd'))).toBe(true);
     });
 
     it('runs install-cocos-cli.cmd from a directory containing cmd metacharacters', () => {
@@ -568,5 +578,32 @@ describe('release tools workflow helpers', () => {
         expect(cocosArgs).not.toContain('EXPANDED');
         expect(cocosArgs).toContain('--watch-assets');
         expect(cocosArgs).toContain('--refresh-on-reload');
+    });
+
+    it('runs compile-engine.cmd from a project directory containing cmd metacharacters', () => {
+        const scriptRoot = createDir(join(fixtureRoot, 'compile %FOO% & split'));
+        const binRoot = createDir(join(fixtureRoot, 'compile-bin'));
+        const cocosLog = join(binRoot, 'cocos-args.txt');
+        copyFileSync(
+            join(process.cwd(), 'workflow', 'tools-runtime-scripts', 'compile-engine.cmd'),
+            join(scriptRoot, 'compile-engine.cmd'),
+        );
+        writeJson(join(scriptRoot, 'package.json'), {
+            creator: {
+                version: '3.8.6',
+            },
+        });
+        writeText(join(binRoot, 'cocos.cmd'), `@echo off\r\necho %*>>"${cocosLog}"\r\necho cocos %*\r\nexit /b 0\r\n`);
+
+        const result = runCmdScript(join(scriptRoot, 'compile-engine.cmd'), scriptRoot, binRoot, {
+            FOO: 'EXPANDED',
+        });
+
+        expectCmdScriptSuccess(result);
+        const cocosArgs = readFileSync(cocosLog, 'utf8');
+        expect(result.output).toContain('compile-engine --project');
+        expect(cocosArgs).toContain('compile-engine --project');
+        expect(cocosArgs).toContain(`--project "${scriptRoot}"`);
+        expect(cocosArgs).not.toContain('EXPANDED');
     });
 });

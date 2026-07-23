@@ -94,11 +94,13 @@ npx tsc -p packages/engine-compiler/tsconfig.json --pretty false
 
 第一性原理上，engine cache 是 engine source 的派生产物；合并或修改 engine source 后，用户只需要能够明确指定该 source 并重建对应 cache，不需要让 `preview` 猜测源码是否变化，也不需要引入 cache variant。
 
-发布版 CLI 提供以下命令：
+发布版 CLI 在项目根目录提供以下命令：
 
 ```powershell
-cocos compile-engine --engine <engineRoot>
+cocos compile-engine
 ```
+
+不在目标项目根目录时，可用 `--project <projectRoot>` 从项目解析 engine source；只有明确绕过项目上下文时才使用 `--engine <engineRoot>`。项目模式复用 `preview` 的统一 engine root resolver。
 
 命令固定重建 `<engineRoot>/bin/.cache/dev-cli/editor` 和 `<engineRoot>/bin/.cache/dev-cli/web`。为保证发布版可以独立执行，正常 CLI build 会编译 `packages/engine-compiler`，release archive 只携带其 `dist` 产物，不携带 `packages/engine` source。
 
