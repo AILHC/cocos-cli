@@ -1,6 +1,12 @@
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
-import express, { type NextFunction, type Request, type Response } from 'express';
+import express, {
+    type Application,
+    type NextFunction,
+    type Request,
+    type Response,
+    type Router,
+} from 'express';
 import {
     createRuntimePreviewContext,
     type RuntimePreviewContext,
@@ -13,6 +19,11 @@ import {
     type RuntimeRefreshCoordinatorOptions,
     type RuntimeRefreshResult,
 } from '../refresh/runtime-refresh-coordinator';
+import {
+    createRuntimeAssetSaveCoordinator,
+    type RuntimeAssetSaveCoordinator,
+    type RuntimeAssetSaveSource,
+} from '../refresh/runtime-asset-save-coordinator';
 import {
     createRuntimeAssetPathCanonicalizer,
     type RuntimeAssetPathCanonicalizer,
@@ -29,14 +40,16 @@ import {
     createRuntimeAssetDirtyStore,
     type RuntimeAssetDirtyStore,
 } from '../watch/runtime-asset-dirty-store';
+import { isCanonicalRootLibraryRequest } from '../library/resolve-library-request';
+import { isBrowserRequest } from '../../server/request-client';
 import { createImportReplacementExtensionResolver } from './import-replacement-extension-cache';
 import {
-    handleRuntimePreviewRequest,
+    tryHandleRuntimePreviewRequest,
     type RuntimeRefreshClientState,
 } from './runtime-preview-routes';
 import type { RuntimePreviewHttpResponse } from './serve-on-demand-file';
 
-export interface RuntimePreviewServerOptions {
+interface RuntimePreviewRouterBaseOptions {
     projectRoot: string;
     engineRoot: string;
     engineRootSource?: string;
@@ -45,8 +58,6 @@ export interface RuntimePreviewServerOptions {
     projectProgrammingRoot: string;
     cliProgrammingRoot?: string;
     internalLibraryRoot?: string;
-    host?: string;
-    port?: number;
     scene?: string;
     settingsBuildOptions?: Record<string, any>;
     settingsProvider?: PreviewSettingsProvider;
@@ -55,6 +66,7 @@ export interface RuntimePreviewServerOptions {
     refreshOnReload?: boolean;
     watchAssets?: boolean;
     deferAssetWatcherStart?: boolean;
+    serveRootLibraryPathsForNode?: boolean;
     assetPathCanonicalizerFs?: RuntimeAssetPathCanonicalizerFs;
     assetWatcherStartupSnapshot?: RuntimeAssetStartupSnapshot;
     assetDirtyStoreFactory?: (input: {
@@ -69,7 +81,9 @@ export interface RuntimePreviewServerOptions {
         startupSnapshot?: RuntimeAssetStartupSnapshot;
     }) => RuntimeAssetChangeWatcher;
     refreshTarget?: (target: string) => Promise<number | null | undefined>;
-    refreshCoordinator?: Pick<RuntimeRefreshCoordinator, 'refresh'>;
+    refreshCoordinator?: Pick<RuntimeRefreshCoordinator, 'refresh'>
+        & Partial<Pick<RuntimeRefreshCoordinator, 'refreshImportedAsset'>>;
+    assetSaveSource?: RuntimeAssetSaveSource;
     verifyProgrammingOutput?: () => Promise<void>;
     verifyAssetDbIntegrity?: RuntimeRefreshCoordinatorOptions['verifyAssetDbIntegrity'];
     prepareRuntimePreview?: (serverUrl: string) => Promise<void>;
@@ -85,11 +99,17 @@ export interface RuntimePreviewServerOptions {
     };
 }
 
-export interface StartedRuntimePreviewServer {
-    server: Server;
-    host: string;
-    port: number;
-    url: string;
+export interface RuntimePreviewRouterOptions extends RuntimePreviewRouterBaseOptions {
+    serverUrl: string;
+}
+
+export interface RuntimePreviewServerOptions extends RuntimePreviewRouterBaseOptions {
+    host?: string;
+    port?: number;
+}
+
+export interface RuntimePreviewRouterHandle {
+    router: Router;
     context: RuntimePreviewContext;
     settingsProvider: PreviewSettingsProvider;
     startupLogLines: string[];
@@ -97,6 +117,13 @@ export interface StartedRuntimePreviewServer {
     logger: RuntimePreviewLogger;
     startAssetWatcher: () => Promise<void>;
     close: () => Promise<void>;
+}
+
+export interface StartedRuntimePreviewServer extends RuntimePreviewRouterHandle {
+    server: Server;
+    host: string;
+    port: number;
+    url: string;
 }
 
 function listen(server: Server, port: number, host: string): Promise<number> {
@@ -324,9 +351,10 @@ function requiresRuntimePreviewReadiness(pathname: string): boolean {
     return pathname.startsWith('/plugins/');
 }
 
-export async function startRuntimePreviewServer(options: RuntimePreviewServerOptions): Promise<StartedRuntimePreviewServer> {
-    const host = options.host ?? '127.0.0.1';
-    const requestedPort = options.port ?? 19530;
+async function createRuntimePreviewRouterHandle(
+    options: RuntimePreviewRouterBaseOptions,
+    resolveServerUrl: () => string,
+): Promise<RuntimePreviewRouterHandle> {
     const logger = await createRuntimePreviewLogger(options.projectRoot);
     let canonicalizeLogCount = 0;
     const pathCanonicalizer = createRuntimeAssetPathCanonicalizer({
@@ -391,10 +419,10 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
             throw error;
         }
     };
-    let serverUrl = '';
     let settingsProvider = options.settingsProvider;
     const getSettingsProvider = (): PreviewSettingsProvider => {
         if (!settingsProvider) {
+            const serverUrl = resolveServerUrl();
             if (!serverUrl) {
                 throw new Error('Runtime preview settings provider requested before server URL was assigned.');
             }
@@ -429,7 +457,10 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         }
         return scriptingPromise;
     };
-    const getRefreshCoordinator = async (): Promise<Pick<RuntimeRefreshCoordinator, 'refresh'>> => {
+    const getRefreshCoordinator = async (): Promise<
+        Pick<RuntimeRefreshCoordinator, 'refresh'>
+        & Partial<Pick<RuntimeRefreshCoordinator, 'refreshImportedAsset'>>
+    > => {
         if (!refreshCoordinator) {
             refreshCoordinator = createRuntimeRefreshCoordinator({
                 projectRoot: context.projectRoot,
@@ -492,6 +523,22 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         }
         return refreshCoordinator;
     };
+    let mountedAssetSaveCoordinator: RuntimeAssetSaveCoordinator | undefined;
+    if (options.assetSaveSource) {
+        const coordinator = await getRefreshCoordinator();
+        if (!coordinator.refreshImportedAsset) {
+            throw new Error('Runtime asset-save coordination requires refreshImportedAsset support.');
+        }
+        mountedAssetSaveCoordinator = createRuntimeAssetSaveCoordinator({
+            source: options.assetSaveSource,
+            refreshCoordinator: {
+                refreshImportedAsset: coordinator.refreshImportedAsset.bind(coordinator),
+            },
+            dirtyStore,
+            logger,
+        });
+    }
+    try {
     const clearStartupCompileFailureAfterVerifiedOutput = async (): Promise<void> => {
         const startupFailure = options.startupCompileFailure?.();
         if (startupFailure?.outputState !== 'noUsableOutput') {
@@ -529,15 +576,14 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         await startAssetWatcher();
     }
 
-    const app = express();
-    app.disable('x-powered-by');
+    const router = express.Router();
 
-    app.post('/preview-error', express.text({
+    router.post('/preview-error', express.text({
         type: () => true,
         limit: maxPreviewErrorBodyBytes,
     }));
 
-    app.all(
+    router.all(
         '/__runtime-preview/refresh',
         async (request: Request, response: Response, next: NextFunction) => {
             if (!isPreviewReady()) {
@@ -564,7 +610,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                     return;
                 }
 
-                await options.prepareRuntimePreview?.(serverUrl);
+                await options.prepareRuntimePreview?.(resolveServerUrl());
                 const result = await (await getRefreshCoordinator()).refresh({
                     reason: 'endpoint',
                     target: request.body.target,
@@ -582,10 +628,11 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         },
     );
 
-    app.use(async (request: Request, response: Response, next: NextFunction) => {
+    router.use(async (request: Request, response: Response, next: NextFunction) => {
         let pathname = '';
         try {
-            const requestUrl = new URL(request.originalUrl || request.url || '/', `http://${host}`);
+            const requestPath = request.url || '/';
+            const requestUrl = new URL(requestPath, resolveServerUrl());
             pathname = requestUrl.pathname;
             if (pathname === '/__runtime-preview/health') {
                 response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -616,7 +663,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
             let runtimeRefreshState: RuntimeRefreshClientState | null = null;
             if (pathname === '/' && options.refreshOnReload === true) {
                 try {
-                    await options.prepareRuntimePreview?.(serverUrl);
+                    await options.prepareRuntimePreview?.(resolveServerUrl());
                     const result = await (await getRefreshCoordinator()).refresh({ reason: 'reload' });
                     if (result.ok) {
                         await clearStartupCompileFailureAfterVerifiedOutput();
@@ -659,7 +706,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 };
             }
 
-            const routeResponse = await handleRuntimePreviewRequest({
+            const routeResponse = await tryHandleRuntimePreviewRequest({
                 runtimeContext: context,
                 settingsProvider: getSettingsProvider(),
                 capturedRuntimeUrls: options.capturedRuntimeUrls,
@@ -668,7 +715,20 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                 body: typeof request.body === 'string' ? request.body : undefined,
                 importReplacementExtensionResolver,
                 runtimeRefreshState,
-            }, request.originalUrl || request.url || '/');
+            }, requestPath);
+            if (!routeResponse) {
+                next();
+                return;
+            }
+            if (
+                options.serveRootLibraryPathsForNode === true
+                && routeResponse.kind === 'file'
+                && isCanonicalRootLibraryRequest(requestPath)
+                && !isBrowserRequest(request)
+            ) {
+                response.status(routeResponse.statusCode).type('text/plain').send(routeResponse.absolutePath);
+                return;
+            }
             sendRuntimePreviewResponse(response, routeResponse, next);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -679,7 +739,7 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         }
     });
 
-    app.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {
+    router.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {
         if (response.headersSent) {
             next(error);
             return;
@@ -702,31 +762,115 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
         response.end(message);
     });
 
-    const server = createServer(app);
-
-    const port = await listenOnFetchReachablePort(server, requestedPort, host);
-    const url = `http://${host}:${port}`;
-    serverUrl = url;
-    const listeningLine = `server:listening ${url}`;
-    startupLogLines.push(listeningLine);
-    await logger.write(listeningLine);
-    return {
-        server,
-        host,
-        port,
-        url,
+    let closePromise: Promise<void> | null = null;
+    const handle: RuntimePreviewRouterHandle = {
+        router,
         context,
-        settingsProvider: getSettingsProvider(),
+        get settingsProvider() {
+            return getSettingsProvider();
+        },
         startupLogLines,
         logFilePath: logger.logFilePath,
         logger,
         startAssetWatcher,
-        close: async () => {
-            try {
-                await assetWatcher?.stop();
-            } finally {
-                await close(server);
+        close: () => {
+            if (!closePromise) {
+                closePromise = (async () => {
+                    try {
+                        await mountedAssetSaveCoordinator?.close();
+                    } finally {
+                        try {
+                            await assetWatcher?.stop();
+                        } finally {
+                            importReplacementExtensionResolver.clear();
+                        }
+                    }
+                })();
             }
+            return closePromise;
+        },
+    };
+    return handle;
+    } catch (error) {
+        const rollbackErrors: unknown[] = [error];
+        try {
+            await mountedAssetSaveCoordinator?.close();
+        } catch (cleanupError) {
+            rollbackErrors.push(cleanupError);
+        }
+        try {
+            await assetWatcher?.stop();
+        } catch (cleanupError) {
+            rollbackErrors.push(cleanupError);
+        }
+        importReplacementExtensionResolver.clear();
+        if (rollbackErrors.length > 1) {
+            throw new AggregateError(
+                rollbackErrors,
+                'Runtime Preview router setup failed and rollback was incomplete.',
+            );
+        }
+        throw error;
+    }
+}
+
+export async function createRuntimePreviewRouter(
+    options: RuntimePreviewRouterOptions,
+): Promise<RuntimePreviewRouterHandle> {
+    return createRuntimePreviewRouterHandle(options, () => options.serverUrl);
+}
+
+export async function mountRuntimePreviewRouter(
+    app: Application | Router,
+    options: RuntimePreviewRouterOptions,
+): Promise<RuntimePreviewRouterHandle> {
+    const handle = await createRuntimePreviewRouter(options);
+    try {
+        app.use(handle.router);
+    } catch (error) {
+        await handle.close();
+        throw error;
+    }
+    return handle;
+}
+
+export async function startRuntimePreviewServer(options: RuntimePreviewServerOptions): Promise<StartedRuntimePreviewServer> {
+    const host = options.host ?? '127.0.0.1';
+    const requestedPort = options.port ?? 19530;
+    let serverUrl = '';
+    const app = express();
+    app.disable('x-powered-by');
+    const routerHandle = await createRuntimePreviewRouterHandle(options, () => serverUrl);
+    app.use(routerHandle.router);
+    app.use((request: Request, response: Response) => {
+        response.status(404).type('text/plain').send(`No runtime preview route handled: ${request.path}`);
+    });
+    const server = createServer(app);
+
+    let port: number;
+    try {
+        port = await listenOnFetchReachablePort(server, requestedPort, host);
+    } catch (error) {
+        await routerHandle.close();
+        throw error;
+    }
+    const url = `http://${host}:${port}`;
+    serverUrl = url;
+    const listeningLine = `server:listening ${url}`;
+    routerHandle.startupLogLines.push(listeningLine);
+    await routerHandle.logger.write(listeningLine);
+    let closePromise: Promise<void> | null = null;
+    return {
+        ...routerHandle,
+        server,
+        host,
+        port,
+        url,
+        close: () => {
+            if (!closePromise) {
+                closePromise = routerHandle.close().finally(() => close(server));
+            }
+            return closePromise;
         },
     };
 }

@@ -353,6 +353,96 @@ describe('runtime refresh coordinator', () => {
     expect(refreshTarget).toHaveBeenCalledWith('db://assets/resources/cfg/a.json');
   });
 
+  it('serializes imported refresh generations per canonical target without generation rollback', async () => {
+    const gates = [
+      createDeferred<void>(),
+      createDeferred<void>(),
+      createDeferred<void>(),
+    ];
+    let activeInvalidationCount = 0;
+    let maxActiveInvalidationCount = 0;
+    const startedInvalidations: number[] = [];
+    const invalidateSettings = vi.fn(async () => {
+      const invocationIndex = startedInvalidations.length;
+      startedInvalidations.push(invocationIndex + 1);
+      activeInvalidationCount += 1;
+      maxActiveInvalidationCount = Math.max(
+        maxActiveInvalidationCount,
+        activeInvalidationCount,
+      );
+      try {
+        await gates[invocationIndex].promise;
+      } finally {
+        activeInvalidationCount -= 1;
+      }
+    });
+    const clearImportReplacement = vi.fn();
+    const { coordinator, refreshTarget } = createCoordinatorFixture({
+      pathCanonicalizer: createShortPathCanonicalizer(),
+      invalidateSettings,
+      clearImportReplacement,
+    });
+
+    const generationOne = coordinator.refreshImportedAsset({
+      target: 'C:/project/assets/RESOUR~1/cfg/a.json',
+      generation: 1,
+    });
+    expect(invalidateSettings).toHaveBeenCalledTimes(1);
+
+    const generationTwo = coordinator.refreshImportedAsset({
+      target: 'db://assets/resources/cfg/a.json',
+      generation: 2,
+    });
+    const generationThree = coordinator.refreshImportedAsset({
+      target: 'C:/project/assets/resources/cfg/a.json',
+      generation: 3,
+    });
+    const duplicateGenerationThree = coordinator.refreshImportedAsset({
+      target: 'db://assets/RESOUR~1/cfg/a.json',
+      generation: 3,
+    });
+
+    await Promise.resolve();
+    expect(invalidateSettings).toHaveBeenCalledTimes(1);
+    expect(activeInvalidationCount).toBe(1);
+
+    gates[0].resolve();
+    await vi.waitFor(() => expect(invalidateSettings).toHaveBeenCalledTimes(2));
+    expect(activeInvalidationCount).toBe(1);
+
+    gates[1].resolve();
+    await vi.waitFor(() => expect(invalidateSettings).toHaveBeenCalledTimes(3));
+    expect(activeInvalidationCount).toBe(1);
+
+    gates[2].resolve();
+    const results = await Promise.all([
+      generationOne,
+      generationTwo,
+      generationThree,
+      duplicateGenerationThree,
+    ]);
+
+    expect(results.map((result) => result.assetDbGeneration)).toEqual([1, 2, 3, 3]);
+    expect(maxActiveInvalidationCount).toBe(1);
+    expect(startedInvalidations).toEqual([1, 2, 3]);
+    expect(invalidateSettings).toHaveBeenCalledTimes(3);
+    expect(clearImportReplacement).toHaveBeenCalledTimes(3);
+    expect(refreshTarget).not.toHaveBeenCalled();
+
+    const repeatedGenerationThree = await coordinator.refreshImportedAsset({
+      target: 'db://assets/resources/cfg/a.json',
+      generation: 3,
+    });
+    expect(repeatedGenerationThree).toMatchObject({
+      ok: true,
+      target: 'db://assets/resources/cfg/a.json',
+      assetDbGeneration: 3,
+      scriptCompile: { status: 'skipped' },
+    });
+    expect(invalidateSettings).toHaveBeenCalledTimes(3);
+    expect(clearImportReplacement).toHaveBeenCalledTimes(3);
+  });
+
   it('rejects paths outside project assets without refreshing', async () => {
     const { coordinator, refreshTarget, waitForIdle, invalidateSettings, clearImportReplacement } = createCoordinatorFixture();
 

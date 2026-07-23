@@ -503,40 +503,19 @@ export default class Launcher {
 
     async startSceneEditorPreview(options: number | { port?: number; open?: boolean } = {}) {
         const opts = typeof options === 'number' ? { port: options } : options;
-        await this.import();
-        await startServer(opts.port);
-        // 初始化构建
-        const { init: initBuilder } = await import('./builder');
-        await initBuilder();
-
-        // initScene() 内部会先注册浏览器游戏预览路由（/ 及资源路由），再注册场景中间件，
-        // 使浏览器预览与场景编辑器共用一台 server 且路由优先级正确（见 scene/index.ts init）。
-        const { init: initScene } = await import('./scene');
-        await initScene();
-
-        // 注册调试用的中间件（仅 preview 模式）
-        const { middlewareService } = await import('../server/middleware');
-        const { default: PreviewDebugMiddleware } = await import('./scene/preview.debug.middleware');
-        middlewareService.register('PreviewDebug', PreviewDebugMiddleware);
-
-        const { Rpc } = await import('./scene/main-process/rpc');
-        await Rpc.startup();
-
-        const serverUrl = getServerUrl();
-        const sceneEditorUrl = `${serverUrl}/scene-editor/`;
-        console.log(`Scene editor preview: ${sceneEditorUrl}`);
-        console.log(`Browser preview: ${serverUrl}/`);
-
-        if (opts.open !== false) {
-            const { openUrlAsync } = await import('./builder/platforms/web-common/utils');
-            await openUrlAsync(sceneEditorUrl);
-        }
+        return this.startRuntimePreview({
+            port: opts.port,
+            open: opts.open ?? true,
+            openPage: 'scene-editor',
+        });
     }
 
     async startRuntimePreview(options: {
         port?: number;
         host?: string;
         scene?: string;
+        open?: boolean;
+        openPage?: 'runtime' | 'scene-editor';
         settingsTimeoutMs?: number;
         scriptLoadConcurrency?: number;
         clearProgrammingCache?: boolean;
@@ -546,7 +525,7 @@ export default class Launcher {
         const {
             getDefaultProjectProgrammingRoot,
             PreviewSettingsProvider,
-            startRuntimePreviewServer,
+            startRuntimePreviewSession,
         } = await import('../runtime-preview');
         const { createRuntimeAssetStartupSnapshot } = await import(
             '../runtime-preview/watch/runtime-asset-change-watcher'
@@ -708,8 +687,9 @@ export default class Launcher {
         const assetWatcherStartupSnapshot = options.watchAssets === true
             ? await createRuntimeAssetStartupSnapshot(join(this.projectPath, 'assets'))
             : undefined;
+        const { assetManager } = await import('./assets');
 
-        const server = await startRuntimePreviewServer({
+        const session = await startRuntimePreviewSession({
             projectRoot: this.projectPath,
             engineRoot,
             engineRootSource,
@@ -726,6 +706,7 @@ export default class Launcher {
             watchAssets: options.watchAssets === true,
             deferAssetWatcherStart: options.watchAssets === true,
             assetWatcherStartupSnapshot,
+            assetSaveSource: assetManager,
             prepareRuntimePreview: ensurePreviewSettingsReady,
             verifyProgrammingOutput: () => inspectRuntimePreviewProgrammingArtifacts({
                 projectRoot: this.projectPath,
@@ -740,23 +721,53 @@ export default class Launcher {
             },
             readiness,
         });
-        serverUrl = server.url;
+        serverUrl = session.url;
+        let projectContextCleanupRegistered = false;
+        const closeProjectContext = async () => {
+            const errors: unknown[] = [];
+            const cleanupSteps = [
+                async () => {
+                    const { stopAssetDB } = await import('./assets');
+                    await stopAssetDB();
+                    assetManager.destroyed();
+                },
+                async () => scripting.close(),
+                async () => {
+                    const { default: Project } = await import('./project');
+                    await Project.close();
+                },
+            ];
+            for (const cleanup of cleanupSteps) {
+                try {
+                    await cleanup();
+                } catch (error) {
+                    errors.push(error);
+                }
+            }
+            if (errors.length === 1) {
+                throw errors[0];
+            }
+            if (errors.length > 1) {
+                throw new AggregateError(errors, 'Runtime Preview project context cleanup failed.');
+            }
+        };
+        const sceneEditorUrl = `${session.url}/scene-editor/`;
         writeRuntimePreviewLog = (line) => {
-            void server.logger.write(line).catch((error) => {
+            void session.logger.write(line).catch((error) => {
                 console.warn(`[runtime-preview] log-write:error ${error instanceof Error ? error.message : String(error)}`);
             });
         };
 
-        server.startupLogLines.forEach(writeRuntimePreviewConsoleLine);
+        session.startupLogLines.forEach(writeRuntimePreviewConsoleLine);
         emitRuntimePreviewSummary({
-            url: server.url,
+            url: session.url,
             engineRoot,
             engineRootSource,
             libraryRoot: projectLibraryRoot,
             extensionLibraryRoots: extensionLibraryRoots.map((entry) => `${entry.name}:${entry.root}`).join(';'),
             programmingRoot: projectProgrammingRoot,
             internalLibraryRoot,
-            logFilePath: server.logFilePath,
+            logFilePath: session.logFilePath,
         });
         if (options.scene) {
             emitRuntimePreviewEvent(`scene=${options.scene}`);
@@ -793,15 +804,19 @@ export default class Launcher {
             eventEmitter.off('pack-build-end', onPackBuildEnd);
             eventEmitter.off('pack-build-failed', onPackBuildFailed);
         };
+        let sceneWorkerHandle: Awaited<ReturnType<typeof startupScene>> | null = null;
+        let mcpHandle: Awaited<ReturnType<typeof import('../mcp/mount-mcp').mountMcp>> | null = null;
         try {
             await settingsProvider.getPreviewSettings(options.scene ? { startScene: options.scene } : undefined);
+            session.registerCleanup('project', closeProjectContext);
+            projectContextCleanupRegistered = true;
             if (assetDbScriptCompileErrorLine) {
                 emitRuntimePreviewEvent('asset-db:script-compile:report-only source=asset-db:script-compile:error');
             }
             if (!assetDbScriptCompileDoneLine) {
                 emitRuntimePreviewEvent('asset-db:script-compile:missing');
             }
-            await server.startAssetWatcher();
+            await session.startAssetWatcher();
             readinessState.assetWatcherReady = true;
             try {
                 await inspectRuntimePreviewProgrammingArtifacts({
@@ -833,22 +848,64 @@ export default class Launcher {
             if (!readiness.isReady()) {
                 throw new Error('Runtime preview readiness state did not reach ready before preview:ready.');
             }
+            sceneWorkerHandle = await startupScene(engineRoot, this.projectPath);
+            session.registerCleanup('scene', async () => {
+                await sceneWorkerHandle!.stop();
+            });
+            const [{ mountMcp }, { serverService }] = await Promise.all([
+                import('../mcp/mount-mcp'),
+                import('../server/server'),
+            ]);
+            mcpHandle = await mountMcp({
+                router: serverService.router,
+                serverUrl: session.url,
+                projectPath: this.projectPath,
+            });
+            session.registerCleanup('runtime', () => mcpHandle!.close());
+            const { middlewareService } = await import('../server/middleware');
+            const { default: PreviewDebugMiddleware } = await import('./scene/preview.debug.middleware');
+            middlewareService.register('PreviewDebug', PreviewDebugMiddleware);
+            emitRuntimePreviewEvent(`scene-editor:url ${sceneEditorUrl}`);
+            emitRuntimePreviewEvent(`mcp:url ${mcpHandle.url}`);
             emitRuntimePreviewEvent(`preview:ready durationMs=${Date.now() - previewStartedAt}`);
+            if (options.open === true) {
+                const { openUrlAsync } = await import('./builder/platforms/web-common/utils');
+                await openUrlAsync(options.openPage === 'scene-editor' ? sceneEditorUrl : session.url);
+            }
         } catch (error) {
             cleanupPackBuildListeners();
             diagnostics.stageError('preview', error);
+            runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics = previousRuntimePreviewDiagnostics;
+            const cleanupErrors: unknown[] = [];
+            if (!projectContextCleanupRegistered) {
+                session.registerCleanup('project', closeProjectContext);
+                projectContextCleanupRegistered = true;
+            }
+            try {
+                await session.close();
+            } catch (cleanupError) {
+                cleanupErrors.push(cleanupError);
+            }
+            if (cleanupErrors.length) {
+                throw new AggregateError([error, ...cleanupErrors], 'Runtime Preview startup and rollback failed.');
+            }
             throw error;
         }
 
+        const mountedMcp = mcpHandle;
+        let closePromise: Promise<void> | null = null;
         return {
-            ...server,
-            close: async () => {
-                try {
-                    await server.close();
-                } finally {
-                    cleanupPackBuildListeners();
-                    runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics = previousRuntimePreviewDiagnostics;
+            ...session,
+            sceneEditorUrl,
+            mcpUrl: mountedMcp.url,
+            close: () => {
+                if (!closePromise) {
+                    closePromise = session.close().finally(() => {
+                        cleanupPackBuildListeners();
+                        runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics = previousRuntimePreviewDiagnostics;
+                    });
                 }
+                return closePromise;
             },
         };
     }
@@ -917,13 +974,13 @@ export default class Launcher {
             console.warn('[Preview] dispose failed:', err);
         }
 
+        // 先关闭 attached RPC 与场景进程，再释放它依赖的共享 server。
+        const { sceneWorker } = await import('./scene/main-process/scene-worker');
+        await sceneWorker.stop();
+
         // 关闭服务器
         const { stopServer } = await import('../server');
         await stopServer();
-
-        // 关闭场景进程
-        const { sceneWorker } = await import('./scene/main-process/scene-worker');
-        await sceneWorker.stop();
 
         // 关闭资源数据库
         const { stopAssetDB } = await import('./assets');

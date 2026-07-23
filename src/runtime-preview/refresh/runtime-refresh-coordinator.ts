@@ -14,7 +14,7 @@ import type {
     RuntimeAssetDbIntegrityPhase,
 } from './runtime-assetdb-integrity';
 
-export type RuntimeRefreshReason = 'endpoint' | 'reload';
+export type RuntimeRefreshReason = 'endpoint' | 'reload' | 'asset-db';
 export type RuntimeRefreshScriptCompileStatus = 'done' | 'skipped' | 'failed';
 
 export interface RuntimeRefreshScriptCompileResult {
@@ -76,6 +76,7 @@ export interface RuntimeRefreshResult {
     assetDbIntegrity?: RuntimeAssetDbIntegrityResult;
     durationMs: number;
     error?: string;
+    assetDbGeneration?: number;
 }
 
 export interface RuntimeAssetDbIntegrityVerification extends RuntimeAssetDbIntegrityCheck {
@@ -100,6 +101,7 @@ export interface RuntimeAssetDbIntegrityResult {
 
 export interface RuntimeRefreshCoordinator {
     refresh(input: { reason: RuntimeRefreshReason; target?: unknown }): Promise<RuntimeRefreshResult>;
+    refreshImportedAsset(input: { target: unknown; generation: number }): Promise<RuntimeRefreshResult>;
 }
 
 export interface RuntimeRefreshCoordinatorOptions {
@@ -321,6 +323,7 @@ type RuntimeRefreshResultPatch = Partial<Pick<
     | 'watcher'
     | 'failureType'
     | 'assetDbIntegrity'
+    | 'assetDbGeneration'
 >>;
 
 export function createRuntimeRefreshCoordinator(
@@ -331,6 +334,8 @@ export function createRuntimeRefreshCoordinator(
     const pathCanonicalizer = options.pathCanonicalizer
         ?? createRuntimeAssetPathCanonicalizer({ projectRoot: options.projectRoot });
     const inFlight = new Map<string, Promise<RuntimeRefreshResult>>();
+    const importedInFlight = new Map<string, Promise<RuntimeRefreshResult>>();
+    const importedGenerationByTarget = new Map<string, number>();
     let nextId = 1;
     let lastEndpointSuccess: { target: string; completedAt: number } | null = null;
 
@@ -519,6 +524,51 @@ export function createRuntimeRefreshCoordinator(
                 ? ` Invalid UUID sample: ${sampleUuids}.`
                 : '';
         return `Runtime AssetDB integrity verification failed after ${check.phase}; invalidUuidCount=${check.invalidUuidCount}.${detail}`;
+    };
+
+    const runImportedAssetRefresh = async (
+        refreshId: string,
+        target: string,
+        generation: number,
+        startedAt: number,
+    ): Promise<RuntimeRefreshResult> => {
+        try {
+            await options.invalidateSettings();
+            await options.clearImportReplacement();
+        } catch (error) {
+            const result = createFailedResult(
+                refreshId,
+                target,
+                'asset-db',
+                startedAt,
+                null,
+                { status: 'skipped', durationMs: 0 },
+                getErrorMessage(error),
+                { assetDbGeneration: generation },
+            );
+            await writeResult(result);
+            return result;
+        }
+
+        const result: RuntimeRefreshResult = {
+            ok: true,
+            refreshId,
+            target,
+            reason: 'asset-db',
+            changedAssetCount: null,
+            scriptCompile: {
+                status: 'skipped',
+                durationMs: 0,
+            },
+            durationMs: now() - startedAt,
+            assetDbGeneration: generation,
+        };
+        importedGenerationByTarget.set(
+            target,
+            Math.max(importedGenerationByTarget.get(target) ?? 0, generation),
+        );
+        await writeResult(result);
+        return result;
     };
 
     const runRefresh = async (
@@ -1119,6 +1169,71 @@ export function createRuntimeRefreshCoordinator(
                     }
                 });
             inFlight.set(target, refreshPromise);
+            return refreshPromise;
+        },
+        async refreshImportedAsset(input): Promise<RuntimeRefreshResult> {
+            const startedAt = now();
+            const refreshId = createRefreshId();
+            const normalized = pathCanonicalizer.refreshTargetToDbTarget(input.target, 'refresh-target');
+            if (!normalized.ok) {
+                const result = createSkippedResult(
+                    refreshId,
+                    defaultRefreshTarget,
+                    'asset-db',
+                    startedAt,
+                    normalized.message,
+                    { assetDbGeneration: input.generation },
+                );
+                await writeResult(result);
+                return result;
+            }
+            if (!Number.isSafeInteger(input.generation) || input.generation <= 0) {
+                const result = createSkippedResult(
+                    refreshId,
+                    normalized.canonicalTarget,
+                    'asset-db',
+                    startedAt,
+                    'AssetDB success generation must be a positive safe integer.',
+                    { assetDbGeneration: input.generation },
+                );
+                await writeResult(result);
+                return result;
+            }
+
+            const target = normalized.canonicalTarget;
+            const pending = importedInFlight.get(target);
+            const runQueuedRefresh = async (): Promise<RuntimeRefreshResult> => {
+                const completedGeneration = importedGenerationByTarget.get(target) ?? 0;
+                if (completedGeneration >= input.generation) {
+                    const result = createSkippedResult(
+                        refreshId,
+                        target,
+                        'asset-db',
+                        startedAt,
+                        undefined,
+                        { assetDbGeneration: input.generation },
+                    );
+                    await writeResult(result);
+                    return result;
+                }
+
+                return runImportedAssetRefresh(
+                    refreshId,
+                    target,
+                    input.generation,
+                    startedAt,
+                );
+            };
+            const refreshPromise = (
+                pending
+                    ? pending.then(runQueuedRefresh, runQueuedRefresh)
+                    : runQueuedRefresh()
+            ).finally(() => {
+                if (importedInFlight.get(target) === refreshPromise) {
+                    importedInFlight.delete(target);
+                }
+            });
+            importedInFlight.set(target, refreshPromise);
             return refreshPromise;
         },
     };

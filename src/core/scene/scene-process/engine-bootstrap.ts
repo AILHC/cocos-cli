@@ -136,7 +136,7 @@ export async function startup(options: {
     // }
     cc.view.setDesignResolutionSize(drWidth, drHeight, drPolicy);
 
-    await cc.game.run();
+    cc.game.run();
     // Stop the engine's built-in mainLoop immediately — it would render frames
     // without a loaded scene, causing FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT.
     // Our own edit-mode tick loop (Engine.startTick) takes over later.
@@ -151,7 +151,9 @@ export async function startup(options: {
             const effectInfos: any[] = await res.json();
             if (!effectInfos.length) return;
             const classFinder = (id: string): any => cc.js?.getClassById?.(id) ?? null;
-            await Promise.all(effectInfos.map(async (info: any) => {
+            const loadEffect = async (info: any) => {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 30_000);
                 try {
                     const uuid: string = info.uuid;
                     if (!uuid) return;
@@ -161,7 +163,9 @@ export async function startup(options: {
                     const encodedUuid = encodeURIComponent(uuid);
                     const ext = (lib['.bin'] && !lib['.json']) ? 'bin' : 'json';
 
-                    const r = await fetch(`${serverURL}/import/${encodedUuid}.${ext}?isBrowser=true`);
+                    const r = await fetch(`${serverURL}/import/${encodedUuid}.${ext}?isBrowser=true`, {
+                        signal: controller.signal,
+                    });
                     if (!r.ok) return;
 
                     const isBinary = ext === 'bin';
@@ -183,7 +187,14 @@ export async function startup(options: {
                         try { cc.EffectAsset.register(asset); } catch {}
                     }
                 } catch { /* skip individual effect */ }
-            }));
+                finally {
+                    clearTimeout(timeout);
+                }
+            };
+            const effectLoadConcurrency = 16;
+            for (let index = 0; index < effectInfos.length; index += effectLoadConcurrency) {
+                await Promise.all(effectInfos.slice(index, index + effectLoadConcurrency).map(loadEffect));
+            }
             const count = Object.keys(cc.EffectAsset.getAll()).length;
             console.log(`[Effects] Registered ${count} effects`);
         } catch (e: any) {

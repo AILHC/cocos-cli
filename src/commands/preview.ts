@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { BaseCommand } from './base';
 import { existsSync, readJSONSync } from 'fs-extra';
+import { installRuntimePreviewSessionSignalHandlers } from '../runtime-preview/session/session-signals';
 
 
 /**
@@ -14,7 +15,7 @@ export class PreviewCommand extends BaseCommand {
             .option('-j, --project <path>', 'Path to the Cocos project')
             .option('-p, --port <number>', 'Port number for the preview server', '9527')
             .option('--host <host>', 'Host for the runtime preview server')
-            .option('--runtime', 'Start the runtime preview server without opening a browser')
+            .option('--runtime', 'Use the runtime preview initial page (compatibility option)')
             .option('-s, --scene <sceneUrlOrUuid>', 'Start scene (uuid or db:// url)')
             .option('--settings-timeout-ms <number>', 'Runtime preview settings generation timeout in milliseconds')
             .option('--script-load-concurrency <number>', 'Runtime preview project script load concurrency')
@@ -25,7 +26,7 @@ export class PreviewCommand extends BaseCommand {
             .option('-c, --build-config <path>', 'Specify build config file path')
             .option('--no-open', 'Do not open the preview URL in browser')
             .option('--build', 'Use the legacy build-based preview (full build then serve) instead of the dynamic serve preview')
-            .option('--scene-editor', 'Start the scene editor debug preview instead of the game preview')
+            .option('--scene-editor', 'Open the shared Runtime Preview session at the scene editor page')
             .action(async (options: any) => {
                 try {
                     const projectPath = options.project ?? this.readLocalConfigProject();
@@ -43,7 +44,7 @@ export class PreviewCommand extends BaseCommand {
                     if (selectedModes.length > 1) {
                         throw new Error(`Preview modes are mutually exclusive: ${selectedModes.join(', ')}`);
                     }
-                    const mode = selectedModes[0] ?? 'game';
+                    const mode = selectedModes[0] ?? 'runtime';
                     const runtimeOnlyOptions = [
                         options.host !== undefined ? '--host' : undefined,
                         options.settingsTimeoutMs !== undefined ? '--settings-timeout-ms' : undefined,
@@ -52,8 +53,8 @@ export class PreviewCommand extends BaseCommand {
                         options.refreshOnReload === true ? '--refresh-on-reload' : undefined,
                         options.watchAssets === true ? '--watch-assets' : undefined,
                     ].filter(Boolean);
-                    if (mode !== 'runtime' && runtimeOnlyOptions.length) {
-                        throw new Error(`${runtimeOnlyOptions.join(', ')} can only be used with --runtime`);
+                    if (mode === 'build' && runtimeOnlyOptions.length) {
+                        throw new Error(`${runtimeOnlyOptions.join(', ')} cannot be used with --build`);
                     }
                     const buildOnlyOptions = [
                         options.platform !== undefined ? '--platform' : undefined,
@@ -62,11 +63,8 @@ export class PreviewCommand extends BaseCommand {
                     if (mode !== 'build' && buildOnlyOptions.length) {
                         throw new Error(`${buildOnlyOptions.join(', ')} can only be used with --build`);
                     }
-                    if (mode === 'runtime' && options.open === false) {
-                        throw new Error('--no-open is not valid with --runtime');
-                    }
-                    if ((mode === 'build' || mode === 'scene-editor') && options.scene !== undefined) {
-                        throw new Error(`--scene is not valid with --${mode}`);
+                    if (mode === 'build' && options.scene !== undefined) {
+                        throw new Error('--scene is not valid with --build');
                     }
                     const settingsTimeoutMs = options.settingsTimeoutMs === undefined
                         ? undefined
@@ -94,19 +92,20 @@ export class PreviewCommand extends BaseCommand {
 
                     const { default: Launcher } = await import('../core/launcher');
                     const launcher = new Launcher(resolvedPath);
-                    if (mode === 'runtime') {
-                        await launcher.startRuntimePreview({
+                    if (mode !== 'build') {
+                        const session = await launcher.startRuntimePreview({
                             port,
                             host: options.host,
                             scene: options.scene,
+                            open: options.open,
+                            openPage: mode === 'scene-editor' ? 'scene-editor' : 'runtime',
                             settingsTimeoutMs,
                             scriptLoadConcurrency,
                             clearProgrammingCache: options.clearProgrammingCache === true,
                             refreshOnReload: options.refreshOnReload === true,
                             watchAssets: options.watchAssets === true,
                         });
-                    } else if (mode === 'scene-editor') {
-                        await launcher.startSceneEditorPreview({ port, open: options.open });
+                        installRuntimePreviewSessionSignalHandlers(session);
                     } else if (mode === 'build') {
                         let buildOptions: Record<string, any> = {};
                         if (options.buildConfig) {
@@ -123,13 +122,6 @@ export class PreviewCommand extends BaseCommand {
                             platform,
                             open: options.open,
                             buildOptions,
-                        });
-                    } else {
-                        // 默认：动态托管游戏预览（对齐编辑器浏览器预览）
-                        await launcher.startGamePreview({
-                            port,
-                            scene: options.scene,
-                            open: options.open,
                         });
                     }
 

@@ -1,11 +1,17 @@
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { request as httpRequest } from 'node:http';
+import {
+  createServer as createHttpServer,
+  request as httpRequest,
+  type Server as HttpServer,
+} from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IncomingHttpHeaders } from 'node:http';
+import express from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import {
+  mountRuntimePreviewRouter,
   startRuntimePreviewServer,
   type RuntimePreviewServerOptions,
 } from '@runtime-preview/server/runtime-preview-server';
@@ -27,7 +33,9 @@ function createRefreshResult(overrides: Partial<RuntimeRefreshResult> = {}): Run
   };
 }
 
-async function createServerFixture(overrides: Partial<RuntimePreviewServerOptions> = {}) {
+async function createServerFixtureOptions(
+  overrides: Partial<RuntimePreviewServerOptions> = {},
+): Promise<RuntimePreviewServerOptions> {
   const root = await mkdtemp(join(tmpdir(), 'runtime-preview-express-server-'));
   const projectRoot = join(root, 'project');
   const engineRoot = join(root, 'engine');
@@ -54,7 +62,7 @@ async function createServerFixture(overrides: Partial<RuntimePreviewServerOption
     }),
   });
 
-  const server = await startRuntimePreviewServer({
+  return {
     projectRoot,
     engineRoot,
     projectLibraryRoot,
@@ -63,9 +71,13 @@ async function createServerFixture(overrides: Partial<RuntimePreviewServerOption
     port: 0,
     ...overrides,
     settingsProvider,
-  });
+  };
+}
 
-  return { server, settingsProvider };
+async function createServerFixture(overrides: Partial<RuntimePreviewServerOptions> = {}) {
+  const options = await createServerFixtureOptions(overrides);
+  const server = await startRuntimePreviewServer(options);
+  return { server, settingsProvider: options.settingsProvider! };
 }
 
 interface HttpGetResult {
@@ -104,7 +116,94 @@ function getText(
   });
 }
 
+function listenHttpServer(server: HttpServer): Promise<number> {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Host server did not expose a TCP address.'));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+}
+
+function closeHttpServer(server: HttpServer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
 describe('runtime preview express server adapter', () => {
+  it('mounts runtime routes without owning or closing the host HTTP server', async () => {
+    const start = vi.fn(async () => undefined);
+    const stop = vi.fn(async () => undefined);
+    const options = await createServerFixtureOptions({
+      watchAssets: true,
+      assetChangeWatcherFactory: () => ({
+        start,
+        stop,
+        getStatus: () => ({
+          enabled: true,
+          running: true,
+          assetsRoot: 'E:/project/assets',
+          eventCount: 0,
+          dirtyTargetCount: 0,
+          sampleTargets: [],
+        }),
+      }),
+    });
+    const app = express();
+    const hostServer = createHttpServer(app);
+    const port = await listenHttpServer(hostServer);
+    const serverUrl = `http://127.0.0.1:${port}`;
+    const mounted = await mountRuntimePreviewRouter(app, {
+      ...options,
+      serverUrl,
+    });
+    app.get('/host-health', (_request, response) => {
+      response.json({ ok: true });
+    });
+
+    try {
+      expect(start).toHaveBeenCalledTimes(1);
+      expect((await fetch(`${serverUrl}/__runtime-preview/health`)).status).toBe(200);
+      expect(
+        await (await fetch(`${serverUrl}/assets/resources/import/ab/abcdef.json`)).json(),
+      ).toEqual({ ok: true });
+      expect(await (await fetch(`${serverUrl}/host-health`)).json()).toEqual({ ok: true });
+
+      await mounted.close();
+      await mounted.close();
+
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(hostServer.listening).toBe(true);
+      expect(await (await fetch(`${serverUrl}/host-health`)).json()).toEqual({ ok: true });
+    } finally {
+      await closeHttpServer(hostServer);
+    }
+  });
+
+  it('keeps listener ownership in the standalone compatibility adapter', async () => {
+    const { server } = await createServerFixture();
+    const { port } = server;
+
+    expect(server.server.listening).toBe(true);
+    expect((await fetch(`${server.url}/__runtime-preview/health`)).status).toBe(200);
+
+    await server.close();
+
+    expect(server.server.listening).toBe(false);
+    const replacement = createHttpServer((_request, response) => response.end('replacement'));
+    await new Promise<void>((resolve, reject) => {
+      replacement.once('error', reject);
+      replacement.listen(port, '127.0.0.1', resolve);
+    });
+    await closeHttpServer(replacement);
+  });
+
   it('serves file responses with Express validators and supports ETag revalidation', async () => {
     const { server } = await createServerFixture();
     try {

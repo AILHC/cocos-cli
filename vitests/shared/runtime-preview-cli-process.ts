@@ -13,6 +13,10 @@ export interface RuntimePreviewCliProcessOptions {
   scene?: string;
   settingsTimeoutMs?: number;
   startupTimeoutMs?: number;
+  useRuntimeFlag?: boolean;
+  useTestEnvironment?: boolean;
+  noOpen?: boolean;
+  watchAssets?: boolean;
 }
 
 export interface StartedRuntimePreviewCliProcess {
@@ -95,12 +99,20 @@ export async function startRuntimePreviewCliProcess(
     'preview',
     '--project',
     options.projectRoot,
-    '--runtime',
     '--host',
     host,
     '--port',
     String(port),
   ];
+  if (options.useRuntimeFlag !== false) {
+    args.push('--runtime');
+  }
+  if (options.noOpen === true) {
+    args.push('--no-open');
+  }
+  if (options.watchAssets === true) {
+    args.push('--watch-assets');
+  }
   if (options.scene) {
     args.push('--scene', options.scene);
   }
@@ -108,17 +120,26 @@ export async function startRuntimePreviewCliProcess(
     args.push('--settings-timeout-ms', String(options.settingsTimeoutMs));
   }
 
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
-    COCOS_CLI_TEST_PROJECT_ROOT: options.projectRoot,
-    COCOS_CLI_TEST_ENGINE_ROOT: options.engineRoot,
   };
-  if (options.editorLibraryRef) {
+  delete env.COCOS_CLI_TEST_PROJECT_ROOT;
+  delete env.COCOS_CLI_TEST_ENGINE_ROOT;
+  delete env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF;
+  delete env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF;
+  if (options.useTestEnvironment === false) {
+    delete env.COCOS_CLI_SHARED_LIBRARY_OUTPUT;
+  }
+  if (options.useTestEnvironment !== false) {
+    env.COCOS_CLI_TEST_PROJECT_ROOT = options.projectRoot;
+    env.COCOS_CLI_TEST_ENGINE_ROOT = options.engineRoot;
+  }
+  if (options.useTestEnvironment !== false && options.editorLibraryRef) {
     env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF = options.editorLibraryRef;
   } else {
     delete env.COCOS_CLI_TEST_EDITOR_LIBRARY_REF;
   }
-  if (options.editorProgrammingRef) {
+  if (options.useTestEnvironment !== false && options.editorProgrammingRef) {
     env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF = options.editorProgrammingRef;
   } else {
     delete env.COCOS_CLI_TEST_EDITOR_PROGRAMMING_REF;

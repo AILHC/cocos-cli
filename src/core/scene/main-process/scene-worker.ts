@@ -15,7 +15,14 @@ export class SceneWorker {
 
     static ExitWorkerEvent = 'scene-process:exit';
 
+    constructor(private readonly forkProcess: typeof fork = fork) {}
+
     private _process: ChildProcess | null = null;
+    private _startPromise: Promise<boolean> | null = null;
+    private _stopPromise: Promise<boolean> | null = null;
+    public get isRunning(): boolean {
+        return this._process !== null;
+    }
     public get process(): ChildProcess {
         if (!this._process) {
             throw new Error('Scene worker 未初始化, 请使用 sceneWorker.start');
@@ -34,7 +41,7 @@ export class SceneWorker {
     private isManualStop = false; // 是否手动停止
 
     async start(enginePath: string, projectPath: string): Promise<boolean> {
-        if (this._process) {
+        if (this._process || this._startPromise) {
             console.warn('重复启动场景进程，请 stop 进程在 start');
             return false;
         }
@@ -43,9 +50,10 @@ export class SceneWorker {
         this.enginePath = enginePath;
         this.projectPath = projectPath;
 
-        return new Promise(async (resolve) => {
+        const startPromise = new Promise<boolean>(async (resolve) => {
             let isResolved = false;
             let startupTimer: NodeJS.Timeout | null = null;
+            let child: ChildProcess | null = null;
 
             const cleanup = () => {
                 if (startupTimer) {
@@ -62,6 +70,19 @@ export class SceneWorker {
                 }
             };
 
+            const disposeFailedStart = () => {
+                const process = child;
+                if (this._process === process) {
+                    this._process = null;
+                }
+                Rpc.dispose();
+                try {
+                    process?.kill('SIGTERM');
+                } catch {
+                    // Child may have already exited between its event and cleanup.
+                }
+            };
+
             try {
                 const args = [
                     `--enginePath=${enginePath}`,
@@ -70,28 +91,50 @@ export class SceneWorker {
                 ];
                 const precessPath = path.join(__dirname, '../../../../dist/core/scene/scene-process/main.js');
                 const inspectPort = await getAvailablePort(9230);
+                if (this.isManualStop) {
+                    Rpc.dispose();
+                    resolveOnce(false);
+                    return;
+                }
                 console.log('--inspect= ' + inspectPort);
-                this._process = fork(precessPath, args, {
+                child = this.forkProcess(precessPath, args, {
                     detached: false,
                     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
                     execArgv: [`--inspect=${inspectPort}`],
                 });
+                this._process = child;
 
                 // 监听进程启动错误
                 const onError = (error: Error) => {
                     console.error('场景进程启动失败:', error);
-                    this._process?.off('error', onError);
-                    this._process?.off('exit', onEarlyExit);
-                    this._process = null;
+                    child?.off('error', onError);
+                    child?.off('exit', onEarlyExit);
+                    child?.off('message', onReady);
+                    if (this.isManualStop) {
+                        if (this._process === child) {
+                            this._process = null;
+                        }
+                        resolveOnce(false);
+                        return;
+                    }
+                    disposeFailedStart();
                     resolveOnce(false);
                 };
 
                 // 监听进程早期退出（启动失败）
                 const onEarlyExit = (code: number, signal: string | null) => {
                     console.error(`场景进程启动时退出 code:${code}, signal:${signal}`);
-                    this._process?.off('error', onError);
-                    this._process?.off('exit', onEarlyExit);
-                    this._process = null;
+                    child?.off('error', onError);
+                    child?.off('exit', onEarlyExit);
+                    child?.off('message', onReady);
+                    if (this.isManualStop) {
+                        if (this._process === child) {
+                            this._process = null;
+                        }
+                        resolveOnce(false);
+                        return;
+                    }
+                    disposeFailedStart();
                     resolveOnce(false);
                 };
 
@@ -99,9 +142,9 @@ export class SceneWorker {
                 const onReady = (msg: any) => {
                     if (msg === SceneReadyChannel) {
                         console.log('Scene process start.');
-                        this._process?.off('message', onReady);
-                        this._process?.off('error', onError);
-                        this._process?.off('exit', onEarlyExit);
+                        child?.off('message', onReady);
+                        child?.off('error', onError);
+                        child?.off('exit', onEarlyExit);
                         resolveOnce(true);
                     }
                 };
@@ -109,38 +152,67 @@ export class SceneWorker {
                 // 设置启动超时（30秒）
                 startupTimer = setTimeout(() => {
                     console.error('场景进程启动超时');
-                    this._process?.off('message', onReady);
-                    this._process?.off('error', onError);
-                    this._process?.off('exit', onEarlyExit);
-                    if (this._process) {
-                        this._process.kill('SIGTERM');
-                        this._process = null;
-                    }
+                    child?.off('message', onReady);
+                    child?.off('error', onError);
+                    child?.off('exit', onEarlyExit);
+                    disposeFailedStart();
                     resolveOnce(false);
                 }, 30000);
 
                 // 注册事件监听器
-                this._process.on('error', onError);
-                this._process.on('exit', onEarlyExit);
-                this._process.on('message', onReady);
+                child.on('error', onError);
+                child.on('exit', onEarlyExit);
+                child.on('message', onReady);
 
                 // 启动RPC和注册监听器
-                Rpc.startup(this._process);
-                this.registerListener();
+                await Rpc.startup(child);
+                await this.registerListener();
 
             } catch (error) {
                 console.error('创建场景进程失败:', error);
-                this._process = null;
+                disposeFailedStart();
                 resolveOnce(false);
             }
         });
+        this._startPromise = startPromise;
+        try {
+            return await startPromise;
+        } finally {
+            if (this._startPromise === startPromise) {
+                this._startPromise = null;
+            }
+        }
     }
 
     async stop() {
+        if (this._stopPromise) {
+            return this._stopPromise;
+        }
         const process = this._process;
-        if (!process) return true;
+        if (!process) {
+            if (this._startPromise) {
+                this.isManualStop = true;
+                const starting = this._startPromise;
+                const stopPromise = starting.then(
+                    () => true,
+                    () => true,
+                );
+                this._stopPromise = stopPromise;
+                try {
+                    const result = await stopPromise;
+                    this.clear();
+                    return result;
+                } finally {
+                    if (this._stopPromise === stopPromise) {
+                        this._stopPromise = null;
+                    }
+                }
+            }
+            Rpc.dispose();
+            return true;
+        }
         this.isManualStop = true;
-        return new Promise<boolean>((resolve) => {
+        const stopPromise = new Promise<boolean>((resolve) => {
             let settled = false;
             const cleanup = () => {
                 clearTimeout(timeout);
@@ -155,6 +227,7 @@ export class SceneWorker {
                 cleanup();
                 resolve(result);
             };
+            Rpc.dispose();
             const timeout = setTimeout(() => {
                 console.warn('Scene process stop timed out, force killing...');
                 try { process.kill('SIGTERM'); } catch (e) { /* ignore */ }
@@ -171,6 +244,8 @@ export class SceneWorker {
                 if (error.code === 'EPIPE' || error.message.includes('write EPIPE')) {
                     return;
                 }
+                try { process.kill('SIGTERM'); } catch { /* ignore */ }
+                this.clear();
                 resolveOnce(false);
             };
 
@@ -185,6 +260,14 @@ export class SceneWorker {
                 resolveOnce(true);
             }
         });
+        this._stopPromise = stopPromise;
+        try {
+            return await stopPromise;
+        } finally {
+            if (this._stopPromise === stopPromise) {
+                this._stopPromise = null;
+            }
+        }
     }
 
     /**
@@ -226,8 +309,8 @@ export class SceneWorker {
             // 清理当前进程
             this._process = null;
 
-            // 固定重启间隔
-            const delay = 2000; // 固定2秒间隔
+            // 固定重启间隔，确保上一次 start 的收尾完成后再创建新进程。
+            const delay = 2000;
             console.log(`等待 ${delay}ms 后重启...`);
             await new Promise(resolve => setTimeout(resolve, delay));
 
@@ -265,18 +348,19 @@ export class SceneWorker {
     }
 
     async registerListener() {
+        const process = this.process;
 
-        this.process.on('message', (msg: { type: string, event: string, args: any[] }) => {
+        process.on('message', (msg: { type: string, event: string, args: any[] }) => {
             if (msg && msg.type === SceneProcessEventTag) {
                 this.emit(msg.event, ...msg.args);
             }
         });
 
-        this.process.stdout?.on('data', (chunk) => {
+        process.stdout?.on('data', (chunk) => {
             console.log(chunk.toString());
         });
 
-        this.process.stderr?.on('data', (chunk) => {
+        process.stderr?.on('data', (chunk) => {
             const str = chunk.toString();
             if (str.startsWith('[Scene]')) {
                 console.log(chunk.toString());
@@ -285,7 +369,7 @@ export class SceneWorker {
             }
         });
 
-        this.process.on('error', (err) => {
+        process.on('error', (err) => {
             if (err.message.startsWith('[Scene]')) {
                 console.error(err);
             } else {
@@ -293,7 +377,11 @@ export class SceneWorker {
             }
         });
 
-        this.process.on('exit', (code: number, signal) => {
+        process.on('exit', (code: number, signal) => {
+            if (this._process !== process) {
+                return;
+            }
+            this._process = null;
             if (code !== 0) {
                 console.error(`场景进程退出异常 code:${code}, signal:${signal}`);
                 

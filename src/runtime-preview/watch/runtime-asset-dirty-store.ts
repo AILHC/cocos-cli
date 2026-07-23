@@ -8,6 +8,19 @@ export type RuntimeAssetWatchEventType = 'create' | 'update' | 'delete';
 export interface RuntimeAssetWatchEvent {
     type: RuntimeAssetWatchEventType;
     path: string;
+    fileGeneration?: RuntimeAssetFileGeneration;
+}
+
+export interface RuntimeAssetFileGeneration {
+    mtimeMs: number;
+    size: number;
+}
+
+export interface RuntimeAssetDbSuccess {
+    target: string;
+    generation: number;
+    sourceFileGeneration?: RuntimeAssetFileGeneration;
+    metaFileGeneration?: RuntimeAssetFileGeneration;
 }
 
 export interface RuntimeAssetDirtyBatch {
@@ -32,6 +45,7 @@ export interface RuntimeAssetDirtyStore {
         assetEventCount?: number;
         metaEventCount?: number;
     }): void;
+    acknowledgeAssetDbSuccess(input: RuntimeAssetDbSuccess): void;
     drainDirtyTargets(): RuntimeAssetDirtyBatch;
     requeueTargets(targets: string[]): void;
     peekDirtyTargets(limit?: number): string[];
@@ -55,14 +69,26 @@ export function createRuntimeAssetDirtyStore(options: {
         eventTypes: Set<RuntimeAssetWatchEventType>;
         assetEventCount: number;
         metaEventCount: number;
+        sourceFileGeneration?: RuntimeAssetFileGeneration;
+        metaFileGeneration?: RuntimeAssetFileGeneration;
     }>();
     let eventCount = 0;
+    const importedGenerations = new Map<string, RuntimeAssetDbSuccess>();
+
+    const isSameFileGeneration = (
+        left: RuntimeAssetFileGeneration | undefined,
+        right: RuntimeAssetFileGeneration | undefined,
+    ): boolean => !!left
+        && !!right
+        && left.mtimeMs === right.mtimeMs
+        && left.size === right.size;
 
     const updateTarget = (
         target: string,
         eventType: RuntimeAssetWatchEventType,
         assetEventCount: number,
         metaEventCount: number,
+        fileGeneration?: RuntimeAssetFileGeneration,
     ): void => {
         const entry = targets.get(target) ?? {
             eventTypes: new Set<RuntimeAssetWatchEventType>(),
@@ -72,6 +98,12 @@ export function createRuntimeAssetDirtyStore(options: {
         entry.eventTypes.add(eventType);
         entry.assetEventCount += assetEventCount;
         entry.metaEventCount += metaEventCount;
+        if (assetEventCount > 0) {
+            entry.sourceFileGeneration = fileGeneration;
+        }
+        if (metaEventCount > 0) {
+            entry.metaFileGeneration = fileGeneration;
+        }
         targets.set(target, entry);
         eventCount += assetEventCount + metaEventCount;
     };
@@ -83,10 +115,21 @@ export function createRuntimeAssetDirtyStore(options: {
                 return;
             }
 
+            const importedGeneration = importedGenerations.get(eventTarget.target);
+            const expectedFileGeneration = eventTarget.isMetaEvent
+                ? importedGeneration?.metaFileGeneration
+                : importedGeneration?.sourceFileGeneration;
+            if (isSameFileGeneration(event.fileGeneration, expectedFileGeneration)) {
+                return;
+            }
+            if (importedGeneration && expectedFileGeneration) {
+                importedGenerations.delete(eventTarget.target);
+            }
+
             if (eventTarget.isMetaEvent) {
-                updateTarget(eventTarget.target, event.type, 0, 1);
+                updateTarget(eventTarget.target, event.type, 0, 1, event.fileGeneration);
             } else {
-                updateTarget(eventTarget.target, event.type, 1, 0);
+                updateTarget(eventTarget.target, event.type, 1, 0, event.fileGeneration);
             }
         },
         recordDirtyTarget(input): void {
@@ -98,6 +141,35 @@ export function createRuntimeAssetDirtyStore(options: {
             const assetEventCount = input.assetEventCount ?? 1;
             const metaEventCount = input.metaEventCount ?? 0;
             updateTarget(normalized.canonicalTarget, input.eventType, assetEventCount, metaEventCount);
+        },
+        acknowledgeAssetDbSuccess(input): void {
+            const normalized = pathCanonicalizer.refreshTargetToDbTarget(input.target, 'dirty-target');
+            if (!normalized.ok) {
+                return;
+            }
+
+            const target = normalized.canonicalTarget;
+            const current = importedGenerations.get(target);
+            if (current && current.generation >= input.generation) {
+                return;
+            }
+
+            const pending = targets.get(target);
+            if (pending) {
+                eventCount = Math.max(
+                    0,
+                    eventCount - pending.assetEventCount - pending.metaEventCount,
+                );
+                targets.delete(target);
+            }
+            if (input.sourceFileGeneration || input.metaFileGeneration) {
+                importedGenerations.set(target, {
+                    ...input,
+                    target,
+                });
+            } else {
+                importedGenerations.delete(target);
+            }
         },
         drainDirtyTargets(): RuntimeAssetDirtyBatch {
             const entries = Array.from(targets.entries())

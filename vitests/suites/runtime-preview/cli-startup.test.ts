@@ -33,7 +33,7 @@ function canListen(port: number): Promise<boolean> {
 }
 
 describe('runtime preview server startup', () => {
-  it('dispatches each preview mode to its dedicated launcher entry', async () => {
+  it('uses one Runtime Preview launcher entry and treats mode flags as page selectors', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'preview-cli-mode-matrix-'));
     const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
     launcherMockState.Launcher.mockImplementation(() => ({
@@ -53,11 +53,17 @@ describe('runtime preview server startup', () => {
     try {
       await writeFile(join(projectRoot, 'package.json'), '{"name":"preview-cli-mode-matrix"}', 'utf8');
       await run([]);
-      expect(launcherMockState.startGamePreview).toHaveBeenLastCalledWith({
+      expect(launcherMockState.startRuntimePreview).toHaveBeenLastCalledWith(expect.objectContaining({
         port: 9527,
         scene: undefined,
         open: true,
-      });
+      }));
+      expect(launcherMockState.startGamePreview).not.toHaveBeenCalled();
+
+      await run(['--no-open']);
+      expect(launcherMockState.startRuntimePreview).toHaveBeenLastCalledWith(expect.objectContaining({
+        open: false,
+      }));
 
       await run(['--build', '--platform', 'web-mobile', '--no-open']);
       expect(launcherMockState.startPreview).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -66,22 +72,36 @@ describe('runtime preview server startup', () => {
         open: false,
       }));
 
-      await run(['--scene-editor', '--no-open']);
-      expect(launcherMockState.startSceneEditorPreview).toHaveBeenLastCalledWith({
+      await run(['--scene-editor', '--scene', 'scene-editor-scene', '--host', '127.0.0.1', '--no-open']);
+      expect(launcherMockState.startRuntimePreview).toHaveBeenLastCalledWith(expect.objectContaining({
         port: 9527,
+        host: '127.0.0.1',
+        scene: 'scene-editor-scene',
         open: false,
-      });
+        openPage: 'scene-editor',
+      }));
+      expect(launcherMockState.startSceneEditorPreview).not.toHaveBeenCalled();
 
       await run(['--runtime', '--scene', 'runtime-scene']);
       expect(launcherMockState.startRuntimePreview).toHaveBeenLastCalledWith(expect.objectContaining({
         port: 9527,
         scene: 'runtime-scene',
+        open: true,
+        openPage: 'runtime',
+      }));
+
+      await run(['--runtime', '--no-open']);
+      expect(launcherMockState.startRuntimePreview).toHaveBeenLastCalledWith(expect.objectContaining({
+        open: false,
+        openPage: 'runtime',
       }));
 
       await run(['--scene', 'db://assets/game.scene']);
-      expect(launcherMockState.startGamePreview).toHaveBeenLastCalledWith(expect.objectContaining({
+      expect(launcherMockState.startRuntimePreview).toHaveBeenLastCalledWith(expect.objectContaining({
         scene: 'db://assets/game.scene',
+        open: true,
       }));
+      expect(launcherMockState.startGamePreview).not.toHaveBeenCalled();
     } finally {
       await rm(projectRoot, { recursive: true, force: true });
       resume.mockRestore();
@@ -110,10 +130,9 @@ describe('runtime preview server startup', () => {
       await writeFile(join(projectRoot, 'package.json'), '{"name":"preview-cli-invalid-matrix"}', 'utf8');
       for (const args of [
         ['--runtime', '--build'],
-        ['--runtime', '--no-open'],
-        ['--scene-editor', '--scene', 'scene'],
+        ['--runtime', '--scene-editor'],
+        ['--build', '--scene', 'scene'],
         ['--platform', 'web-mobile'],
-        ['--watch-assets'],
       ]) {
         launcherMockState.Launcher.mockClear();
         exit.mockClear();

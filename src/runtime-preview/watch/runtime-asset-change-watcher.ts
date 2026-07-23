@@ -1,7 +1,12 @@
+import { statSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import * as parcelWatcher from '@parcel/watcher';
-import type { RuntimeAssetDirtyStore, RuntimeAssetWatchEvent } from './runtime-asset-dirty-store';
+import type {
+    RuntimeAssetDirtyStore,
+    RuntimeAssetFileGeneration,
+    RuntimeAssetWatchEvent,
+} from './runtime-asset-dirty-store';
 
 type ParcelEvent = { type: 'create' | 'update' | 'delete'; path: string };
 type ParcelSubscription = { unsubscribe: () => Promise<void> | void };
@@ -178,10 +183,22 @@ export function createRuntimeAssetChangeWatcher(options: {
     snapshotFiles?: (assetsRoot: string) => Promise<RuntimeAssetStartupSnapshot>;
     failSoft?: boolean;
     logger?: { write: (line: string) => Promise<void> | void };
+    getFileGeneration?: (path: string) => RuntimeAssetFileGeneration | undefined;
 }): RuntimeAssetChangeWatcher {
     const assetsRoot = join(options.projectRoot, 'assets');
     const subscribe = options.subscribe ?? parcelWatcher.subscribe;
     const failSoft = options.failSoft ?? true;
+    const getFileGeneration = options.getFileGeneration ?? ((path: string) => {
+        try {
+            const fileStat = statSync(path);
+            return {
+                mtimeMs: fileStat.mtimeMs,
+                size: fileStat.size,
+            };
+        } catch {
+            return undefined;
+        }
+    });
     let subscription: ParcelSubscription | null = null;
     let error: string | undefined;
     let startupDirtyTargetCount = 0;
@@ -295,8 +312,22 @@ export function createRuntimeAssetChangeWatcher(options: {
                             return;
                         }
 
+                        const observations: string[] = [];
                         for (const event of events) {
-                            options.dirtyStore.recordFileEvent(event as RuntimeAssetWatchEvent);
+                            const fileGeneration = event.type === 'delete'
+                                ? undefined
+                                : getFileGeneration(event.path);
+                            options.dirtyStore.recordFileEvent({
+                                ...event,
+                                fileGeneration,
+                            } as RuntimeAssetWatchEvent);
+                            observations.push([
+                                event.type,
+                                relative(assetsRoot, event.path).replace(/\\/g, '/'),
+                                fileGeneration
+                                    ? `${fileGeneration.mtimeMs}:${fileGeneration.size}`
+                                    : 'missing',
+                            ].join(':'));
                         }
 
                         const sampleTargets = options.dirtyStore.peekDirtyTargets(5).join(',');
@@ -304,6 +335,7 @@ export function createRuntimeAssetChangeWatcher(options: {
                             `events count=${events.length}`,
                             `dirtyTargets=${options.dirtyStore.getDirtyTargetCount()}`,
                             `sample=${sampleTargets}`,
+                            `observed=${observations.join(',')}`,
                         ].join(' '));
                     },
                     {

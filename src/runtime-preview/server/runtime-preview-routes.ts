@@ -187,10 +187,10 @@ async function resolvePluginScriptLibraryFile(
     return null;
 }
 
-export async function handleRuntimePreviewRequest(
+export async function tryHandleRuntimePreviewRequest(
     context: RuntimePreviewRouteContext,
     requestPath: string,
-): Promise<RuntimePreviewHttpResponse> {
+): Promise<RuntimePreviewHttpResponse | null> {
     const pathname = decodePathname(requestPath);
     if (!pathname || pathname.split('/').includes('..')) {
         return textResponse(400, `Invalid runtime preview request: ${requestPath}`);
@@ -328,5 +328,13 @@ export async function handleRuntimePreviewRequest(
         return serveOnDemandFile(libraryFile);
     }
 
-    return textResponse(404, `No runtime preview route handled: ${pathname}`);
+    return null;
+}
+
+export async function handleRuntimePreviewRequest(
+    context: RuntimePreviewRouteContext,
+    requestPath: string,
+): Promise<RuntimePreviewHttpResponse> {
+    return (await tryHandleRuntimePreviewRequest(context, requestPath))
+        ?? textResponse(404, `No runtime preview route handled: ${decodePathname(requestPath) ?? requestPath}`);
 }

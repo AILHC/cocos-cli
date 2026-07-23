@@ -715,9 +715,16 @@
         function flattenNodes(nodes, prefix, sel) {
             if (!nodes) return;
             for (const n of nodes) {
-                const name = prefix + (n.name || n.nodeId || '?');
+                const nodeName = typeof n.name === 'string'
+                    ? n.name
+                    : n.name?.value;
+                const nodeId = n.nodeId
+                    || (typeof n.uuid === 'string' ? n.uuid : n.uuid?.value)
+                    || n.value?.uuid
+                    || '';
+                const name = prefix + (nodeName || n.__name__ || nodeId || '?');
                 const opt = document.createElement('option');
-                opt.value = n.nodeId || n.uuid || '';
+                opt.value = nodeId;
                 opt.textContent = name;
                 sel.appendChild(opt);
                 if (n.children && n.children.length > 0) {

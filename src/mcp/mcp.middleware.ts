@@ -1,5 +1,5 @@
 import type { IMiddlewareContribution } from '../server/interfaces';
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { toolRegistry } from '../api/decorator/decorator';
@@ -23,6 +23,9 @@ export class McpMiddleware {
     private server: McpServer;
     private resourceManager: ResourceManager;
     private builderHook: BuilderHook;
+    private activeTransports = new Set<StreamableHTTPServerTransport>();
+    private closed = false;
+    private closePromise: Promise<void> | null = null;
 
     constructor(private readonly getProjectPath?: () => string | undefined) {
         this.builderHook = new BuilderHook();
@@ -339,27 +342,55 @@ export class McpMiddleware {
         return JSON.stringify({ result: result }, null, 2);
     }
 
-    private async handleMcpRequest(req: Request, res: Response): Promise<void> {
+    private async handleMcpRequest(req: Request, res: Response, next?: NextFunction): Promise<void> {
+        if (this.closed) {
+            if (next) {
+                next();
+            } else {
+                res.status(503).json({ error: 'MCP middleware is closed' });
+            }
+            return;
+        }
+
+        let transport: StreamableHTTPServerTransport | undefined;
         try {
             // 为每个请求创建新的传输层以防止请求 ID 冲突
-            const transport = new StreamableHTTPServerTransport({
+            transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
                 enableJsonResponse: true
             });
+            this.activeTransports.add(transport);
 
-            res.on('close', () => {
-                transport.close();
+            res.once('close', () => {
+                this.activeTransports.delete(transport!);
+                void transport!.close().catch((error) => {
+                    console.warn('[MCP] Failed to close request transport:', error);
+                });
             });
 
             await this.server.connect(transport);
             await transport.handleRequest(req, res, req.body);
         } catch (error) {
+            if (transport) {
+                this.activeTransports.delete(transport);
+                await transport.close().catch(() => undefined);
+            }
             console.error('MCP request handling error:', error);
-            res.status(500).json({ error: 'Internal server error' });
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Internal server error' });
+            }
         }
     }
 
-    private async handleSseRequest(req: Request, res: Response): Promise<void> {
+    private async handleSseRequest(req: Request, res: Response, next?: NextFunction): Promise<void> {
+        if (this.closed) {
+            if (next) {
+                next();
+            } else {
+                res.status(503).json({ error: 'MCP middleware is closed' });
+            }
+            return;
+        }
         // SSE is not supported. Return 405 Method Not Allowed to indicate that POST should be used instead.
         res.status(405).set('Allow', 'POST').send('Method Not Allowed');
     }
@@ -380,6 +411,23 @@ export class McpMiddleware {
             ]
         };
     }
+
+    public close(): Promise<void> {
+        if (!this.closePromise) {
+            this.closed = true;
+            const transports = Array.from(this.activeTransports);
+            this.activeTransports.clear();
+            this.closePromise = (async () => {
+                try {
+                    await this.server.close();
+                } finally {
+                    await Promise.allSettled(transports.map((transport) => transport.close()));
+                }
+            })();
+        }
+        return this.closePromise;
+    }
+
     /**
      * 将 Zod Schema 转换为兼容性高的 jsonSchema7 格式
      */

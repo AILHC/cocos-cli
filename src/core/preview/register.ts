@@ -3,14 +3,13 @@ import { middlewareService } from '../../server/middleware';
 /**
  * 浏览器游戏预览的统一注册入口。
  *
- * 各 IDE / 集成方都通过 cli 的 `startup`（→ `startupScene` → scene `init`）或独立的游戏预览
- * 入口走到这里，集中一处保证浏览器预览行为一致，避免各调用方各自拼装注册流程。
+ * 仅普通浏览器游戏预览入口走到这里。Runtime Preview Session 与 Scene 初始化均不注册
+ * GamePreview，避免共享 server 的根路径和资源路由被普通 preview 占用。
  *
  * 注册顺序敏感：GamePreview 的 `/` 及资源路由（settings / assets / bundle / scene json）必须
- * 在场景中间件的宽泛路由（`/:dir/:uuid.:ext` 等）之前注册，否则 `/preview/settings.js`、
- * `/assets/<bundle>/config.json` 等会被场景路由吞成 404。因此在 scene `init()` 里需要先调用
- * 本函数，再注册 SceneScripting / Scene；纯浏览器游戏预览（无场景编辑器）则直接调用本函数。
- * 这些 handler 在非游戏预览资源时会 `next()` 放行，不影响场景编辑器自身请求。
+ * 在其它宽泛路由（`/:dir/:uuid.:ext` 等）之前注册，否则 `/preview/settings.js`、
+ * `/assets/<bundle>/config.json` 等会被吞成 404。这些 handler 在非游戏预览资源时会
+ * `next()` 放行。
  *
  * 前置条件：调用前需已完成 `startServer` 与 builder 初始化（settings 在请求时惰性计算）。
  */

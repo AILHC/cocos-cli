@@ -255,6 +255,79 @@ describe('runtime asset dirty store', () => {
     expect(store.drainDirtyTargets().targets).toEqual(['db://assets/a.json']);
   });
 
+  it('settles watcher observations of an already imported AssetDB generation', () => {
+    const store = createRuntimeAssetDirtyStore({
+      projectRoot,
+      pathCanonicalizer: createShortPathCanonicalizer(),
+    });
+    const sourceFileGeneration = { mtimeMs: 100, size: 20 };
+    const metaFileGeneration = { mtimeMs: 101, size: 10 };
+
+    store.recordFileEvent({
+      type: 'update',
+      path: 'E:/project/assets/RESOUR~1/cfg/a.json',
+      fileGeneration: sourceFileGeneration,
+    });
+    store.acknowledgeAssetDbSuccess({
+      target: 'db://assets/RESOUR~1/cfg/a.json',
+      generation: 1,
+      sourceFileGeneration,
+      metaFileGeneration,
+    });
+    store.recordFileEvent({
+      type: 'update',
+      path: 'E:/project/assets/resources/cfg/a.json.meta',
+      fileGeneration: metaFileGeneration,
+    });
+
+    expect(store.drainDirtyTargets()).toMatchObject({
+      targets: [],
+      eventCount: 0,
+    });
+  });
+
+  it('lets a successful AssetDB generation supersede an intermediate watcher generation', () => {
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    store.recordFileEvent({
+      type: 'update',
+      path: join(assetsRoot, 'scene.scene'),
+      fileGeneration: { mtimeMs: 100, size: 20 },
+    });
+
+    store.acknowledgeAssetDbSuccess({
+      target: 'db://assets/scene.scene',
+      generation: 1,
+      sourceFileGeneration: { mtimeMs: 101, size: 21 },
+    });
+    store.recordFileEvent({
+      type: 'update',
+      path: join(assetsRoot, 'scene.scene'),
+      fileGeneration: { mtimeMs: 101, size: 21 },
+    });
+
+    expect(store.drainDirtyTargets()).toMatchObject({
+      targets: [],
+      eventCount: 0,
+    });
+  });
+
+  it('keeps a later external file generation dirty without a timeout heuristic', () => {
+    const store = createRuntimeAssetDirtyStore({ projectRoot });
+    store.acknowledgeAssetDbSuccess({
+      target: 'db://assets/scene.scene',
+      generation: 1,
+      sourceFileGeneration: { mtimeMs: 100, size: 20 },
+    });
+
+    store.recordFileEvent({
+      type: 'update',
+      path: join(assetsRoot, 'scene.scene'),
+      fileGeneration: { mtimeMs: 200, size: 21 },
+    });
+
+    expect(store.drainDirtyTargets().targets).toEqual(['db://assets/scene.scene']);
+  });
+
   it('returns stable dirty target samples without draining', () => {
     const store = createRuntimeAssetDirtyStore({ projectRoot });
     store.recordFileEvent({ type: 'update', path: join(assetsRoot, 'b.json') });

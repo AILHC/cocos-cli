@@ -10,6 +10,7 @@
 
 let mcpUrl: string | undefined;
 let registeringPromise: Promise<string> | undefined;
+let mcpHandle: import('../../mcp/mount-mcp').MountedMcp | undefined;
 
 /**
  * Register MCP middleware on the running server.
@@ -36,18 +37,22 @@ export async function register(): Promise<string> {
 }
 
 async function doRegisterMcp(): Promise<string> {
-	// 1. Import API modules to trigger @tool decorators and populate toolRegistry
-	const { CocosAPI } = await import('../../api/index');
-	await CocosAPI.create();
-
-	// 2. Create MCP middleware and register routes on the running server
-	const { McpMiddleware } = await import('../../mcp/mcp.middleware');
-	const { register, getUrl } = await import('../server/server');
-	const middleware = new McpMiddleware();
-	await register('mcp', middleware.getMiddlewareContribution());
-
+	const [{ mountMcp }, { serverService }, { default: project }, { getUrl }] = await Promise.all([
+		import('../../mcp/mount-mcp'),
+		import('../../server/server'),
+		import('../../core/project'),
+		import('../server/server'),
+	]);
 	const serverUrl = getUrl();
-	mcpUrl = `${serverUrl}/mcp`;
+	if (!serverUrl) {
+		throw new Error('Cannot register MCP before the host server is started.');
+	}
+	mcpHandle = await mountMcp({
+		router: serverService.router,
+		serverUrl,
+		projectPath: project.path,
+	});
+	mcpUrl = mcpHandle.url;
 
 	console.log(`[MCP] Middleware registered at: ${mcpUrl}`);
 	return mcpUrl;
@@ -58,11 +63,14 @@ async function doRegisterMcp(): Promise<string> {
  * Note: does NOT stop the Express server — use the Server module for that.
  */
 export async function unregister(): Promise<void> {
-	if (!mcpUrl) {
+	if (!mcpHandle) {
 		return;
 	}
 
+	const handle = mcpHandle;
+	mcpHandle = undefined;
 	mcpUrl = undefined;
+	await handle.close();
 	console.log('[MCP] Middleware unregistered');
 }
 

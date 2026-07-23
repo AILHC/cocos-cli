@@ -55,7 +55,15 @@ export class CocosAPI {
      * @param port 
      */
     public async startupMcpServer(@param(SchemaProjectPath) projectPath: TProjectPath, @param(SchemaPort) port?: TPort) {
-        await this.startup(projectPath, port);
+        const { default: Launcher } = await import('../core/launcher');
+        const launcher = new Launcher(projectPath);
+        const session = await launcher.startRuntimePreview({
+            host: '127.0.0.1',
+            port,
+            open: false,
+        });
+        this._projectPath = projectPath;
+        return session;
     }
 
     /**

@@ -1,4 +1,4 @@
-import express, { Express } from 'express';
+import express, { Express, type Router } from 'express';
 import compression from 'compression';
 import { existsSync, readFileSync } from 'fs-extra';
 import { createServer as createHTTPServer, Server as HTTPServer } from 'http';
@@ -24,6 +24,8 @@ interface ServerOptions {
 export class ServerService {
     private app: Express = express();
     private server: HTTPServer | HTTPSServer | undefined;
+    private stopPromise: Promise<void> | null = null;
+    private initialized = false;
     private _port = 9527;
     private _host = 'localhost';// 对外 url 使用的 host/ip
     private useHttps = false;
@@ -49,34 +51,63 @@ export class ServerService {
         return this._port;
     }
 
+    public get router(): Router {
+        return middlewareService.router;
+    }
+
     async start(port?: number, host?: string) {
+        if (this.server?.listening) {
+            throw new Error(`Server is already listening at ${this.url}`);
+        }
         console.log('🚀 开始启动服务器...');
         this.init();
         if (host) {
             this._host = host;
         }
-        const preferredPort = await getAvailablePort(port || this._port);
+        const preferredPort = await getAvailablePort(port ?? this._port);
         const { server, port: actualPort } = await this.createServerWithRetry(preferredPort, host);
-        this._port = actualPort;
-        this.server = server;
-        socketService.startup(this.server);
-        consoleLogService.startup(this.server);
-        // 打印服务器地址
-        this.printServerUrls();
+        try {
+            this._port = actualPort;
+            this.server = server;
+            socketService.startup(this.server);
+            consoleLogService.startup(this.server);
+            // 打印服务器地址
+            this.printServerUrls();
+        } catch (error) {
+            this.server = undefined;
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+            throw error;
+        }
     }
 
     async stop(): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.server?.close((err?: Error) => {
-                if (err) {
-                    reject(err);
-                    return;
-                }
-                console.log('关闭服务器');
-                this.server = undefined;
-                resolve();
-            });
+        if (this.stopPromise) {
+            return this.stopPromise;
+        }
+        const server = this.server;
+        if (!server) {
+            return;
+        }
+        let resolveStop!: () => void;
+        let rejectStop!: (error: Error) => void;
+        const stopPromise = new Promise<void>((resolve, reject) => {
+            resolveStop = resolve;
+            rejectStop = reject;
         });
+        this.stopPromise = stopPromise;
+        server.close((err?: Error) => {
+            this.stopPromise = null;
+            if (err) {
+                rejectStop(err);
+                return;
+            }
+            if (this.server === server) {
+                this.server = undefined;
+            }
+            console.log('关闭服务器');
+            resolveStop();
+        });
+        return stopPromise;
 
     }
 
@@ -166,6 +197,10 @@ export class ServerService {
     }
 
     init() {
+        if (this.initialized) {
+            return;
+        }
+        this.initialized = true;
         this.app.use(cors);
         this.app.use(compression());
         this.app.use(express.json({ limit: '50mb' }));

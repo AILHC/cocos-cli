@@ -12,9 +12,9 @@ export interface ICCONBJsonDownloadFallbackOptions {
 }
 
 const installedDownloaders = new WeakSet<object>();
-const IMPORT_JSON_URL_RE = /\/([0-9a-f]{2})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.[^/.]+)?\.json$/i;
+const IMPORT_JSON_URL_RE = /\/([0-9a-f]{2})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:@[^/.@]+)*)(?:\.[^/.]+)?\.json$/i;
 
-function parseImportRequest(url: string, serverURL?: string): { origin: string; uuid: string } | null {
+function parseImportRequest(url: string, serverURL?: string): { origin: string; requestUrl: URL; uuid: string } | null {
     let requestUrl: URL;
     try {
         if (/^https?:\/\//i.test(url)) {
@@ -28,7 +28,7 @@ function parseImportRequest(url: string, serverURL?: string): { origin: string; 
 
         const match = decodeURIComponent(requestUrl.pathname).match(IMPORT_JSON_URL_RE);
         if (!match || match[1].toLowerCase() !== match[2].slice(0, 2).toLowerCase()) return null;
-        return { origin: requestUrl.origin, uuid: match[2] };
+        return { origin: requestUrl.origin, requestUrl, uuid: match[2] };
     } catch {
         return null;
     }
@@ -52,19 +52,9 @@ export function installCCONBJsonDownloadFallback(
             onComplete(error, data);
         };
 
-        defaultDownloadJson(url, downloadOptions, (downloadError, data) => {
-            if (completed) return;
-            if (!downloadError) {
-                complete(null, data);
-                return;
-            }
-
-            const request = parseImportRequest(url, options.serverURL);
-            if (!request) {
-                complete(downloadError);
-                return;
-            }
-
+        const request = parseImportRequest(url, options.serverURL);
+        const handleJsonError = (downloadError: Error) => {
+            if (!request) return complete(downloadError);
             void (async () => {
                 try {
                     const encodedUuid = encodeURIComponent(request.uuid);
@@ -95,6 +85,14 @@ export function installCCONBJsonDownloadFallback(
                     complete(downloadError);
                 }
             })();
+        };
+        defaultDownloadJson(url, downloadOptions, (downloadError, data) => {
+            if (completed) return;
+            if (!downloadError) {
+                complete(null, data);
+                return;
+            }
+            handleJsonError(downloadError);
         });
     });
     installedDownloaders.add(downloader);

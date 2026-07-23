@@ -18,7 +18,11 @@ function createDownloader(jsonHandler: Handler, cconbHandler: Handler = jest.fn(
 }
 
 function response(body: string, ok = true): Response {
-    return { ok, text: async () => body } as Response;
+    return {
+        ok,
+        text: async () => body,
+        json: async () => JSON.parse(body),
+    } as Response;
 }
 
 async function flushAsyncFallback(): Promise<void> {
@@ -33,7 +37,7 @@ describe('installCCONBJsonDownloadFallback', () => {
         jest.restoreAllMocks();
     });
 
-    it('resolves canonical versioned import JSON URLs to the official CCONB handler', async () => {
+    it('resolves canonical versioned subasset JSON URLs to the official CCONB handler', async () => {
         const downloadError = new Error('json 404');
         const jsonHandler = jest.fn((_url, _options, done: Complete) => done(downloadError));
         const ccon = { document: {} };
@@ -44,17 +48,17 @@ describe('installCCONBJsonDownloadFallback', () => {
         expect(installCCONBJsonDownloadFallback(assetManager, { isBrowser: true })).toBe(true);
         const complete = jest.fn();
         handlers['.json'](
-            'http://localhost:9527/e1/e17f686a-b17e-44ad-814a-f771b44111b4.a1b2c3.json?x=1#hash',
+            'http://localhost:9527/e1/e17f686a-b17e-44ad-814a-f771b44111b4@b47c0.a1b2c3.json?x=1#hash',
             { priority: 1 },
             complete,
         );
         await flushAsyncFallback();
 
         expect(globalThis.fetch).toHaveBeenCalledWith(
-            'http://localhost:9527/scene/query-extname/e17f686a-b17e-44ad-814a-f771b44111b4',
+            'http://localhost:9527/scene/query-extname/e17f686a-b17e-44ad-814a-f771b44111b4%40b47c0',
         );
         expect(cconbHandler).toHaveBeenCalledWith(
-            'http://localhost:9527/import/e17f686a-b17e-44ad-814a-f771b44111b4.bin?isBrowser=true',
+            'http://localhost:9527/import/e17f686a-b17e-44ad-814a-f771b44111b4%40b47c0.bin?isBrowser=true',
             { priority: 1 },
             expect.any(Function),
         );

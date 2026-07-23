@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { BaseCommand, CommandUtils } from './base';
 import { startServer } from '../mcp/start-server';
+import { installRuntimePreviewSessionSignalHandlers } from '../runtime-preview/session/session-signals';
 
 /**
  * MCP Server 命令类
@@ -25,7 +26,8 @@ export class McpServerCommand extends BaseCommand {
 
                     CommandUtils.showMcpServerInfo(resolvedPath, port);
                     // 启动 MCP 服务器
-                    await startServer(resolvedPath, port);
+                    const session = await startServer(resolvedPath, port);
+                    installRuntimePreviewSessionSignalHandlers(session);
 
                     // 保持进程运行
                     process.stdin.resume();

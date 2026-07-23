@@ -23,20 +23,18 @@ export class RpcProxy {
         return this.rpcInstance?.isConnect();
     }
 
-    async startup(prc?: ChildProcess | NodeJS.Process) {
+    async startup(prc: ChildProcess) {
         // 在创建新实例前，先清理旧实例，防止内存泄漏
         this.dispose();
         this.rpcInstance = new ProcessRPC<IPublicServiceManager>();
-        if (prc) {
-            this.rpcInstance.attach(prc);
-        }
+        this.rpcInstance.attach(prc);
         this.rpcInstance.register({
             assetManager: assetManager,
             programming: scriptManager,
             sceneConfigInstance: sceneConfigInstance,
             i18n: i18n,
         });
-        console.log(`[Node] Scene Process RPC ready ${prc ? '(Attached)' : '(Detached - Web Mode)'}`);
+        console.log('[Node] Scene Process RPC ready (Attached)');
     }
 
     /**

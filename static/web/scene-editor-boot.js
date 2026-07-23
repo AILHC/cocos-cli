@@ -14,6 +14,11 @@ export default async function boot() {
         const env = await loadEngine();
 
         const _originalSystem = System;
+        // 与 game-boot 一致，先让当前 System 实例完成 cc 的加载。scene-bundle 的
+        // importer-specific resolution 会把 cc 归一到 cce:/internal/x/cc；浏览器不认识
+        // cce: 协议，因此把已加载的 namespace 注册到同一个 canonical id。
+        const cc = await System.import('cc');
+        System.set('cce:/internal/x/cc', cc);
         console.log('[Scene] loading scene bundle');
         // SystemJS natively awaits the attached import maps above
         const SceneBundle = await System.import('/static/web/scene-bundle.js');
@@ -26,8 +31,13 @@ export default async function boot() {
         });
 
         Service?.Engine?.resume?.();
+        globalThis.__SCENE_EDITOR_READY__ = {
+            serverURL: env.serverURL,
+            timestamp: Date.now(),
+        };
         console.log('Cocos Engine and Scene Services loaded successfully');
     } catch (err) {
+        globalThis.__SCENE_EDITOR_ERROR__ = String(err?.stack || err);
         console.error('Failed to load Cocos Engine or Services:', err.stack || err);
     }
 }

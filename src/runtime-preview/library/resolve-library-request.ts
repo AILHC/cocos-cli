@@ -27,6 +27,7 @@ function getRawUrlPathname(requestPath: string): string | null {
 }
 
 interface LibraryRoute {
+    isRoot: boolean;
     tail: string;
 }
 
@@ -72,7 +73,14 @@ function parseLibraryRoute(requestPath: string): LibraryRoute | null {
         return null;
     }
 
-    return { tail };
+    return {
+        isRoot: !namespacedMatch,
+        tail,
+    };
+}
+
+export function isCanonicalRootLibraryRequest(requestPath: string): boolean {
+    return parseLibraryRoute(requestPath)?.isRoot === true;
 }
 
 function isSafeLibraryTail(tail: string): boolean {

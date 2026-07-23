@@ -5,7 +5,7 @@ import { globalSetup } from '../../test/global-setup';
 import { TestGlobalEnv } from '../../../tests/global-env';
 import { assetManager } from '..';
 import { ISupportCreateType } from '../@types/asset-types';
-import { IAsset } from '../@types/private';
+import { IAsset, IAssetSavedEvent } from '../@types/private';
 
 describe('测试 db 的操作接口', function () {
     const name = `__${Date.now()}__`;
@@ -524,6 +524,40 @@ describe('测试 db 的操作接口', function () {
             expect(createdAsset).not.toBeNull();
             expect(eventAsset.uuid).toEqual(createdAsset!.uuid);
             expect(eventAsset.url).toEqual(targetUrl);
+        });
+
+        it('保存成功后发布可等待的 AssetDB save success 领域事件', async function () {
+            const events: IAssetSavedEvent[] = [];
+            const removeListener = assetManager.onAssetSaved(async (event) => {
+                await Promise.resolve();
+                events.push(event);
+            });
+            try {
+                await assetManager.saveAsset(`${TestGlobalEnv.testRootUrl}/${testName}`, 'domain event');
+            } finally {
+                removeListener();
+            }
+
+            expect(events).toHaveLength(1);
+            expect(events[0].generation).toBeGreaterThan(0);
+            expect(events[0].asset.url).toEqual(`${TestGlobalEnv.testRootUrl}/${testName}`);
+            expect(events[0].sourceFileGeneration).toMatchObject({
+                size: Buffer.byteLength('domain event'),
+            });
+        });
+
+        it('保存失败不会发布 AssetDB save success 领域事件', async function () {
+            const events: IAssetSavedEvent[] = [];
+            const removeListener = assetManager.onAssetSaved((event) => {
+                events.push(event);
+            });
+            try {
+                await expect(assetManager.saveAsset('missing-asset-uuid', 'invalid')).rejects.toThrow();
+            } finally {
+                removeListener();
+            }
+
+            expect(events).toHaveLength(0);
         });
     });
 

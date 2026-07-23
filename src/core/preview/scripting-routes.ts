@@ -574,7 +574,7 @@ export const scriptingRoutes = [
             const relPath = req.path.substring('/static/web'.length);
             const resourcePath = join(GlobalPaths.workspace, 'static', 'web', relPath);
             if (await pathExists(resourcePath) && (await stat(resourcePath)).isFile()) {
-                res.sendFile(resourcePath);
+                res.sendFile(resourcePath, { dotfiles: 'allow' });
             } else {
                 console.warn(`[Preview Server] Static resource not found: ${resourcePath}`);
                 next();
@@ -590,12 +590,12 @@ export const scriptingRoutes = [
             if (relPath.startsWith('/extras/')) {
                 const extraPath = join(GlobalPaths.workspace, 'node_modules', '@cocos', 'systemjs', 'dist', relPath);
                 if (await pathExists(extraPath) && (await stat(extraPath)).isFile()) {
-                    return res.sendFile(extraPath);
+                    return res.sendFile(extraPath, { dotfiles: 'allow' });
                 }
             }
             const resourcePath = join(facet.systemJsHomeDir, relPath);
             if (await pathExists(resourcePath) && (await stat(resourcePath)).isFile()) {
-                res.sendFile(resourcePath);
+                res.sendFile(resourcePath, { dotfiles: 'allow' });
             } else {
                 console.warn(`[Preview Server] SystemJS resource not found: ${resourcePath}`);
                 next();

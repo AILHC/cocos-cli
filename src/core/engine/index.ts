@@ -439,7 +439,9 @@ class EngineManager implements IEngine {
             ]
         });
         await this.initEditorExtensions();
-        installCCONBJsonDownloadFallback(cc.assetManager, { serverURL: info.serverURL });
+        installCCONBJsonDownloadFallback(cc.assetManager, {
+            serverURL: info.serverURL,
+        });
 
         const modules = this.getConfig().includeModules || [];
         const { physicsConfig, macroConfig, customLayers, sortingLayers, highQuality, renderPipeline, customJointTextureLayouts } = this.getConfig();

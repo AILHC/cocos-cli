@@ -45,7 +45,7 @@ async function writeMinimalProgrammingArtifacts(projectRoot: string): Promise<vo
 }
 
 describe('runtime preview production asset routes', () => {
-  it('passes refresh-on-reload and prepares settings with the final runtime server URL', async () => {
+  it('starts one runtime preview session and one scene worker with the final URL', async () => {
     vi.resetModules();
     const isolatedEnvKeys = [
       'COCOS_CLI_TEST_PROJECT_ROOT',
@@ -82,6 +82,46 @@ describe('runtime preview production asset routes', () => {
       };
       const createRuntimeAssetStartupSnapshot = vi.fn(async () => startupSnapshot);
       const capturedServerOptions: any[] = [];
+      const assetSaveSource = {
+        onAssetSaved: vi.fn(() => vi.fn()),
+        destroyed: vi.fn(),
+      };
+      const stopAssetDB = vi.fn(async () => undefined);
+      const closeProject = vi.fn(async () => true);
+      const stopSceneWorker = vi.fn(async () => true);
+      let attachedRpcReady = false;
+      const startupScene = vi.fn(async () => {
+        attachedRpcReady = true;
+        return { stop: stopSceneWorker };
+      });
+      const closeMcp = vi.fn(async () => undefined);
+      const sharedRouter = { shared: true };
+      const mountMcp = vi.fn(async (options) => {
+        expect(attachedRpcReady).toBe(true);
+        expect(options).toEqual({
+          router: sharedRouter,
+          serverUrl: finalServerUrl,
+          projectPath: projectRoot,
+        });
+        return {
+          url: `${finalServerUrl}/mcp`,
+          close: closeMcp,
+        };
+      });
+      const closeRuntimeSession = vi.fn(async () => undefined);
+      const sessionCleanupSteps = {
+        runtime: [] as Array<() => Promise<void>>,
+        scene: [] as Array<() => Promise<void>>,
+        project: [] as Array<() => Promise<void>>,
+      };
+      const closeSession = vi.fn(async () => {
+        for (const phase of ['runtime', 'scene', 'project'] as const) {
+          for (const cleanup of sessionCleanupSteps[phase].reverse()) {
+            await cleanup();
+          }
+        }
+        await closeRuntimeSession();
+      });
 
       vi.doMock('../../../src/core/base/console', () => ({
         newConsole: {
@@ -93,16 +133,31 @@ describe('runtime preview production asset routes', () => {
         startServer: vi.fn(),
         getServerUrl: vi.fn(() => finalServerUrl),
       }));
+      vi.doMock('../../../src/server/server', () => ({
+        serverService: {
+          router: sharedRouter,
+        },
+      }));
+      vi.doMock('../../../src/mcp/mount-mcp', () => ({
+        mountMcp,
+      }));
       vi.doMock('../../../src/core/scripting', () => ({
         default: {
           close: vi.fn(),
         },
       }));
       vi.doMock('../../../src/core/scene', () => ({
-        startupScene: vi.fn(),
+        startupScene,
       }));
       vi.doMock('../../../src/core/assets/extension-asset-db-mounts', () => ({
         resolveProjectExtensionAssetDbMounts: vi.fn(() => []),
+      }));
+      vi.doMock('../../../src/core/assets', () => ({
+        assetManager: assetSaveSource,
+        stopAssetDB,
+      }));
+      vi.doMock('../../../src/core/project', () => ({
+        default: { close: closeProject },
       }));
       vi.doMock('../../../src/core/launcher-engine-root', () => ({
         resolveLauncherEngineRoot: vi.fn(async () => ({
@@ -124,7 +179,7 @@ describe('runtime preview production asset routes', () => {
         return {
           getDefaultProjectProgrammingRoot: (root: string) => join(root, 'temp', 'cli', 'programming'),
           PreviewSettingsProvider: settings.PreviewSettingsProvider,
-          startRuntimePreviewServer: vi.fn(async (options) => {
+          startRuntimePreviewSession: vi.fn(async (options) => {
             capturedServerOptions.push(options);
             expect(createRuntimeAssetStartupSnapshot).toHaveBeenCalledWith(join(projectRoot, 'assets'));
             expect(options.assetWatcherStartupSnapshot).toBe(startupSnapshot);
@@ -141,7 +196,7 @@ describe('runtime preview production asset routes', () => {
               artifactsInspected: false,
             });
             return {
-              server: {} as never,
+              router: {} as never,
               host: '127.0.0.1',
               port: 19999,
               url: finalServerUrl,
@@ -151,7 +206,10 @@ describe('runtime preview production asset routes', () => {
               logFilePath: join(projectRoot, 'temp', 'preview.log'),
               logger: { logFilePath: join(projectRoot, 'temp', 'preview.log'), write: async () => undefined },
               startAssetWatcher,
-              close: async () => undefined,
+              registerCleanup: (phase: keyof typeof sessionCleanupSteps, close: () => Promise<void>) => {
+                sessionCleanupSteps[phase].push(close);
+              },
+              close: closeSession,
             };
           }),
         };
@@ -160,19 +218,25 @@ describe('runtime preview production asset routes', () => {
       const { default: Launcher } = await import('../../../src/core/launcher');
       const importSpy = vi.spyOn(Launcher.prototype, 'import').mockResolvedValue(undefined);
       const launcher = new Launcher(projectRoot);
-      const server = await launcher.startRuntimePreview({
+      const session = await launcher.startRuntimePreview({
         host: '127.0.0.1',
         port: 0,
         scene: diagnosticSceneUuid,
         refreshOnReload: true,
         watchAssets: true,
       });
-      await server.close();
+      await session.close();
+      await session.close();
 
       expect(capturedServerOptions).toHaveLength(1);
+      expect(capturedServerOptions[0]).toEqual(expect.objectContaining({
+        host: '127.0.0.1',
+        port: 0,
+      }));
       expect(capturedServerOptions[0].refreshOnReload).toBe(true);
       expect(capturedServerOptions[0].watchAssets).toBe(true);
       expect(capturedServerOptions[0].deferAssetWatcherStart).toBe(true);
+      expect(capturedServerOptions[0].assetSaveSource).toBe(assetSaveSource);
       expect(capturedServerOptions[0].prepareRuntimePreview).toEqual(expect.any(Function));
       expect(capturedServerOptions[0].readiness.isReady()).toBe(true);
       expect(capturedServerOptions[0].readiness.describe()).toEqual({
@@ -181,6 +245,19 @@ describe('runtime preview production asset routes', () => {
         artifactsInspected: true,
       });
       expect(startAssetWatcher).toHaveBeenCalledTimes(1);
+      expect(importSpy).toHaveBeenCalledTimes(1);
+      expect(initBuilder).toHaveBeenCalledTimes(1);
+      expect(getPreviewSettings).toHaveBeenCalledTimes(1);
+      expect(startupScene).toHaveBeenCalledTimes(1);
+      expect(startupScene).toHaveBeenCalledWith('D:/workspace/engines/cocos/3.8.6', projectRoot);
+      expect(mountMcp).toHaveBeenCalledTimes(1);
+      expect(closeMcp).toHaveBeenCalledTimes(1);
+      expect(stopSceneWorker).toHaveBeenCalledTimes(1);
+      expect(closeRuntimeSession).toHaveBeenCalledTimes(1);
+      expect(closeMcp.mock.invocationCallOrder[0]).toBeLessThan(stopSceneWorker.mock.invocationCallOrder[0]);
+      expect(stopSceneWorker.mock.invocationCallOrder[0]).toBeLessThan(closeRuntimeSession.mock.invocationCallOrder[0]);
+      expect(session.sceneEditorUrl).toBe(`${finalServerUrl}/scene-editor/`);
+      expect(session.mcpUrl).toBe(`${finalServerUrl}/mcp`);
       expect(importSpy).toHaveBeenCalledWith(expect.objectContaining({
         serverURL: `${finalServerUrl}/`,
       }));
@@ -192,6 +269,20 @@ describe('runtime preview production asset routes', () => {
       expect(() => capturedServerOptions[0].prepareRuntimePreview('http://127.0.0.1:20000')).toThrow(
         `Runtime preview was prepared for ${finalServerUrl}, not http://127.0.0.1:20000`,
       );
+      const compatibilitySession = { sceneEditorUrl: `${finalServerUrl}/scene-editor/` };
+      const unifiedStart = vi.spyOn(launcher, 'startRuntimePreview').mockResolvedValue(compatibilitySession as never);
+      await expect(launcher.startSceneEditorPreview({ port: 19999, open: false })).resolves.toBe(compatibilitySession);
+      expect(unifiedStart).toHaveBeenCalledWith({
+        port: 19999,
+        open: false,
+        openPage: 'scene-editor',
+      });
+      await launcher.startSceneEditorPreview();
+      expect(unifiedStart).toHaveBeenLastCalledWith({
+        port: undefined,
+        open: true,
+        openPage: 'scene-editor',
+      });
       const previewRoot = join(projectRoot, 'temp', 'cli', 'programming', 'packer-driver', 'targets', 'preview');
       removePreviewOutputIntegritySeal(previewRoot);
       await expect(capturedServerOptions[0].verifyProgrammingOutput()).rejects.toThrow(/uncommitted/);
@@ -199,9 +290,12 @@ describe('runtime preview production asset routes', () => {
       vi.restoreAllMocks();
       vi.doUnmock('../../../src/core/base/console');
       vi.doUnmock('../../../src/server');
+      vi.doUnmock('../../../src/server/server');
+      vi.doUnmock('../../../src/mcp/mount-mcp');
       vi.doUnmock('../../../src/core/scripting');
       vi.doUnmock('../../../src/core/scene');
       vi.doUnmock('../../../src/core/assets/extension-asset-db-mounts');
+      vi.doUnmock('../../../src/core/assets');
       vi.doUnmock('../../../src/core/launcher-engine-root');
       vi.doUnmock('../../../src/core/builder');
       vi.doUnmock('../../../src/runtime-preview/watch/runtime-asset-change-watcher');

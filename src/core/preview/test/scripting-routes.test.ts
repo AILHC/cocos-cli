@@ -1,8 +1,10 @@
 const mockGetModules = jest.fn();
 const mockGetConfigPath = jest.fn();
 const mockPathExists = jest.fn();
+const mockStat = jest.fn();
 const mockReadJSON = jest.fn();
 const mockQueryAssetInfo = jest.fn();
+const mockWaitForProgrammingFacet = jest.fn();
 
 jest.mock('../../engine', () => ({
     Engine: {
@@ -22,10 +24,14 @@ jest.mock('../../assets', () => ({
     },
 }));
 
+jest.mock('../../scripting/programming/FacetInstance', () => ({
+    waitForProgrammingFacet: mockWaitForProgrammingFacet,
+}));
+
 jest.mock('fs-extra', () => ({
     pathExists: mockPathExists,
     readJSON: mockReadJSON,
-    stat: jest.fn(),
+    stat: mockStat,
     readFile: jest.fn(),
 }));
 
@@ -37,6 +43,10 @@ describe('preview scripting routes', () => {
         mockGetModules.mockReturnValue(['base', 'custom-pipeline']);
         mockGetConfigPath.mockResolvedValue('E:/project/cocos.config.json');
         mockPathExists.mockResolvedValue(true);
+        mockStat.mockResolvedValue({ isFile: () => true });
+        mockWaitForProgrammingFacet.mockResolvedValue({
+            systemJsHomeDir: 'E:/workspace/.cache/systemjs',
+        });
     });
 
     it('normalizes disk graphics settings when serving engine modules', async () => {
@@ -104,5 +114,49 @@ describe('preview scripting routes', () => {
 
         expect(res.status).toHaveBeenCalledWith(200);
         expect(res.send).toHaveBeenCalledWith('');
+    });
+
+    it('allows CLI static web assets when the workspace is inside a dot directory', async () => {
+        const route = scriptingRoutes.find((item) => (
+            item.url instanceof RegExp && item.url.source === '^\\/static\\/web'
+        ));
+        const res = {
+            sendFile: jest.fn(),
+        };
+
+        expect(route).toBeDefined();
+
+        await route!.handler(
+            { path: '/static/web/scene-editor-boot.js' } as any,
+            res as any,
+            jest.fn(),
+        );
+
+        expect(res.sendFile).toHaveBeenCalledWith(
+            expect.stringContaining('scene-editor-boot.js'),
+            { dotfiles: 'allow' },
+        );
+    });
+
+    it('allows SystemJS assets when their controlled root is inside a dot directory', async () => {
+        const route = scriptingRoutes.find((item) => (
+            item.url instanceof RegExp && item.url.source === '^\\/scripting\\/systemjs'
+        ));
+        const res = {
+            sendFile: jest.fn(),
+        };
+
+        expect(route).toBeDefined();
+
+        await route!.handler(
+            { path: '/scripting/systemjs/extras/named-register.js' } as any,
+            res as any,
+            jest.fn(),
+        );
+
+        expect(res.sendFile).toHaveBeenCalledWith(
+            expect.stringContaining('named-register.js'),
+            { dotfiles: 'allow' },
+        );
     });
 });

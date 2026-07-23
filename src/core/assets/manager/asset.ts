@@ -1,8 +1,16 @@
 import { AssetDB, VirtualAsset } from '@cocos/asset-db';
+import { stat } from 'node:fs/promises';
 import assetDBManager from './asset-db';
 import { url2path, url2uuid } from '../utils';
 import EventEmitter from 'events';
-import { AssetManagerEvents, IAsset, IAssetInfo, IAssetDBInfo } from '../@types/private';
+import {
+    AssetManagerEvents,
+    IAsset,
+    IAssetFileGeneration,
+    IAssetInfo,
+    IAssetSavedEvent,
+    IAssetDBInfo,
+} from '../@types/private';
 import type { ThumbnailInfo, ThumbnailSize } from '../@types/protected/asset-handler';
 import assetQuery from './query';
 import assetOperation from './operation';
@@ -16,6 +24,9 @@ import * as materialService from '../material-service';
  * 对外暴露资源的一些变动广播消息、事件消息
  */
 class AssetManager extends EventEmitter {
+    private _saveGeneration = 0;
+    private readonly _assetSavedListeners = new Set<(event: IAssetSavedEvent) => void | Promise<void>>();
+
     // --------- query ---------
     queryAssets = assetQuery.queryAssets.bind(assetQuery);
     queryAssetDependencies = assetQuery.queryAssetDependencies.bind(assetQuery);
@@ -38,7 +49,20 @@ class AssetManager extends EventEmitter {
     // ---------- operation ---------
     importAsset = assetOperation.importAsset.bind(assetOperation);
     saveAssetMeta = assetOperation.saveAssetMeta.bind(assetOperation);
-    saveAsset = assetOperation.saveAsset.bind(assetOperation);
+    saveAsset = async (
+        ...args: Parameters<typeof assetOperation.saveAsset>
+    ): Promise<Awaited<ReturnType<typeof assetOperation.saveAsset>>> => {
+        const savedAsset = await assetOperation.saveAsset(...args);
+        const asset = assetQuery.queryAssetInfo(savedAsset.uuid, ['mtime']) ?? savedAsset;
+        const event: IAssetSavedEvent = {
+            generation: ++this._saveGeneration,
+            asset,
+            sourceFileGeneration: await this._queryFileGeneration(asset.file),
+            metaFileGeneration: await this._queryFileGeneration(`${asset.file}.meta`),
+        };
+        await this._notifyAssetSaved(event);
+        return savedAsset;
+    };
     createAsset = assetOperation.createAsset.bind(assetOperation);
     refreshAsset = assetOperation.refreshAsset.bind(assetOperation);
     reimportAsset = assetOperation.reimportAsset.bind(assetOperation);
@@ -126,6 +150,21 @@ class AssetManager extends EventEmitter {
         };
     }
 
+    /**
+     * 监听 saveAsset 的 post-success 领域事件。listener 完成后 saveAsset 才返回，
+     * 从而保证调用方随后读取 runtime 时看到已失效的缓存。
+     */
+    onAssetSaved(listener: (event: IAssetSavedEvent) => void | Promise<void>): () => void {
+        this._assetSavedListeners.add(listener);
+        let removed = false;
+        return () => {
+            if (!removed) {
+                removed = true;
+                this._assetSavedListeners.delete(listener);
+            }
+        };
+    }
+
     // ------------- 实例化方法 ------------
     async init() {
         assetDBManager.on('db-created', this._onAssetDBCreated);
@@ -139,6 +178,32 @@ class AssetManager extends EventEmitter {
     destroyed() {
         assetDBManager.removeListener('db-created', this._onAssetDBCreated);
         assetDBManager.removeListener('db-removed', this._onAssetDBRemoved);
+    }
+
+    private async _queryFileGeneration(file: string): Promise<IAssetFileGeneration | undefined> {
+        try {
+            const fileStat = await stat(file);
+            return {
+                mtimeMs: fileStat.mtimeMs,
+                size: fileStat.size,
+            };
+        } catch {
+            return undefined;
+        }
+    }
+
+    private async _notifyAssetSaved(event: IAssetSavedEvent): Promise<void> {
+        const results = await Promise.allSettled(
+            Array.from(
+                this._assetSavedListeners,
+                (listener) => Promise.resolve().then(() => listener(event)),
+            ),
+        );
+        for (const result of results) {
+            if (result.status === 'rejected') {
+                console.error(`asset-saved listener failed: ${result.reason}`);
+            }
+        }
     }
 
     /**
@@ -334,6 +399,7 @@ export interface TypedAssetManager extends EventEmitter {
     onAssetAdded(listener: (info: IAssetInfo) => void): () => void;
     onAssetChanged(listener: (info: IAssetInfo) => void): () => void;
     onAssetRemoved(listener: (info: IAssetInfo) => void): () => void;
+    onAssetSaved(listener: (event: IAssetSavedEvent) => void | Promise<void>): () => void;
 
     // 原有的方法
     queryAssets: typeof assetQuery.queryAssets;

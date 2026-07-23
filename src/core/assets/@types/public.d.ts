@@ -128,6 +128,23 @@ export interface IAssetInfo {
     temp?: string; // 资源临时文件目录
 }
 
+export interface IAssetFileGeneration {
+    mtimeMs: number;
+    size: number;
+}
+
+/**
+ * AssetManager.saveAsset 完成 source 写入和 AssetDB reimport 后发布的成功事件。
+ * generation 仅在当前进程内单调递增；文件 generation 用于与 filesystem watcher
+ * 对同一次写入的观察结果做精确去重。
+ */
+export interface IAssetSavedEvent {
+    generation: number;
+    asset: IAssetInfo;
+    sourceFileGeneration?: IAssetFileGeneration;
+    metaFileGeneration?: IAssetFileGeneration;
+}
+
 export interface AssetOperationOption {
     // 是否强制覆盖已经存在的文件，默认 false，传递后会直接覆盖文件，未传递时有冲突会直接抛异常
     overwrite?: boolean;
