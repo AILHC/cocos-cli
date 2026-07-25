@@ -19,12 +19,19 @@ import {
 } from './scripting/compile-error-diagnostics';
 import { assertPreviewOutputIntegritySeal } from './scripting/packer-driver/script-registration-integrity';
 import type { RuntimeRefreshResult } from '../runtime-preview/refresh/runtime-refresh-coordinator';
+import type { PreviewSessionOwnership } from './preview-session';
+import { PREVIEW_SESSION_IDENTITY_PATH } from './preview-session/constants';
 
 interface IPreviewStartOptions {
     port?: number;
     platform?: Platform | string;
     open?: boolean;
     buildOptions?: Partial<IBuildCommandOption>;
+    // 可选 ownership 句柄(issues/19:--build 是 blocking-only owner,不是 editing
+    // session):server ready 后挂 identity endpoint,build 完成开始 serve 后
+    // publishReady(与 runtime preview 同一事务语义,失败有界重试后回滚);
+    // 不挂 /mcp——cocos session 对该 session 报「不是 editing session」。
+    ownership?: PreviewSessionOwnership;
 }
 
 interface RuntimePreviewStageDiagnostics {
@@ -44,6 +51,34 @@ type RuntimePreviewDiagnosticsGlobal = typeof globalThis & {
 function writeRuntimePreviewConsoleLine(line: string) {
     const rawConsole = (console as typeof console & { __rawConsole?: typeof console }).__rawConsole;
     (rawConsole ?? console).log(`[runtime-preview] ${line}`);
+}
+
+// ready descriptor 发布重试参数(issues/F4):瞬态 IO 抖动给有限重试机会,
+// 最终仍失败则由调用方进入启动回滚,绝不留「ready backend + starting descriptor」。
+const PUBLISH_READY_MAX_ATTEMPTS = 3;
+const PUBLISH_READY_RETRY_DELAY_MS = 100;
+
+async function publishReadyWithRetry(ownership: PreviewSessionOwnership, serverUrl: string): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= PUBLISH_READY_MAX_ATTEMPTS; attempt += 1) {
+        try {
+            await ownership.publishReady(serverUrl);
+            return;
+        } catch (error) {
+            lastError = error;
+            console.warn(
+                `[runtime-preview] preview-session:publish-ready attempt ${attempt}/${PUBLISH_READY_MAX_ATTEMPTS} failed:`,
+                error,
+            );
+            if (attempt < PUBLISH_READY_MAX_ATTEMPTS) {
+                await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, PUBLISH_READY_RETRY_DELAY_MS));
+            }
+        }
+    }
+    throw new Error(
+        `Failed to publish the preview session ready descriptor after ${PUBLISH_READY_MAX_ATTEMPTS} attempts; ` +
+        `rolling back startup. Cause: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+    );
 }
 
 function formatRuntimePreviewDiagnosticLocation(diagnostic: ScriptCompileDiagnostic): string {
@@ -414,40 +449,69 @@ export default class Launcher {
             throw new Error(`Preview only supports web platforms, got: ${platform}`);
         }
 
-        GlobalConfig.mode = 'simple';
-        await this.import();
-        await startServer(previewOptions.port);
+        try {
+            GlobalConfig.mode = 'simple';
+            await this.import();
+            await startServer(previewOptions.port);
 
-        const { init, build } = await import('./builder');
-        await init(platform, this.projectPath);
+            // blocking owner(issues/19):server ready 后立即挂只读 identity endpoint,
+            // 让验活语义闭环(否则该 owner 会被误判 unreachable-owner-alive 遭回收)。
+            // 不挂 /mcp:--build session 不是 editing session。
+            if (previewOptions.ownership) {
+                const { createPreviewSessionIdentityHandler } = await import(
+                    '../runtime-preview/server/preview-session-identity'
+                );
+                const { serverService } = await import('../server/server');
+                const claimDir = previewOptions.ownership.claimDir;
+                serverService.router.get(PREVIEW_SESSION_IDENTITY_PATH, createPreviewSessionIdentityHandler({
+                    claimDir,
+                    resolveServerUrl: () => getServerUrl(),
+                }));
+            }
 
-        const buildOptions: Partial<IBuildCommandOption> = {
-            ...previewOptions.buildOptions,
-            platform,
-            outputName: previewOptions.buildOptions?.outputName || 'preview',
-            taskName: previewOptions.buildOptions?.taskName || 'preview',
-        };
-        if (buildOptions.debug === undefined) {
-            buildOptions.debug = true;
+            const { init, build } = await import('./builder');
+            await init(platform, this.projectPath);
+
+            const buildOptions: Partial<IBuildCommandOption> = {
+                ...previewOptions.buildOptions,
+                platform,
+                outputName: previewOptions.buildOptions?.outputName || 'preview',
+                taskName: previewOptions.buildOptions?.taskName || 'preview',
+            };
+            if (buildOptions.debug === undefined) {
+                buildOptions.debug = true;
+            }
+
+            const result = await build(platform as Platform, buildOptions);
+            if (result.code !== BuildExitCode.BUILD_SUCCESS) {
+                throw new Error(result.reason || 'Preview build failed.');
+            }
+
+            const previewUrl = result.custom?.previewUrl;
+            if (!previewUrl) {
+                throw new Error('Preview build completed but did not return a preview URL.');
+            }
+
+            // build 完成、server 已在 serve:发布 ready descriptor(server 根 URL)。
+            // 与 runtime preview 同一事务语义(F4):失败有界重试后进入回滚,
+            // 不留「ready backend + starting descriptor」。
+            if (previewOptions.ownership) {
+                await publishReadyWithRetry(previewOptions.ownership, getServerUrl());
+            }
+
+            console.log(`Preview URL: ${previewUrl}`);
+            if (previewOptions.open !== false) {
+                const { openUrlAsync } = await import('./builder/platforms/web-common/utils');
+                await openUrlAsync(previewUrl);
+            }
+
+            return result;
+        } catch (error) {
+            // 启动失败回滚(issues/17/19):先 release claim;release 幂等,
+            // 与 command 层 catch 的双调无害。
+            await previewOptions.ownership?.release();
+            throw error;
         }
-
-        const result = await build(platform as Platform, buildOptions);
-        if (result.code !== BuildExitCode.BUILD_SUCCESS) {
-            throw new Error(result.reason || 'Preview build failed.');
-        }
-
-        const previewUrl = result.custom?.previewUrl;
-        if (!previewUrl) {
-            throw new Error('Preview build completed but did not return a preview URL.');
-        }
-
-        console.log(`Preview URL: ${previewUrl}`);
-        if (previewOptions.open !== false) {
-            const { openUrlAsync } = await import('./builder/platforms/web-common/utils');
-            await openUrlAsync(previewUrl);
-        }
-
-        return result;
     }
 
     /**
@@ -521,6 +585,10 @@ export default class Launcher {
         clearProgrammingCache?: boolean;
         refreshOnReload?: boolean;
         watchAssets?: boolean;
+        // 可选 ownership 句柄(T3 在 command 层 acquire 后传入);undefined = 无 ownership,
+        // 保持现有行为。全部能力 ready 后 publishReady,close 开始 markDraining + release,
+        // 启动失败回滚先 release 再清理已初始化资源。
+        ownership?: PreviewSessionOwnership;
     } = {}) {
         const {
             getDefaultProjectProgrammingRoot,
@@ -691,6 +759,9 @@ export default class Launcher {
 
         const session = await startRuntimePreviewSession({
             projectRoot: this.projectPath,
+            ownership: options.ownership,
+            // identity endpoint 的数据源:有 ownership 时挂载,无 ownership 不挂载。
+            previewSessionClaimDir: options.ownership?.claimDir,
             engineRoot,
             engineRootSource,
             projectLibraryRoot,
@@ -868,11 +939,19 @@ export default class Launcher {
             emitRuntimePreviewEvent(`scene-editor:url ${sceneEditorUrl}`);
             emitRuntimePreviewEvent(`mcp:url ${mcpHandle.url}`);
             emitRuntimePreviewEvent(`preview:ready durationMs=${Date.now() - previewStartedAt}`);
+            // 全部能力 ready 后发布 ready 态 descriptor(补 serverUrl)。发布是启动事务的
+            // 必要步骤(issues/F4):有界重试后仍失败则抛错,走下方 catch 回滚(先 release
+            // claim 再 close session),不留「ready backend + starting descriptor」。
+            if (options.ownership) {
+                await publishReadyWithRetry(options.ownership, session.url);
+            }
             if (options.open === true) {
                 const { openUrlAsync } = await import('./builder/platforms/web-common/utils');
                 await openUrlAsync(options.openPage === 'scene-editor' ? sceneEditorUrl : session.url);
             }
         } catch (error) {
+            // 启动失败回滚(issues/17):先释放 claim,再清理已初始化资源。
+            await options.ownership?.release();
             cleanupPackBuildListeners();
             diagnostics.stageError('preview', error);
             runtimePreviewGlobal.__cocosCliRuntimePreviewDiagnostics = previousRuntimePreviewDiagnostics;

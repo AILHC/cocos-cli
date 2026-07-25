@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +16,10 @@ import {
   type StartedRuntimePreviewSession,
 } from '../../../src/runtime-preview/session/runtime-preview-session';
 import type { IAssetSavedEvent } from '../../../src/core/assets/@types/public';
+import {
+  acquirePreviewSessionOwnership,
+  type PreviewSessionOwnership,
+} from '../../../src/core/preview-session';
 
 const sceneSessionMockState = vi.hoisted(() => ({
   projectPath: '',
@@ -351,6 +356,90 @@ describe('runtime preview session', () => {
       vi.doUnmock('../../../src/core/assets');
       vi.doUnmock('../../../src/core/assets/animation-mask');
       vi.doUnmock('../../../src/core/builder');
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('marks draining and releases the ownership claim before phased cleanup on close', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'runtime-preview-session-ownership-'));
+    const projectRoot = join(root, 'project');
+    const engineRoot = join(root, 'engine');
+    const projectLibraryRoot = join(projectRoot, 'library', 'cli');
+    const projectProgrammingRoot = join(projectRoot, 'temp', 'cli', 'programming');
+    try {
+      await mkdir(join(projectLibraryRoot, 'ab'), { recursive: true });
+      await mkdir(join(engineRoot, 'bin', '.cache', 'dev-cli', 'web'), { recursive: true });
+      await mkdir(projectProgrammingRoot, { recursive: true });
+      await writeFile(join(projectLibraryRoot, 'ab', 'abcdef.json'), '{"ok":true}', 'utf8');
+      await writeFile(
+        join(engineRoot, 'bin', '.cache', 'dev-cli', 'web', 'import-map.json'),
+        '{"imports":{}}',
+        'utf8',
+      );
+
+      // 真实 ownership(临时 fixture 项目 + node fs):验证接线而非 ownership 内部逻辑。
+      const acquired = await acquirePreviewSessionOwnership({ projectRoot });
+      if (!acquired.acquired) {
+        throw new Error(`failed to acquire preview session ownership: ${acquired.message}`);
+      }
+      const { ownership } = acquired;
+      const calls: string[] = [];
+      const wrappedOwnership: PreviewSessionOwnership = {
+        ...ownership,
+        markDraining: async () => {
+          calls.push('markDraining');
+          await ownership.markDraining();
+        },
+        release: async () => {
+          calls.push('release');
+          await ownership.release();
+        },
+      };
+      const settingsProvider = new PreviewSettingsProvider({
+        loadPreviewSettings: async () => ({
+          settings: {
+            assets: {
+              server: '',
+              importBase: '',
+              nativeBase: '',
+            },
+          },
+          script2library: {},
+          bundleConfigs: [],
+        }),
+      });
+      const session = await startRuntimePreviewSession({
+        projectRoot,
+        engineRoot,
+        projectLibraryRoot,
+        projectProgrammingRoot,
+        port: await getFreePort(),
+        ownership: wrappedOwnership,
+        previewSessionClaimDir: ownership.claimDir,
+        settingsProvider,
+      });
+      session.registerCleanup('runtime', async () => {
+        calls.push('runtime-cleanup');
+      });
+
+      // ready 发布后经 identity endpoint 可读(close 前)。
+      await ownership.publishReady(session.url);
+      const identityResponse = await fetch(`${session.url}/__cocos-cli/session`);
+      expect(identityResponse.status).toBe(200);
+      expect(await identityResponse.json()).toMatchObject({
+        sessionId: ownership.sessionId,
+        state: 'ready',
+        serverUrl: session.url,
+        mcpUrl: `${session.url}/mcp`,
+      });
+
+      await session.close();
+
+      // close 开始即 markDraining + release,早于相位化 cleanup。
+      expect(calls).toEqual(['markDraining', 'release', 'runtime-cleanup']);
+      // claim 已释放:先删 descriptor 再 rmdir,目录不复存在。
+      expect(existsSync(ownership.claimDir)).toBe(false);
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "diagnose:feature-c": "tsx scripts/runtime-preview-feature-c-diagnose.ts",
+    "accept:preview-session-cli": "tsx scripts/preview-session-cli-acceptance.ts",
     "listen:preview-url": "node scripts/listen-existing-preview-url.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -16,5 +17,8 @@
     "typescript": "^5.4.0",
     "vite": "^5.4.0",
     "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "cocos-cli": "file:.."
   }
 }

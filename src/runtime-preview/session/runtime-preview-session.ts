@@ -1,10 +1,17 @@
 import type { RuntimePreviewRouterHandle, RuntimePreviewRouterOptions } from '../server/runtime-preview-server';
 import { mountRuntimePreviewRouter } from '../server/runtime-preview-server';
 import { serverService } from '../../server/server';
+import type { PreviewSessionOwnership } from '../../core/preview-session';
 
 export interface RuntimePreviewSessionOptions extends Omit<RuntimePreviewRouterOptions, 'serverUrl'> {
     host?: string;
     port?: number;
+    /**
+     * 统一 session 生命周期的 ownership 句柄(可选,T3 在 command 层 acquire 后传入)。
+     * close 开始即 markDraining + release(issues/17:验活立即落空,不阻塞相位化 close);
+     * 启动回滚同样先释放 claim 再清理已初始化资源。
+     */
+    ownership?: PreviewSessionOwnership;
 }
 
 export interface StartedRuntimePreviewSession extends RuntimePreviewRouterHandle {
@@ -31,6 +38,7 @@ export async function startRuntimePreviewSession(
     const {
         host: requestedHost,
         port: requestedPort,
+        ownership,
         ...runtimeOptions
     } = options;
     const host = requestedHost ?? '127.0.0.1';
@@ -49,6 +57,9 @@ export async function startRuntimePreviewSession(
         await runtime.logger.write(listeningLine);
     } catch (error) {
         const rollbackErrors: unknown[] = [error];
+        // 启动失败回滚(issues/17):先释放 claim,再清理已初始化资源;
+        // release 为 best-effort 且可重复调用。
+        await ownership?.release();
         try {
             await runtime?.close();
         } catch (cleanupError) {
@@ -87,6 +98,12 @@ export async function startRuntimePreviewSession(
             if (!closePromise) {
                 closePromise = (async () => {
                     const errors: unknown[] = [];
+                    // close 开始即释放 ownership(issues/17):先 markDraining 再 release,
+                    // 验活立即落空;两者均为 best-effort,不阻塞后续相位化 close。
+                    if (ownership) {
+                        await ownership.markDraining();
+                        await ownership.release();
+                    }
                     for (const phase of ['runtime', 'scene', 'project'] as const) {
                         for (const cleanup of cleanupSteps[phase].reverse()) {
                             try {

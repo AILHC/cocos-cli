@@ -1,7 +1,32 @@
 import chalk from 'chalk';
+import { resolve } from 'path';
 import { BaseCommand } from './base';
 import { existsSync, readJSONSync } from 'fs-extra';
 import { installRuntimePreviewSessionSignalHandlers } from '../runtime-preview/session/session-signals';
+import { acquirePreviewSessionOwnership, type PreviewSessionOwnership } from '../core/preview-session';
+import { collectIgnoredPreviewParams, reportExistingPreviewSession } from './preview-existing-session';
+
+// --build-config 读取结果;失败形态带面向用户的 message。
+type BuildConfigReadResult =
+    | { ok: true; buildOptions: Record<string, any> }
+    | { ok: false; message: string };
+
+// 路径 canonicalization + 存在性 + JSON parse(issues/F13:在 acquire 之前调用)。
+function readBuildConfigFile(buildConfig: string): BuildConfigReadResult {
+    const buildConfigPath = resolve(buildConfig);
+    if (!existsSync(buildConfigPath)) {
+        return { ok: false, message: `Build config does not exist: ${buildConfigPath}` };
+    }
+    try {
+        return { ok: true, buildOptions: readJSONSync(buildConfigPath) };
+    } catch (error) {
+        return {
+            ok: false,
+            message: `Build config is not valid JSON: ${buildConfigPath} ` +
+                `(${error instanceof Error ? error.message : String(error)})`,
+        };
+    }
+}
 
 
 /**
@@ -28,6 +53,7 @@ export class PreviewCommand extends BaseCommand {
             .option('--build', 'Use the legacy build-based preview (full build then serve) instead of the dynamic serve preview')
             .option('--scene-editor', 'Open the shared Runtime Preview session at the scene editor page')
             .action(async (options: any) => {
+                let ownership: PreviewSessionOwnership | undefined;
                 try {
                     const projectPath = options.project ?? this.readLocalConfigProject();
                     if (!projectPath) {
@@ -90,10 +116,54 @@ export class PreviewCommand extends BaseCommand {
                         process.exit(1);
                     }
 
+                    // --build-config 校验(路径 canonicalization + 存在性 + JSON parse)
+                    // 必须在 acquire/new Launcher 之前(issues/F13):acquire 与 Launcher
+                    // 构造都会写 <project>/temp,usage 错误不得先产生项目写入。
+                    let buildOptions: Record<string, any> = {};
+                    if (mode === 'build' && options.buildConfig) {
+                        const parsedBuildConfig = readBuildConfigFile(options.buildConfig);
+                        if (!parsedBuildConfig.ok) {
+                            console.error(chalk.red(`Error: ${parsedBuildConfig.message}`));
+                            return process.exit(1);
+                        }
+                        buildOptions = parsedBuildConfig.buildOptions;
+                    }
+
+                    // Ownership acquire 接缝(spec issues/18):参数验证/canonicalization 之后、
+                    // new Launcher 之前(Launcher 构造函数会写 <project>/temp/logs,ownership
+                    // 必须早于任何项目写入);stale 回收与 draining 等待由 acquire 内部处理。
+                    const acquireResult = await acquirePreviewSessionOwnership({ projectRoot: resolvedPath });
+                    if (!acquireResult.acquired) {
+                        // live loser 在本层处理完即退出,绝不进入 stdin.resume() 保活路径
+                        // (spec issues/06/17:ready 报 URL 开页 exit 0;starting/incompatible/conflict 非零)。
+                        const outcome = await reportExistingPreviewSession(acquireResult, {
+                            open: options.open === true,
+                            openPage: mode === 'scene-editor' ? 'scene-editor' : 'runtime',
+                            ignoredParams: collectIgnoredPreviewParams(options, mode),
+                            openUrl: async (url) => {
+                                const { openUrlAsync } = await import('../core/builder/platforms/web-common/utils');
+                                await openUrlAsync(url);
+                            },
+                        });
+                        return process.exit(outcome === 'reused' ? 0 : 1);
+                    }
+                    ownership = acquireResult.ownership;
+                    // starting 窗口保护(issues/17/18):acquire 成功后立即安装 signal handler,
+                    // SIGINT/SIGTERM 时先 release ownership 再退出。runtime session 就绪后
+                    // installRuntimePreviewSessionSignalHandlers 内部去重替换本 handler
+                    // (同一 lifecycle owner);--build 无 session handler,沿用本 handler
+                    // 保证信号时 release。
+                    installRuntimePreviewSessionSignalHandlers({
+                        close: async () => {
+                            await ownership?.release();
+                        },
+                    });
+
                     const { default: Launcher } = await import('../core/launcher');
                     const launcher = new Launcher(resolvedPath);
                     if (mode !== 'build') {
                         const session = await launcher.startRuntimePreview({
+                            ownership,
                             port,
                             host: options.host,
                             scene: options.scene,
@@ -107,17 +177,12 @@ export class PreviewCommand extends BaseCommand {
                         });
                         installRuntimePreviewSessionSignalHandlers(session);
                     } else if (mode === 'build') {
-                        let buildOptions: Record<string, any> = {};
-                        if (options.buildConfig) {
-                            if (!existsSync(options.buildConfig)) {
-                                console.error(chalk.red(`Error: Build config does not exist: ${options.buildConfig}`));
-                                process.exit(1);
-                            }
-                            buildOptions = readJSONSync(options.buildConfig);
-                        }
-
+                        // --build 是 blocking-only owner(issues/19):ownership 传入
+                        // startPreview,由其挂 identity endpoint 并在 server ready 后
+                        // publishReady;build config 已在 acquire 前完成校验与解析。
                         const platform = options.platform || buildOptions.platform || 'web-desktop';
                         await launcher.startPreview({
+                            ownership,
                             port,
                             platform,
                             open: options.open,
@@ -129,6 +194,9 @@ export class PreviewCommand extends BaseCommand {
                     // 保持进程运行
                     process.stdin.resume();
                 } catch (error) {
+                    // 启动失败回滚(issues/17):先 release ownership 再退出;release 幂等,
+                    // 与 launcher 内部回滚双调无害。
+                    await ownership?.release();
                     console.error(chalk.red('Failed to start preview'));
                     console.error(error);
                     process.exit(1);

@@ -43,6 +43,8 @@ import {
 import { isCanonicalRootLibraryRequest } from '../library/resolve-library-request';
 import { isBrowserRequest } from '../../server/request-client';
 import { createImportReplacementExtensionResolver } from './import-replacement-extension-cache';
+import { PREVIEW_SESSION_IDENTITY_PATH } from '../../core/preview-session';
+import { createPreviewSessionIdentityHandler } from './preview-session-identity';
 import {
     tryHandleRuntimePreviewRequest,
     type RuntimeRefreshClientState,
@@ -89,6 +91,9 @@ interface RuntimePreviewRouterBaseOptions {
     prepareRuntimePreview?: (serverUrl: string) => Promise<void>;
     startupCompileFailure?: () => RuntimeRefreshResult | null | undefined;
     clearStartupCompileFailure?: () => void;
+    // ownership claim 目录;提供时挂载只读 identity endpoint
+    // (GET /__cocos-cli/session,每次请求实时读取 claim 内 descriptor)。
+    previewSessionClaimDir?: string;
     readiness?: {
         isReady(): boolean;
         describe(): {
@@ -577,6 +582,15 @@ async function createRuntimePreviewRouterHandle(
     }
 
     const router = express.Router();
+
+    // 只读 identity endpoint:仅在 session 携带 ownership claim 时挂载;
+    // 无 ownership 保持现有行为(落入既有 404)。
+    if (options.previewSessionClaimDir) {
+        router.get(PREVIEW_SESSION_IDENTITY_PATH, createPreviewSessionIdentityHandler({
+            claimDir: options.previewSessionClaimDir,
+            resolveServerUrl,
+        }));
+    }
 
     router.post('/preview-error', express.text({
         type: () => true,
