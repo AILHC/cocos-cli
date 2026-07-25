@@ -13,6 +13,7 @@ class FakeChildProcess extends EventEmitter {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetModules();
   vi.doUnmock('../../../src/server');
@@ -150,6 +151,100 @@ describe('scene worker session ownership', () => {
     expect(rpcDispose).toHaveBeenCalledTimes(1);
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
     expect(() => sceneWorker.process).toThrow('Scene worker 未初始化');
+  });
+
+  it('keeps waiting while a starting worker continues to produce output', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const child = new FakeChildProcess();
+    const rpcDispose = vi.fn();
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    vi.doMock('../../../src/server', () => ({ getServerUrl: () => 'http://127.0.0.1:19530' }));
+    vi.doMock('../../../src/server/utils', () => ({ getAvailablePort: vi.fn(async () => 9230) }));
+    vi.doMock('../../../src/core/scene/main-process/messages', () => ({ listenModuleMessages: vi.fn(async () => undefined) }));
+    vi.doMock('../../../src/core/scene/main-process/rpc', () => ({
+      Rpc: { startup: vi.fn(async () => undefined), dispose: rpcDispose },
+    }));
+
+    const { SceneWorker } = await import('../../../src/core/scene/main-process/scene-worker');
+    const sceneWorker = new SceneWorker(vi.fn(() => child) as never);
+    const starting = sceneWorker.start('D:/engine', 'E:/project');
+    await vi.waitFor(() => expect(child.stdout.listenerCount('data')).toBe(1));
+
+    await vi.advanceTimersByTimeAsync(29_000);
+    child.stdout.emit('data', Buffer.from('module progress 1'));
+    await vi.advanceTimersByTimeAsync(29_000);
+    child.stdout.emit('data', Buffer.from('module progress 2'));
+
+    expect(child.kill).not.toHaveBeenCalled();
+    child.emit('message', 'scene-worker:ready');
+    await expect(starting).resolves.toBe(true);
+    expect(rpcDispose).not.toHaveBeenCalled();
+    consoleLog.mockRestore();
+  });
+
+  it('fails a starting worker after 30 seconds without child activity', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const child = new FakeChildProcess();
+    const rpcDispose = vi.fn();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    vi.doMock('../../../src/server', () => ({ getServerUrl: () => 'http://127.0.0.1:19530' }));
+    vi.doMock('../../../src/server/utils', () => ({ getAvailablePort: vi.fn(async () => 9230) }));
+    vi.doMock('../../../src/core/scene/main-process/messages', () => ({ listenModuleMessages: vi.fn(async () => undefined) }));
+    vi.doMock('../../../src/core/scene/main-process/rpc', () => ({
+      Rpc: { startup: vi.fn(async () => undefined), dispose: rpcDispose },
+    }));
+
+    const { SceneWorker } = await import('../../../src/core/scene/main-process/scene-worker');
+    const sceneWorker = new SceneWorker(vi.fn(() => child) as never);
+    const starting = sceneWorker.start('D:/engine', 'E:/project');
+    await vi.waitFor(() => expect(child.stdout.listenerCount('data')).toBe(1));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(starting).resolves.toBe(false);
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('场景进程启动无活动超时'));
+    expect(rpcDispose).toHaveBeenCalledTimes(1);
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(() => sceneWorker.process).toThrow('Scene worker 未初始化');
+    consoleError.mockRestore();
+  });
+
+  it('enforces a five minute startup cap even when the child stays active', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const child = new FakeChildProcess();
+    const rpcDispose = vi.fn();
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    vi.doMock('../../../src/server', () => ({ getServerUrl: () => 'http://127.0.0.1:19530' }));
+    vi.doMock('../../../src/server/utils', () => ({ getAvailablePort: vi.fn(async () => 9230) }));
+    vi.doMock('../../../src/core/scene/main-process/messages', () => ({ listenModuleMessages: vi.fn(async () => undefined) }));
+    vi.doMock('../../../src/core/scene/main-process/rpc', () => ({
+      Rpc: { startup: vi.fn(async () => undefined), dispose: rpcDispose },
+    }));
+
+    const { SceneWorker } = await import('../../../src/core/scene/main-process/scene-worker');
+    const sceneWorker = new SceneWorker(vi.fn(() => child) as never);
+    const starting = sceneWorker.start('D:/engine', 'E:/project');
+    await vi.waitFor(() => expect(child.stdout.listenerCount('data')).toBe(1));
+
+    for (let index = 0; index < 10; index++) {
+      await vi.advanceTimersByTimeAsync(29_000);
+      child.stdout.emit('data', Buffer.from(`module progress ${index}`));
+    }
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(starting).resolves.toBe(false);
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('场景进程启动总时限超时'));
+    expect(rpcDispose).toHaveBeenCalledTimes(1);
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    consoleLog.mockRestore();
+    consoleError.mockRestore();
   });
 
   it('cancels a start that is waiting for an inspect port before it forks', async () => {

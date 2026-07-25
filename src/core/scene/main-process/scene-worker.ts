@@ -11,6 +11,11 @@ export interface ISceneWorkerEvents {
     'restart': boolean,
 }
 
+type SceneWorkerStartupActivitySource = 'fork' | 'ipc' | 'stdout' | 'stderr';
+
+const SCENE_WORKER_STARTUP_IDLE_TIMEOUT_MS = 30_000;
+const SCENE_WORKER_STARTUP_MAX_TIMEOUT_MS = 5 * 60_000;
+
 export class SceneWorker {
 
     static ExitWorkerEvent = 'scene-process:exit';
@@ -52,13 +57,21 @@ export class SceneWorker {
 
         const startPromise = new Promise<boolean>(async (resolve) => {
             let isResolved = false;
-            let startupTimer: NodeJS.Timeout | null = null;
+            let startupIdleTimer: NodeJS.Timeout | null = null;
+            let startupMaxTimer: NodeJS.Timeout | null = null;
             let child: ChildProcess | null = null;
+            let startupStartedAt = 0;
+            let lastActivityAt = 0;
+            let lastActivitySource: SceneWorkerStartupActivitySource = 'fork';
 
             const cleanup = () => {
-                if (startupTimer) {
-                    clearTimeout(startupTimer);
-                    startupTimer = null;
+                if (startupIdleTimer) {
+                    clearTimeout(startupIdleTimer);
+                    startupIdleTimer = null;
+                }
+                if (startupMaxTimer) {
+                    clearTimeout(startupMaxTimer);
+                    startupMaxTimer = null;
                 }
             };
 
@@ -149,15 +162,51 @@ export class SceneWorker {
                     }
                 };
 
-                // 设置启动超时（30秒）
-                startupTimer = setTimeout(() => {
-                    console.error('场景进程启动超时');
+                const failStartupOnTimeout = (timeoutType: 'idle' | 'max') => {
+                    if (isResolved) {
+                        return;
+                    }
+                    const now = Date.now();
+                    const elapsedMs = now - startupStartedAt;
+                    const lastActivityAgoMs = now - lastActivityAt;
+                    const timeoutLabel = timeoutType === 'idle' ? '无活动超时' : '总时限超时';
+                    console.error(
+                        `场景进程启动${timeoutLabel} elapsedMs=${elapsedMs} ` +
+                        `lastActivity=${lastActivitySource} lastActivityAgoMs=${lastActivityAgoMs}`,
+                    );
                     child?.off('message', onReady);
                     child?.off('error', onError);
                     child?.off('exit', onEarlyExit);
                     disposeFailedStart();
                     resolveOnce(false);
-                }, 30000);
+                };
+
+                const armIdleTimeout = () => {
+                    if (startupIdleTimer) {
+                        clearTimeout(startupIdleTimer);
+                    }
+                    startupIdleTimer = setTimeout(
+                        () => failStartupOnTimeout('idle'),
+                        SCENE_WORKER_STARTUP_IDLE_TIMEOUT_MS,
+                    );
+                };
+
+                const recordStartupActivity = (source: SceneWorkerStartupActivitySource) => {
+                    if (isResolved) {
+                        return;
+                    }
+                    lastActivityAt = Date.now();
+                    lastActivitySource = source;
+                    armIdleTimeout();
+                };
+
+                startupStartedAt = Date.now();
+                lastActivityAt = startupStartedAt;
+                armIdleTimeout();
+                startupMaxTimer = setTimeout(
+                    () => failStartupOnTimeout('max'),
+                    SCENE_WORKER_STARTUP_MAX_TIMEOUT_MS,
+                );
 
                 // 注册事件监听器
                 child.on('error', onError);
@@ -166,7 +215,7 @@ export class SceneWorker {
 
                 // 启动RPC和注册监听器
                 await Rpc.startup(child);
-                await this.registerListener();
+                await this.registerListener(recordStartupActivity);
 
             } catch (error) {
                 console.error('创建场景进程失败:', error);
@@ -347,20 +396,23 @@ export class SceneWorker {
         }
     }
 
-    async registerListener() {
+    async registerListener(onStartupActivity?: (source: SceneWorkerStartupActivitySource) => void) {
         const process = this.process;
 
         process.on('message', (msg: { type: string, event: string, args: any[] }) => {
+            onStartupActivity?.('ipc');
             if (msg && msg.type === SceneProcessEventTag) {
                 this.emit(msg.event, ...msg.args);
             }
         });
 
         process.stdout?.on('data', (chunk) => {
+            onStartupActivity?.('stdout');
             console.log(chunk.toString());
         });
 
         process.stderr?.on('data', (chunk) => {
+            onStartupActivity?.('stderr');
             const str = chunk.toString();
             if (str.startsWith('[Scene]')) {
                 console.log(chunk.toString());
