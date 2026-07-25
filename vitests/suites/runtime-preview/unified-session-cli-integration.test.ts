@@ -168,7 +168,7 @@ describe('unified Runtime Preview production CLI session', () => {
       });
       expect(queryResult.isError).toBe(false);
 
-      // scene-undo / scene-redo:操作 scene worker 的 undo 栈(工具级冒烟;浏览器页面有独立 undo 栈,见 RP-ISSUE-040)。
+      // scene-undo / scene-redo:操作 scene worker 的 undo 栈(工具级冒烟;浏览器页面有独立 undo 栈,见 RP-ISSUE-041)。
       const createNodeResult = await client.callTool({
         name: 'scene-create-node-by-type',
         arguments: {
