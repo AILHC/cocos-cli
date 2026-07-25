@@ -32,6 +32,30 @@ function assertArchive(archivePath) {
     }
 }
 
+function readUserReleaseConfig(repoRoot) {
+    // .user.json 是仓库本地、被 .gitignore 忽略的个人配置入口；
+    // releaseDirectPath 配置后发布直出目录、不再生成 zip。
+    const configPath = path.join(repoRoot, '.user.json');
+    if (!fs.existsSync(configPath)) {
+        return {};
+    }
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+}
+
+function resolveReleaseDirectPath(repoRoot, value) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (typeof value !== 'string' || value.trim() === '') {
+        throw new Error('.user.json releaseDirectPath must be a non-empty path string');
+    }
+    const resolved = path.resolve(repoRoot, value);
+    if (resolved === repoRoot) {
+        throw new Error('.user.json releaseDirectPath must not be the repository root');
+    }
+    return resolved;
+}
+
 async function publishReleaseWithOptions(options = {}) {
     const repoRoot = path.resolve(options.repoRoot || REPO_ROOT);
     const publishRoot = path.resolve(options.publishRoot || path.join(repoRoot, 'publish'));
@@ -40,7 +64,8 @@ async function publishReleaseWithOptions(options = {}) {
     assertVersion(sourcePackage.version);
 
     const cliArchive = path.join(publishRoot, `cocos-cli-v${sourcePackage.version}.zip`);
-    if (fs.existsSync(cliArchive)) {
+    const directPath = resolveReleaseDirectPath(repoRoot, readUserReleaseConfig(repoRoot).releaseDirectPath);
+    if (!directPath && fs.existsSync(cliArchive)) {
         throw new Error(`CLI release archive already exists: ${cliArchive}`);
     }
 
@@ -58,6 +83,11 @@ async function publishReleaseWithOptions(options = {}) {
             getNpmVersion: options.getNpmVersion,
             runNpmLockfileInstall: options.runNpmLockfileInstall,
         });
+        if (directPath) {
+            fs.rmSync(directPath, { recursive: true, force: true });
+            fs.cpSync(runtimeRoot, directPath, { recursive: true });
+            return { cliDirectory: directPath, cliVersion: sourcePackage.version };
+        }
         await archive(stagingRoot, partialArchive, { compressionLevel: 9, preserveSymlinks: false });
         assertArchive(partialArchive);
         fs.renameSync(partialArchive, cliArchive);
@@ -70,7 +100,11 @@ async function publishReleaseWithOptions(options = {}) {
 
 async function main() {
     const result = await publishReleaseWithOptions();
-    console.log(`CLI archive: ${result.cliArchive}`);
+    if (result.cliDirectory) {
+        console.log(`CLI directory: ${result.cliDirectory}`);
+    } else {
+        console.log(`CLI archive: ${result.cliArchive}`);
+    }
 }
 
 if (require.main === module) {
