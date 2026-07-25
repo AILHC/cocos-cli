@@ -1,7 +1,7 @@
 # Runtime Preview 验收矩阵
 
 记录时间：2026-06-08
-最近审校：2026-07-23
+最近审校：2026-07-24
 
 ## 状态定义
 
@@ -43,6 +43,7 @@
 | P6 / feature-c 大项目核心流程专项验收 | Feature-c E2E | `D:\ps_copy\p6\trunk\Project\GameClient\feature-c` 已重新纳入当前核心流程专项验证；通过条件是 exact scene 到达 browser ready，且 ready 前后 `pageerror`、`unhandledrejection`、同源 failed request、同源 bad response、`console.error` 全部为 0。当前 `diagnose:feature-c` 证据显示 strict gate 已通过；source `.meta` 写回 parity 是独立后续专项。 | `docs/dev/runtime-preview/issues.md`、`docs/dev/runtime-preview/design/core-flow.md`、`docs/dev/runtime-preview/plans/core-flow-implementation-20260610.md`、`docs/dev/runtime-preview/acceptance/feedback-20260609.md` | `done` |
 | `feature-c` 大项目 preview chunk script load 限流 | Browser/CDP evidence | 端口 `19530`，scene `4c721bfe-0b6e-46c2-97f0-644adfdcba31`。CDP 执行 `Network.setCacheDisabled({ cacheDisabled: true })`，Network evidence 中 preview chunk `fromDiskCache=false`、`fromMemoryCache=false`。候选 `16/24/32/48` 各刷新 5 次，均无 `ERR_INSUFFICIENT_RESOURCES`、无 `SystemJS Error#3`、无 preview chunk `Get ... failed`；limiter `failed=0`、`completed=3259`、`maxActive <= concurrency`；`window.__RUNTIME_PREVIEW_READY.scene` 为目标 scene。按最低 `median(readyElapsedMs)` 选择默认并发 `32`。启动预览新增单字段参数 `--script-load-concurrency <n>`，默认未填仍为 `32`；2026-06-25 14:38 已用 `--script-load-concurrency 24` 在默认浏览器缓存模式下验证 limiter `concurrency=24`、`maxActive=24`、`failed=0`。 | `docs/dev/runtime-preview/facts/feature-c-script-load-resource-limit-20260625.md`、`vitests/scripts/capture-feature-c-script-load-evidence.mjs`、`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-concurrency-summary-20260625.json`、`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-evidence-20260625-135636.json`、`D:\ps_copy\p6\trunk\Project\GameClient\feature-c\temp\codex-runtime-preview\feature-c-script-load-default-cache-20260625T063836Z.json` | `done` |
 | 允许必要 engine source 适配，但必须和 CLI 行为可溯源 | Engine / CLI traceability | engine patch 必须服务 CLI runtime preview 加载链路、真实 `getPreviewSettings()`、compiler 或 host boundary；traceability ledger 已建立；`RP-ENGINE-001` 仍为 `needs-review`，不能提前标为 `active`；frozen artifacts 角色：按关联测试声明。 | `docs/dev/runtime-preview/archive/change-traceability-20260607.md`、engine commit `ec7f8d2161 feat(runtime-preview): add nodejs pal adapter` | `partial` |
+| Preview session CLI 自动发现与跨进程 ownership（RP-ISSUE-040） | 真实 CLI child process + 隔离主测试项目跨表面验收 | CLI-owned `temp/cli` lock dir + descriptor 原子 claim；同一项目第二次 `cocos preview` exit 0、报告已有 session URL、不产生第二个 `sceneWorker`；项目子目录 CLI 经向上解析 + descriptor + identity endpoint 自动发现；`cocos session call` scene mutation + save 后 MCP、Scene Editor、Runtime Preview 与磁盘 scene 产物读到同一结果；全链路单 scene PID；Windows SIGTERM 硬杀后 stale claim 由下次 preview 回收（新 sessionId、单 claim、单 scene 进程）；不同项目并行、stale lock 恢复由 integration 套件覆盖。 | `vitests/scripts/preview-session-cli-acceptance.ts`（22/22，2026-07-24）、`vitests/suites/runtime-preview/preview-session-ownership-cli-integration.test.ts`、`preview-session-multi-project-reclaim-cli-integration.test.ts`、`docs/superpowers/specs/2026-07-24-preview-session-cli-discovery-design.md` | `done` |
 
 ## 当前结论
 

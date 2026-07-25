@@ -7,6 +7,7 @@
 - [api.md](api.md)：public API surface。
 - [commands.md](commands.md)：CLI commands and command handlers。
 - [launcher.md](launcher.md)：CLI lifecycle and command orchestration。
+- [preview-session.md](preview-session.md)：preview session 跨进程 ownership 与项目内 CLI 自动发现。
 - [configuration.md](configuration.md)：CLI、project 和 runtime configuration。
 - [engine.md](engine.md)：engine root resolution and engine capability handling。
 - [project.md](project.md)：project model and project-level state。
