@@ -434,7 +434,14 @@ export class CameraService extends BaseService<ICameraEvents> implements ICamera
     async saveCameraInfos(uuid?: string, write = true): Promise<void> {
         uuid = uuid ?? this._currentUuid;
         if (!uuid) return;
-        const cameraInfo = this.getCurCameraInfo();
+        let cameraInfo: any;
+        try {
+            // 相机节点可能尚未初始化（如场景打开失败、引擎资源缺失），
+            // 此时没有可保存的视角信息；不能让异常逃逸到事件处理器导致场景进程崩溃
+            cameraInfo = this.getCurCameraInfo();
+        } catch {
+            return;
+        }
         const index = this._cameraUuids.indexOf(uuid);
 
         if (index !== -1) {
