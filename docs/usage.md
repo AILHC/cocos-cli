@@ -66,6 +66,17 @@ Creator profile 只接受 custom engine，不接受 builtin engine。没有 proj
 
 不要用宽泛的 `packages/engine` 字符串直接判定失败。
 
+## Preview session 发现与操作
+
+项目里已有运行中的 Preview 时，不要再启动第二个：`cocos preview` 检测到 live session 会报告已有 session 并 exit 0，不会启动第二套 writable backend。对已有 session 的读写操作走 `cocos session` 命令组（info / list / describe / call），CLI 作为标准 MCP client 直连 session 的 `/mcp`，常用参数以 `node .\dist\cli.js session --help` 为准。容易误判的约束：
+
+- 项目内任意子目录执行即可：CLI 从 cwd 向上解析 project root 自动发现 session，不需要记 URL 或端口。
+- `--project` 与 `--url` 互斥：一个走项目内自动发现，一个直连指定 URL，不能同时传。
+- Windows 上 SIGTERM 硬杀 preview 时 session claim 会残留为 stale，下次 `cocos preview` 会自动确认死亡并回收接管，不需要手工清理 `temp/cli/`。
+- `session call` 调用的 tool 名称和输入输出 schema 以 `session describe` 或 MCP `listTools` 为准，不要凭旧文档猜。
+
+`scene-undo` / `scene-redo` 操作的是 scene worker 的 undo 栈（MCP/CLI 场景编辑共享）；浏览器 Scene Editor 页面有独立 undo 栈，两边互不影响。undo/redo 只改内存场景，需要落盘必须再调 `scene-save`；页面也不会实时反映 worker 内存场景，save 落盘后页面重新 Load Scene 才同步（见 `docs/dev/runtime-preview/issues.md` RP-ISSUE-041）。
+
 ## Agent smoke 建议
 
 发布包生成后，agent 可做这些低成本检查：
