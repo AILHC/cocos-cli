@@ -367,6 +367,10 @@ export declare interface IAssetDeleteOptions extends IAssetOperationOptionsBase 
     recursive?: boolean;
     useTrash?: boolean;
 }
+export declare interface IAssetFileGeneration {
+    mtimeMs: number;
+    size: number;
+}
 export declare interface IAssetFileSystemProvider {
     readFile?(path: string, encoding?: BufferEncoding): Promise<Buffer | string> | Buffer | string;
     writeFile?(path: string, content: Buffer | string | Uint8Array, options?: IAssetWriteFileOptions): Promise<void> | void;
@@ -436,6 +440,12 @@ export declare interface IAssetOperationOptionsBase {
 export declare type IAssetOperationOrigin = 'direct-op' | 'watcher';
 export declare interface IAssetRenameOptions extends IAssetOperationOptionsBase {
     overwrite?: boolean;
+}
+export declare interface IAssetSavedEvent {
+    generation: number;
+    asset: IAssetInfo;
+    sourceFileGeneration?: IAssetFileGeneration;
+    metaFileGeneration?: IAssetFileGeneration;
 }
 export declare type IAssetType =
 | ISupportCreateCCType
@@ -7764,6 +7774,8 @@ export declare namespace Assets {
         AssetPropertySchema,
         AssetPropertySchemaMap,
         IAssetInfo,
+        IAssetFileGeneration,
+        IAssetSavedEvent,
         AssetOperationOption,
         DeleteAssetOptions,
         AnimationMaskDump,
@@ -8158,6 +8170,10 @@ export declare interface IAssetDeleteOptions extends IAssetOperationOptionsBase 
     recursive?: boolean;
     useTrash?: boolean;
 }
+export declare interface IAssetFileGeneration {
+    mtimeMs: number;
+    size: number;
+}
 export declare interface IAssetFileSystemProvider {
     readFile?(path: string, encoding?: BufferEncoding): Promise<Buffer | string> | Buffer | string;
     writeFile?(path: string, content: Buffer | string | Uint8Array, options?: IAssetWriteFileOptions): Promise<void> | void;
@@ -8227,6 +8243,12 @@ export declare interface IAssetOperationOptionsBase {
 export declare type IAssetOperationOrigin = 'direct-op' | 'watcher';
 export declare interface IAssetRenameOptions extends IAssetOperationOptionsBase {
     overwrite?: boolean;
+}
+export declare interface IAssetSavedEvent {
+    generation: number;
+    asset: IAssetInfo;
+    sourceFileGeneration?: IAssetFileGeneration;
+    metaFileGeneration?: IAssetFileGeneration;
 }
 export declare type IAssetType =
 | ISupportCreateCCType
