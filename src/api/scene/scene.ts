@@ -7,6 +7,7 @@ import {
     SchemaOpenResult,
     SchemaReload,
     SchemaSaveResult,
+    SchemaUndoRedoResult,
     TOpenOptions,
     TCloseResult,
     TCreateOptions,
@@ -15,6 +16,7 @@ import {
     TOpenResult,
     TReload,
     TSaveResult,
+    TUndoRedoResult,
 } from './schema';
 import { description, param, result, title, tool } from '../decorator/decorator.js';
 import { COMMON_STATUS, CommonResultType } from '../base/schema-base';
@@ -156,6 +158,46 @@ export class SceneApi {
             return {
                 code: COMMON_STATUS.SUCCESS,
                 data: data as TReload,
+            };
+        } catch (e) {
+            console.error(e);
+            return {
+                code: COMMON_STATUS.FAIL,
+                reason: e instanceof Error ? e.message : String(e)
+            };
+        }
+    }
+
+    @tool('scene-undo')
+    @title('Undo last scene edit') // 撤销上一次场景编辑
+    @description('Undo the most recent undoable edit in the currently opened scene/prefab, using the scene worker undo stack shared by MCP/CLI scene edits (the browser scene editor page keeps its own independent undo stack). Undo only changes the in-memory scene; call scene-save to persist.') // 撤销当前打开场景/预制体中最近一次可撤销编辑。操作的是 scene worker 的 undo 栈（MCP/CLI 场景编辑共享）；浏览器场景编辑页面有独立 undo 栈，不受影响。撤销只改内存场景，需要落盘请调用 scene-save。
+    @result(SchemaUndoRedoResult)
+    async undo(): Promise<CommonResultType<TUndoRedoResult>> {
+        try {
+            const data = await Scene.Undo.undo();
+            return {
+                code: COMMON_STATUS.SUCCESS,
+                data,
+            };
+        } catch (e) {
+            console.error(e);
+            return {
+                code: COMMON_STATUS.FAIL,
+                reason: e instanceof Error ? e.message : String(e)
+            };
+        }
+    }
+
+    @tool('scene-redo')
+    @title('Redo last undone scene edit') // 重做上一次撤销的场景编辑
+    @description('Redo the most recently undone edit in the currently opened scene/prefab. Redo only changes the in-memory scene; call scene-save to persist.') // 重做当前打开场景/预制体中最近一次被撤销的编辑。重做只改内存场景，需要落盘请调用 scene-save。
+    @result(SchemaUndoRedoResult)
+    async redo(): Promise<CommonResultType<TUndoRedoResult>> {
+        try {
+            const data = await Scene.Redo.redo();
+            return {
+                code: COMMON_STATUS.SUCCESS,
+                data,
             };
         } catch (e) {
             console.error(e);

@@ -6,6 +6,7 @@ import { ComponentProxy } from './proxy/component-proxy';
 import { AssetProxy } from './proxy/asset-proxy';
 import { EngineProxy } from './proxy/engine-proxy';
 import { PrefabProxy } from './proxy/prefab-proxy';
+import { RedoProxy, UndoProxy } from './proxy/undo-proxy';
 
 import { assetManager } from '../../assets';
 import scriptManager from '../../scripting';
@@ -29,6 +30,9 @@ export const Scene = {
     Node: NodeProxy,
     // 组件相关的接口
     Component: ComponentProxy,
+    // undo/redo 接口
+    Undo: UndoProxy,
+    Redo: RedoProxy,
     // 场景进程
     worker: sceneWorker,
 };

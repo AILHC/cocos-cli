@@ -121,6 +121,8 @@ describe('unified Runtime Preview production CLI session', () => {
         'scene-open',
         'scene-query-current',
         'scene-save',
+        'scene-undo',
+        'scene-redo',
       ]));
 
       const createResult = await client.callTool({
@@ -165,6 +167,55 @@ describe('unified Runtime Preview production CLI session', () => {
         arguments: {},
       });
       expect(queryResult.isError).toBe(false);
+
+      // scene-undo / scene-redo:操作 scene worker 的 undo 栈(工具级冒烟;浏览器页面有独立 undo 栈,见 RP-ISSUE-040)。
+      const createNodeResult = await client.callTool({
+        name: 'scene-create-node-by-type',
+        arguments: {
+          options: {
+            path: '/',
+            nodeType: 'Empty',
+            name: 'UndoProbe',
+          },
+        },
+      });
+      expect(createNodeResult.isError, toolFailureReason(createNodeResult)).toBe(false);
+
+      const undoResult = await client.callTool({
+        name: 'scene-undo',
+        arguments: {},
+      });
+      expect(undoResult.isError, toolFailureReason(undoResult)).toBe(false);
+      const undoData = (undoResult.structuredContent as {
+        result?: { data?: { success?: boolean } };
+      } | undefined)?.result?.data;
+      expect(undoData?.success).toBe(true);
+
+      const queryAfterUndo = await client.callTool({
+        name: 'scene-query-node',
+        arguments: { options: { path: 'UndoProbe' } },
+      });
+      expect(
+        (queryAfterUndo.structuredContent as { result?: { code?: number } } | undefined)?.result?.code,
+      ).not.toBe(200);
+
+      const redoResult = await client.callTool({
+        name: 'scene-redo',
+        arguments: {},
+      });
+      expect(redoResult.isError, toolFailureReason(redoResult)).toBe(false);
+      const redoData = (redoResult.structuredContent as {
+        result?: { data?: { success?: boolean } };
+      } | undefined)?.result?.data;
+      expect(redoData?.success).toBe(true);
+
+      const queryAfterRedo = await client.callTool({
+        name: 'scene-query-node',
+        arguments: { options: { path: 'UndoProbe' } },
+      });
+      expect(
+        (queryAfterRedo.structuredContent as { result?: { code?: number } } | undefined)?.result?.code,
+      ).toBe(200);
 
       const saveResult = await client.callTool({
         name: 'scene-save',

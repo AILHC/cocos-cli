@@ -26,6 +26,13 @@ import { ReloadResult } from '../../core/scene/common/editor/type';
 
 export const SchemaReload = z.nativeEnum(ReloadResult).describe('Reload Scene/Prefab Result'); // 重载场景/预制体结果
 
+export const SchemaUndoRedoResult = z.object({
+    success: z.boolean().describe('Whether the undo/redo was applied'), // undo/redo 是否成功应用
+    commandId: z.string().optional().describe('ID of the undone/redone command'), // 被撤销/重做的命令 ID
+    label: z.string().optional().describe('Label of the undone/redone command'), // 被撤销/重做的命令名称
+    reason: z.string().optional().describe('Failure reason when success is false'), // 失败原因（success 为 false 时）
+}).describe('Undo/Redo Result'); // 撤销/重做结果
+
 export const SchemaCreateOptions = z.object({
     baseName: z.string().describe('Asset Name'), // 资源名称
     templateType: z.enum(SCENE_TEMPLATE_TYPE).optional().describe('Scene Template Type (Optional, only effective for scene asset type)'), // 场景模板类型（可选，资源类型为场景才生效）
@@ -49,5 +56,6 @@ export type TOpenResult = z.infer<typeof SchemaOpenResult>;
 export type TCloseResult = z.infer<typeof SchemaCloseResult>;
 export type TSaveResult = z.infer<typeof SchemaSaveResult>;
 export type TReload = z.infer<typeof SchemaReload>;
+export type TUndoRedoResult = z.infer<typeof SchemaUndoRedoResult>;
 export type TCreateOptions = z.infer<typeof SchemaCreateOptions>;
 export type TCreateResult = z.infer<typeof SchemaCreateResult>;
