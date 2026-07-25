@@ -11,7 +11,7 @@ node .\dist\cli.js <command> --help
 
 ## 发布包边界
 
-- 发布产物默认为当前仓库 `publish/cocos-cli-v<version>.zip` 中的单个 ZIP，解压根目录为 `cocos-cli/`。若仓库根 `.user.json`（已被 `.gitignore` 忽略的个人配置）设置了 `releaseDirectPath`，则 `npm run release:tools` 不再生成 ZIP，而是把 `cocos-cli/` 发布目录整体直出到该路径（目标目录先删后建，允许同版本重复发布）。
+- 发布产物默认为当前仓库 `publish/cocos-cli-v<version>.zip` 中的单个 ZIP，解压根目录为 `cocos-cli/`。若仓库根 `.user.json`（已被 `.gitignore` 忽略的个人配置）设置了 `releaseDirectPath`，则 `npm run release:tools` 不再生成 ZIP，而是把 `cocos-cli/` 发布目录整体直出到该路径（目标目录除 `node_modules` 外的内容先删后建，允许同版本重复发布），完成后自动在该路径执行 `npm install` 增量更新依赖。
 - 发布包根 `package.json` 不应包含 root `postinstall`，首次 `npm install` 不应触发源码仓库的 engine 编译、CLI build 或 tools 下载。
 - 发布包不提交 `node_modules/`，该目录由使用者本机 `npm install` 生成。
 - 发布包不包含 `packages/engine`，也不允许运行时回退到 `<cliRoot>/packages/engine`。

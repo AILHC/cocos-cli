@@ -153,20 +153,31 @@ describe('release package', () => {
     it('publishes directly to .user.json releaseDirectPath without creating a zip', async () => {
         const directPath = join(fixtureRoot, 'direct-out');
         writeJson(join(repoRoot, '.user.json'), { releaseDirectPath: directPath });
+        const npmInstallCalls: string[] = [];
+        const options = {
+            ...releaseOptions(repoRoot, publishRoot),
+            runDirectPathNpmInstall: async (target: string) => {
+                npmInstallCalls.push(target);
+            },
+        };
 
-        const result = await publishReleaseWithOptions(releaseOptions(repoRoot, publishRoot));
+        const result = await publishReleaseWithOptions(options);
         expect(result).toEqual({ cliDirectory: directPath, cliVersion: '1.2.3' });
         expect(existsSync(join(directPath, 'dist', 'cli.js'))).toBe(true);
         expect(existsSync(join(directPath, 'static', 'keep.txt'))).toBe(true);
         expect(existsSync(join(directPath, 'install-cocos-cli.cmd'))).toBe(true);
         expect(existsSync(join(directPath, 'docs', 'usage.md'))).toBe(true);
         expect(existsSync(join(publishRoot, 'cocos-cli-v1.2.3.zip'))).toBe(false);
+        expect(npmInstallCalls).toEqual([directPath]);
 
-        // 直出模式允许同版本重复发布：目标目录被整体替换
+        // 直出模式允许同版本重复发布:目标目录内容整体替换,但 node_modules 保留
         writeText(join(directPath, 'stale.txt'), 'stale\n');
-        await publishReleaseWithOptions(releaseOptions(repoRoot, publishRoot));
+        writeText(join(directPath, 'node_modules', 'keep.txt'), 'keep\n');
+        await publishReleaseWithOptions(options);
         expect(existsSync(join(directPath, 'stale.txt'))).toBe(false);
         expect(existsSync(join(directPath, 'dist', 'cli.js'))).toBe(true);
+        expect(existsSync(join(directPath, 'node_modules', 'keep.txt'))).toBe(true);
+        expect(npmInstallCalls).toEqual([directPath, directPath]);
     });
 
     it('rejects .user.json releaseDirectPath pointing at the repository root', async () => {

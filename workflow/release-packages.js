@@ -56,6 +56,35 @@ function resolveReleaseDirectPath(repoRoot, value) {
     return resolved;
 }
 
+// 直出时保留的顶层条目:node_modules 由发布后的 npm install 负责增量更新,
+// 整目录删除会让每次发布都重新下载全部依赖。
+const DIRECT_PUBLISH_PRESERVED_ENTRIES = new Set(['node_modules']);
+
+function publishDirectDirectory(runtimeRoot, directPath) {
+    if (fs.existsSync(directPath)) {
+        for (const entry of fs.readdirSync(directPath)) {
+            if (DIRECT_PUBLISH_PRESERVED_ENTRIES.has(entry)) {
+                continue;
+            }
+            fs.rmSync(path.join(directPath, entry), { recursive: true, force: true });
+        }
+    }
+    fs.cpSync(runtimeRoot, directPath, { recursive: true });
+}
+
+async function runDirectPathNpmInstall(directPath) {
+    const result = releaseToolsInternals.runNpmCommand(['install', '--no-audit', '--no-fund'], {
+        cwd: directPath,
+        stdio: 'inherit',
+    });
+    if (result.error) {
+        throw result.error;
+    }
+    if (result.status !== 0) {
+        throw new Error(`npm install failed in ${directPath} with exit code ${result.status}`);
+    }
+}
+
 async function publishReleaseWithOptions(options = {}) {
     const repoRoot = path.resolve(options.repoRoot || REPO_ROOT);
     const publishRoot = path.resolve(options.publishRoot || path.join(repoRoot, 'publish'));
@@ -84,8 +113,9 @@ async function publishReleaseWithOptions(options = {}) {
             runNpmLockfileInstall: options.runNpmLockfileInstall,
         });
         if (directPath) {
-            fs.rmSync(directPath, { recursive: true, force: true });
-            fs.cpSync(runtimeRoot, directPath, { recursive: true });
+            publishDirectDirectory(runtimeRoot, directPath);
+            const runNpmInstall = options.runDirectPathNpmInstall || runDirectPathNpmInstall;
+            await runNpmInstall(directPath);
             return { cliDirectory: directPath, cliVersion: sourcePackage.version };
         }
         await archive(stagingRoot, partialArchive, { compressionLevel: 9, preserveSymlinks: false });
