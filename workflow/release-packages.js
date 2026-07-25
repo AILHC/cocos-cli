@@ -57,8 +57,9 @@ function resolveReleaseDirectPath(repoRoot, value) {
 }
 
 // 直出时保留的顶层条目:node_modules 由发布后的 npm install 负责增量更新,
-// 整目录删除会让每次发布都重新下载全部依赖。
-const DIRECT_PUBLISH_PRESERVED_ENTRIES = new Set(['node_modules']);
+// 整目录删除会让每次发布都重新下载全部依赖;.svn 是 SVN working copy 元数据,
+// 删除后目标目录的 SVN 管理会直接报废。
+const DIRECT_PUBLISH_PRESERVED_ENTRIES = new Set(['node_modules', '.svn']);
 
 function publishDirectDirectory(runtimeRoot, directPath) {
     if (fs.existsSync(directPath)) {

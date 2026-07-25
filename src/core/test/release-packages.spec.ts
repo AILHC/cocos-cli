@@ -170,13 +170,15 @@ describe('release package', () => {
         expect(existsSync(join(publishRoot, 'cocos-cli-v1.2.3.zip'))).toBe(false);
         expect(npmInstallCalls).toEqual([directPath]);
 
-        // 直出模式允许同版本重复发布:目标目录内容整体替换,但 node_modules 保留
+        // 直出模式允许同版本重复发布:目标目录内容整体替换,但 node_modules 与 .svn 保留
         writeText(join(directPath, 'stale.txt'), 'stale\n');
         writeText(join(directPath, 'node_modules', 'keep.txt'), 'keep\n');
+        writeText(join(directPath, '.svn', 'wc.db'), 'svn\n');
         await publishReleaseWithOptions(options);
         expect(existsSync(join(directPath, 'stale.txt'))).toBe(false);
         expect(existsSync(join(directPath, 'dist', 'cli.js'))).toBe(true);
         expect(existsSync(join(directPath, 'node_modules', 'keep.txt'))).toBe(true);
+        expect(existsSync(join(directPath, '.svn', 'wc.db'))).toBe(true);
         expect(npmInstallCalls).toEqual([directPath, directPath]);
     });
 
