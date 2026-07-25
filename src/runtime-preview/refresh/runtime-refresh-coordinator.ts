@@ -8,6 +8,11 @@ import {
     createRuntimeAssetPathCanonicalizer,
     type RuntimeAssetPathCanonicalizer,
 } from '../path/runtime-asset-path-canonicalizer';
+import type {
+    RuntimeAssetDbIntegrityCheck,
+    RuntimeAssetDbIntegrityIssue,
+    RuntimeAssetDbIntegrityPhase,
+} from './runtime-assetdb-integrity';
 
 export type RuntimeRefreshReason = 'endpoint' | 'reload';
 export type RuntimeRefreshScriptCompileStatus = 'done' | 'skipped' | 'failed';
@@ -67,8 +72,30 @@ export interface RuntimeRefreshResult {
     scriptCompile: RuntimeRefreshScriptCompileResult;
     outputState?: RuntimePreviewOutputState;
     compileError?: ScriptCompileDiagnostic;
+    failureType?: 'asset-db-integrity';
+    assetDbIntegrity?: RuntimeAssetDbIntegrityResult;
     durationMs: number;
     error?: string;
+}
+
+export interface RuntimeAssetDbIntegrityVerification extends RuntimeAssetDbIntegrityCheck {
+    phase: RuntimeAssetDbIntegrityPhase;
+    durationMs: number;
+    samples: Array<RuntimeAssetDbIntegrityIssue & { queryPhase: RuntimeAssetDbIntegrityPhase }>;
+}
+
+export interface RuntimeAssetDbIntegrityResult {
+    status: 'passed' | 'recovered' | 'failed';
+    initial: RuntimeAssetDbIntegrityVerification;
+    recovery?: {
+        attempted: true;
+        action: 'refresh-db-assets';
+        target: 'db://assets';
+        durationMs: number;
+        changedAssetCount: number | null;
+        error?: string;
+    };
+    final?: RuntimeAssetDbIntegrityVerification;
 }
 
 export interface RuntimeRefreshCoordinator {
@@ -85,6 +112,9 @@ export interface RuntimeRefreshCoordinatorOptions {
     getCompileFailureGeneration?: () => MaybePromise<number>;
     clearLastCompileFailure?: () => MaybePromise<void>;
     verifyProgrammingOutput?: () => Promise<void>;
+    verifyAssetDbIntegrity?: (input: {
+        phase: RuntimeAssetDbIntegrityPhase;
+    }) => Promise<RuntimeAssetDbIntegrityCheck>;
     withDeferredScriptCompile?: <T>(operation: () => Promise<T>) => Promise<T>;
     flushDeferredScriptCompile?: () => Promise<unknown>;
     dirtyProvider?: RuntimeRefreshDirtyProvider;
@@ -289,6 +319,8 @@ type RuntimeRefreshResultPatch = Partial<Pick<
     | 'pendingSampleTargets'
     | 'dirtyEventCount'
     | 'watcher'
+    | 'failureType'
+    | 'assetDbIntegrity'
 >>;
 
 export function createRuntimeRefreshCoordinator(
@@ -449,6 +481,46 @@ export function createRuntimeRefreshCoordinator(
         await options.logger?.write(`runtime-refresh ${JSON.stringify(result)}`);
     };
 
+    const verifyAssetDbIntegrity = async (
+        phase: RuntimeAssetDbIntegrityPhase,
+    ): Promise<RuntimeAssetDbIntegrityVerification | null> => {
+        if (!options.verifyAssetDbIntegrity) {
+            return null;
+        }
+        const startedAt = now();
+        try {
+            const result = await options.verifyAssetDbIntegrity({ phase });
+            return {
+                ...result,
+                phase,
+                durationMs: now() - startedAt,
+                samples: result.samples.map((sample) => ({ ...sample, queryPhase: phase })),
+            };
+        } catch (error) {
+            return {
+                ok: false,
+                phase,
+                checkedUuidCount: 0,
+                invalidUuidCount: 0,
+                samples: [],
+                sampleLimit: 0,
+                durationMs: now() - startedAt,
+                error: getErrorMessage(error),
+            };
+        }
+    };
+
+    const formatIntegrityError = (integrity: RuntimeAssetDbIntegrityResult): string => {
+        const check = integrity.final ?? integrity.initial;
+        const sampleUuids = check.samples.map((sample) => sample.uuid).join(', ');
+        const detail = check.error
+            ? ` Verification error: ${check.error}`
+            : sampleUuids
+                ? ` Invalid UUID sample: ${sampleUuids}.`
+                : '';
+        return `Runtime AssetDB integrity verification failed after ${check.phase}; invalidUuidCount=${check.invalidUuidCount}.${detail}`;
+    };
+
     const runRefresh = async (
         refreshId: string,
         target: string,
@@ -482,85 +554,19 @@ export function createRuntimeRefreshCoordinator(
             return result;
         }
 
-        const scriptStartedAt = now();
-        let scriptCompile: RuntimeRefreshScriptCompileResult;
-        try {
-            await options.flushDeferredScriptCompile?.();
-            await options.waitForIdle({ sinceFailureGeneration: failureGenerationBeforeRefresh });
-            scriptCompile = {
-                status: 'done',
-                durationMs: now() - scriptStartedAt,
-            };
-        } catch (error) {
-            const diagnostic = await getLastCompileFailureDiagnostic(
-                refreshId,
-                target,
-                failureGenerationBeforeRefresh,
-            ) ?? createDiagnostic(error, refreshId, target, reason);
-            const result = createStructuredCompileFailureResult(
-                refreshId,
-                target,
-                reason,
-                startedAt,
-                changedAssetCount,
-                diagnostic,
-                now() - scriptStartedAt,
-            );
-            await writeResult(result);
-            return result;
-        }
-
-        const failureDiagnostic = await getLastCompileFailureDiagnostic(
+        const postRefresh = await runPostRefreshWork(
             refreshId,
             target,
+            reason,
+            startedAt,
+            changedAssetCount,
+            {},
             failureGenerationBeforeRefresh,
         );
-        if (failureDiagnostic) {
-            const result = createStructuredCompileFailureResult(
-                refreshId,
-                target,
-                reason,
-                startedAt,
-                changedAssetCount,
-                failureDiagnostic,
-                now() - scriptStartedAt,
-            );
-            await writeResult(result);
-            return result;
+        if (!postRefresh.ok) {
+            return postRefresh.result;
         }
-
-        try {
-            await options.verifyProgrammingOutput?.();
-        } catch (error) {
-            const result = createStructuredCompileFailureResult(
-                refreshId,
-                target,
-                reason,
-                startedAt,
-                changedAssetCount,
-                createDiagnostic(error, refreshId, target, reason),
-                now() - scriptStartedAt,
-            );
-            await writeResult(result);
-            return result;
-        }
-
-        try {
-            await options.invalidateSettings();
-            await options.clearImportReplacement();
-        } catch (error) {
-            const result = createFailedResult(
-                refreshId,
-                target,
-                reason,
-                startedAt,
-                changedAssetCount,
-                scriptCompile,
-                getErrorMessage(error),
-            );
-            await writeResult(result);
-            return result;
-        }
+        const { scriptCompile, assetDbIntegrity } = postRefresh;
 
         const result: RuntimeRefreshResult = {
             ok: true,
@@ -569,6 +575,7 @@ export function createRuntimeRefreshCoordinator(
             reason,
             changedAssetCount,
             scriptCompile,
+            ...(assetDbIntegrity ? { assetDbIntegrity } : {}),
             durationMs: now() - startedAt,
         };
         await writeResult(result);
@@ -586,7 +593,11 @@ export function createRuntimeRefreshCoordinator(
         changedAssetCount: number | null,
         patch: RuntimeRefreshResultPatch,
         failureGenerationBeforeRefresh: number,
-    ): Promise<{ ok: true; scriptCompile: RuntimeRefreshScriptCompileResult } | { ok: false; result: RuntimeRefreshResult }> => {
+    ): Promise<{
+        ok: true;
+        scriptCompile: RuntimeRefreshScriptCompileResult;
+        assetDbIntegrity: RuntimeAssetDbIntegrityResult | null;
+    } | { ok: false; result: RuntimeRefreshResult }> => {
         const scriptStartedAt = now();
         let scriptCompile: RuntimeRefreshScriptCompileResult;
         try {
@@ -653,6 +664,125 @@ export function createRuntimeRefreshCoordinator(
             return { ok: false, result };
         }
 
+        let assetDbIntegrity: RuntimeAssetDbIntegrityResult | null = null;
+        const initialIntegrity = await verifyAssetDbIntegrity('post-incremental-refresh');
+        if (initialIntegrity) {
+            assetDbIntegrity = {
+                status: initialIntegrity.ok ? 'passed' : 'failed',
+                initial: initialIntegrity,
+            };
+        }
+
+        if (initialIntegrity && !initialIntegrity.ok) {
+            const recoveryIntegrity = assetDbIntegrity!;
+            const recoveryStartedAt = now();
+            const recoveryFailureGeneration = await getCompileFailureGeneration();
+            let recoveryChangedAssetCount: number | null = null;
+            try {
+                const changed = await options.refreshTarget(defaultRefreshTarget);
+                recoveryChangedAssetCount = typeof changed === 'number' ? changed : null;
+            } catch (error) {
+                recoveryIntegrity.recovery = {
+                    attempted: true,
+                    action: 'refresh-db-assets',
+                    target: defaultRefreshTarget,
+                    durationMs: now() - recoveryStartedAt,
+                    changedAssetCount: recoveryChangedAssetCount,
+                    error: getErrorMessage(error),
+                };
+                const result = createFailedResult(
+                    refreshId,
+                    target,
+                    reason,
+                    startedAt,
+                    changedAssetCount,
+                    scriptCompile,
+                    formatIntegrityError(recoveryIntegrity),
+                    {
+                        ...patch,
+                        failureType: 'asset-db-integrity',
+                        assetDbIntegrity: recoveryIntegrity,
+                    },
+                );
+                await writeResult(result);
+                return { ok: false, result };
+            }
+
+            try {
+                await options.flushDeferredScriptCompile?.();
+                await options.waitForIdle({ sinceFailureGeneration: recoveryFailureGeneration });
+                const failureDiagnostic = await getLastCompileFailureDiagnostic(
+                    refreshId,
+                    defaultRefreshTarget,
+                    recoveryFailureGeneration,
+                );
+                if (failureDiagnostic) {
+                    throw failureDiagnostic;
+                }
+                await options.verifyProgrammingOutput?.();
+                scriptCompile.durationMs = now() - scriptStartedAt;
+            } catch (error) {
+                recoveryIntegrity.recovery = {
+                    attempted: true,
+                    action: 'refresh-db-assets',
+                    target: defaultRefreshTarget,
+                    durationMs: now() - recoveryStartedAt,
+                    changedAssetCount: recoveryChangedAssetCount,
+                    error: getErrorMessage(error),
+                };
+                const diagnostic = typeof error === 'object' && error !== null && 'location' in error
+                    ? error as ScriptCompileDiagnostic
+                    : createDiagnostic(error, refreshId, defaultRefreshTarget, reason);
+                const result = createStructuredCompileFailureResult(
+                    refreshId,
+                    target,
+                    reason,
+                    startedAt,
+                    changedAssetCount,
+                    diagnostic,
+                    now() - scriptStartedAt,
+                    {
+                        ...patch,
+                        assetDbIntegrity: recoveryIntegrity,
+                    },
+                );
+                await writeResult(result);
+                return { ok: false, result };
+            }
+
+            recoveryIntegrity.recovery = {
+                attempted: true,
+                action: 'refresh-db-assets',
+                target: defaultRefreshTarget,
+                durationMs: now() - recoveryStartedAt,
+                changedAssetCount: recoveryChangedAssetCount,
+            };
+            const finalIntegrity = await verifyAssetDbIntegrity('post-root-refresh');
+            if (!finalIntegrity?.ok) {
+                if (finalIntegrity) {
+                    recoveryIntegrity.final = finalIntegrity;
+                }
+                const result = createFailedResult(
+                    refreshId,
+                    target,
+                    reason,
+                    startedAt,
+                    changedAssetCount,
+                    scriptCompile,
+                    formatIntegrityError(recoveryIntegrity),
+                    {
+                        ...patch,
+                        failureType: 'asset-db-integrity',
+                        assetDbIntegrity: recoveryIntegrity,
+                    },
+                );
+                await writeResult(result);
+                return { ok: false, result };
+            }
+            recoveryIntegrity.status = 'recovered';
+            recoveryIntegrity.final = finalIntegrity;
+        }
+
         try {
             await options.invalidateSettings();
             await options.clearImportReplacement();
@@ -671,7 +801,7 @@ export function createRuntimeRefreshCoordinator(
             return { ok: false, result };
         }
 
-        return { ok: true, scriptCompile };
+        return { ok: true, scriptCompile, assetDbIntegrity };
     };
 
     const refreshDirtySet = async (
@@ -838,6 +968,9 @@ export function createRuntimeRefreshCoordinator(
                 return postRefresh.result;
             }
             scriptCompile = postRefresh.scriptCompile;
+            if (postRefresh.assetDbIntegrity) {
+                basePatch.assetDbIntegrity = postRefresh.assetDbIntegrity;
+            }
         }
 
         if (allFailedTargets.length > 0) {
@@ -886,6 +1019,7 @@ export function createRuntimeRefreshCoordinator(
             watcher: finalWatcher,
             ...(allSettledTargets.length > 0 ? { settledTargets: allSettledTargets } : {}),
             scriptCompile,
+            ...(basePatch.assetDbIntegrity ? { assetDbIntegrity: basePatch.assetDbIntegrity } : {}),
             durationMs: now() - startedAt,
         };
         await writeResult(result);

@@ -93,6 +93,34 @@ function createShortPathCanonicalizer(projectRoot = 'C:/project') {
   });
 }
 
+function createSingleDirtyProvider(target = 'db://assets/config.json') {
+  let drained = false;
+  return {
+    drainDirtyTargets: vi.fn(() => {
+      if (drained) {
+        return { targets: [], entries: [], eventCount: 0, drainedAt: Date.now() };
+      }
+      drained = true;
+      return {
+        targets: [target],
+        entries: [{ target, eventTypes: ['update'] as const }],
+        eventCount: 1,
+        drainedAt: Date.now(),
+      };
+    }),
+    requeueTargets: vi.fn(),
+    getStatus: () => ({
+      enabled: true,
+      running: true,
+      assetsRoot: 'C:/project/assets',
+      error: undefined,
+      eventCount: 1,
+      dirtyTargetCount: drained ? 0 : 1,
+      sampleTargets: drained ? [] : [target],
+    }),
+  };
+}
+
 describe('runtime refresh coordinator', () => {
   it('refreshes db://assets when target is omitted', async () => {
     const { coordinator, refreshTarget } = createCoordinatorFixture();
@@ -118,6 +146,181 @@ describe('runtime refresh coordinator', () => {
     expect(result.ok).toBe(true);
     expect(result.target).toBe('db://assets/resources/config.json');
     expect(refreshTarget).toHaveBeenCalledWith('db://assets/resources/config.json');
+  });
+
+  it('passes the AssetDB integrity gate after a normal dirty-set refresh without root refresh', async () => {
+    const verifyAssetDbIntegrity = vi.fn(async () => ({
+      ok: true,
+      checkedUuidCount: 12,
+      invalidUuidCount: 0,
+      samples: [],
+      sampleLimit: 20,
+    }));
+    const { coordinator, refreshTarget, invalidateSettings, clearImportReplacement } = createCoordinatorFixture({
+      dirtyProvider: createSingleDirtyProvider(),
+      verifyAssetDbIntegrity,
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.assetDbIntegrity).toMatchObject({
+      status: 'passed',
+      initial: {
+        phase: 'post-incremental-refresh',
+        checkedUuidCount: 12,
+        invalidUuidCount: 0,
+      },
+    });
+    expect(refreshTarget).toHaveBeenCalledTimes(1);
+    expect(refreshTarget).toHaveBeenCalledWith('db://assets/config.json');
+    expect(invalidateSettings).toHaveBeenCalledTimes(1);
+    expect(clearImportReplacement).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs one db://assets recovery refresh and re-stabilizes when the first integrity check fails', async () => {
+    const verifyAssetDbIntegrity = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        checkedUuidCount: 12,
+        invalidUuidCount: 1,
+        samples: [{
+          uuid: 'stale-uuid',
+          assetUrl: 'db://assets/stale.prefab',
+          database: 'assets',
+          missingFields: ['assetInfo'],
+        }],
+        sampleLimit: 20,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        checkedUuidCount: 12,
+        invalidUuidCount: 0,
+        samples: [],
+        sampleLimit: 20,
+      });
+    const { coordinator, refreshTarget, waitForIdle, invalidateSettings } = createCoordinatorFixture({
+      dirtyProvider: createSingleDirtyProvider(),
+      verifyAssetDbIntegrity,
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result.ok).toBe(true);
+    expect(result.assetDbIntegrity).toMatchObject({
+      status: 'recovered',
+      initial: {
+        phase: 'post-incremental-refresh',
+        invalidUuidCount: 1,
+        samples: [{ uuid: 'stale-uuid', queryPhase: 'post-incremental-refresh' }],
+      },
+      recovery: {
+        attempted: true,
+        action: 'refresh-db-assets',
+        target: 'db://assets',
+      },
+      final: {
+        phase: 'post-root-refresh',
+        invalidUuidCount: 0,
+      },
+    });
+    expect(refreshTarget.mock.calls.map(([target]) => target)).toEqual([
+      'db://assets/config.json',
+      'db://assets',
+    ]);
+    expect(waitForIdle).toHaveBeenCalledTimes(2);
+    expect(invalidateSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops settings invalidation when integrity still fails after the single root refresh', async () => {
+    const invalidCheck = {
+      ok: false,
+      checkedUuidCount: 12,
+      invalidUuidCount: 1,
+      samples: [{
+        uuid: 'stale-uuid',
+        assetUrl: 'db://assets/stale.prefab',
+        parentUuid: 'parent-uuid',
+        parentUrl: 'db://assets/stale.fbx',
+        database: 'assets',
+        missingFields: ['assetInfo'],
+      }],
+      sampleLimit: 20,
+    };
+    const verifyAssetDbIntegrity = vi.fn()
+      .mockResolvedValueOnce(invalidCheck)
+      .mockResolvedValueOnce(invalidCheck);
+    const { coordinator, refreshTarget, invalidateSettings, clearImportReplacement } = createCoordinatorFixture({
+      dirtyProvider: createSingleDirtyProvider(),
+      verifyAssetDbIntegrity,
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result).toMatchObject({
+      ok: false,
+      failureType: 'asset-db-integrity',
+      assetDbIntegrity: {
+        status: 'failed',
+        recovery: {
+          attempted: true,
+          target: 'db://assets',
+        },
+        final: {
+          phase: 'post-root-refresh',
+          invalidUuidCount: 1,
+          samples: [{
+            uuid: 'stale-uuid',
+            parentUuid: 'parent-uuid',
+            queryPhase: 'post-root-refresh',
+          }],
+        },
+      },
+    });
+    expect(result.error).toContain('stale-uuid');
+    expect(refreshTarget).toHaveBeenCalledTimes(2);
+    expect(invalidateSettings).not.toHaveBeenCalled();
+    expect(clearImportReplacement).not.toHaveBeenCalled();
+  });
+
+  it('does not retry when the single AssetDB root recovery refresh fails', async () => {
+    const refreshTarget = vi.fn(async (target: string) => {
+      if (target === 'db://assets') {
+        throw new Error('root refresh failed');
+      }
+      return 1;
+    });
+    const verifyAssetDbIntegrity = vi.fn(async () => ({
+      ok: false,
+      checkedUuidCount: 1,
+      invalidUuidCount: 1,
+      samples: [{ uuid: 'stale-uuid', missingFields: ['assetInfo'] }],
+      sampleLimit: 20,
+    }));
+    const { coordinator, invalidateSettings } = createCoordinatorFixture({
+      dirtyProvider: createSingleDirtyProvider(),
+      refreshTarget,
+      verifyAssetDbIntegrity,
+    });
+
+    const result = await coordinator.refresh({ reason: 'reload' });
+
+    expect(result).toMatchObject({
+      ok: false,
+      failureType: 'asset-db-integrity',
+      assetDbIntegrity: {
+        recovery: {
+          attempted: true,
+          error: 'root refresh failed',
+        },
+      },
+    });
+    expect(refreshTarget.mock.calls.map(([target]) => target)).toEqual([
+      'db://assets/config.json',
+      'db://assets',
+    ]);
+    expect(verifyAssetDbIntegrity).toHaveBeenCalledTimes(1);
+    expect(invalidateSettings).not.toHaveBeenCalled();
   });
 
   it('canonicalizes absolute short path refresh targets before refreshing AssetDB', async () => {

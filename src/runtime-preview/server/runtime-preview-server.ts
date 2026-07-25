@@ -10,6 +10,7 @@ import { createRuntimePreviewLogger, type RuntimePreviewLogger } from '../loggin
 import {
     createRuntimeRefreshCoordinator,
     type RuntimeRefreshCoordinator,
+    type RuntimeRefreshCoordinatorOptions,
     type RuntimeRefreshResult,
 } from '../refresh/runtime-refresh-coordinator';
 import {
@@ -70,6 +71,7 @@ export interface RuntimePreviewServerOptions {
     refreshTarget?: (target: string) => Promise<number | null | undefined>;
     refreshCoordinator?: Pick<RuntimeRefreshCoordinator, 'refresh'>;
     verifyProgrammingOutput?: () => Promise<void>;
+    verifyAssetDbIntegrity?: RuntimeRefreshCoordinatorOptions['verifyAssetDbIntegrity'];
     prepareRuntimePreview?: (serverUrl: string) => Promise<void>;
     startupCompileFailure?: () => RuntimeRefreshResult | null | undefined;
     clearStartupCompileFailure?: () => void;
@@ -471,6 +473,10 @@ export async function startRuntimePreviewServer(options: RuntimePreviewServerOpt
                     scripting.clearLastCompileFailure();
                 },
                 verifyProgrammingOutput: options.verifyProgrammingOutput,
+                verifyAssetDbIntegrity: options.verifyAssetDbIntegrity ?? (async ({ phase }) => {
+                    const { verifyBuilderAssetDbIntegrity } = await import('../refresh/runtime-assetdb-integrity');
+                    return verifyBuilderAssetDbIntegrity(phase);
+                }),
                 invalidateSettings: () => getSettingsProvider().invalidate(),
                 clearImportReplacement: () => importReplacementExtensionResolver.clear(),
                 pathCanonicalizer,

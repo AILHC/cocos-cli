@@ -16,6 +16,7 @@ import { initBundleConfig } from './utils';
 import i18n from '../../../../../base/i18n';
 import utils from '../../../../../base/utils';
 import { BuildGlobalInfo } from '../../../../share/global';
+import { assertBundleAssetInfo } from './asset-info-integrity';
 export class Bundle {
 
     public get scenes() {
@@ -292,6 +293,11 @@ export class Bundle {
         // 先去重一次
         this.rootAssets.forEach((uuid) => {
             const asset = buildAssetLibrary.getAssetInfo(uuid);
+            assertBundleAssetInfo(asset, {
+                bundleName: this.name,
+                uuid,
+                cachedAsset: buildAssetLibrary.getAsset(uuid),
+            });
             const info: any = [asset.loadUrl.replace(this.root + '/', '').replace(extname(asset.url), ''), asset.type];
             // 内置资源不做此警告提示
             this.name !== BuiltinBundleName.INTERNAL && checkUrl(asset.uuid, info[0], info[1]);
