@@ -1,9 +1,11 @@
 import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { getFixturePaths } from '@shared/fixture-paths';
 import { captureJsonAssetHttpRuntimeUrls } from '@shared/http-url-capture';
 import { createRuntimePreviewContext } from '@runtime-preview/context/runtime-preview-context';
+import { RuntimePreviewLogger } from '@runtime-preview/logging/runtime-preview-logger';
 import { PreviewSettingsProvider } from '@runtime-preview/settings/preview-settings-provider';
 import { handleRuntimePreviewRequest } from '@runtime-preview/server/runtime-preview-routes';
 import type { RuntimePreviewHttpResponse } from '@runtime-preview/server/serve-on-demand-file';
@@ -234,6 +236,77 @@ describe('runtime preview HTTP route contract', () => {
     expect(runtimeContext.preloadedLibraryFileCount).toBe(0);
     expect(runtimeContext.preloadedProgrammingFileCount).toBe(0);
   }, 120_000);
+
+  it('returns 400 and logs malformed programming requests without changing missing-file semantics', async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-programming-request-fixture-'));
+    const programmingRoot = join(fixtureRoot, 'temp', 'cli', 'programming');
+    const runtimeContext = createRuntimePreviewContext({
+      projectRoot: fixtureRoot,
+      engineRoot: join(fixtureRoot, 'engine'),
+      projectLibraryRoot: join(fixtureRoot, 'library'),
+      projectProgrammingRoot: programmingRoot,
+    });
+    const settingsProvider = new PreviewSettingsProvider({
+      loadPreviewSettings: async () => ({
+        settings: { assets: {} },
+        script2library: {},
+        bundleConfigs: [],
+      }),
+    });
+    const logRoot = await mkdtemp(join(tmpdir(), 'runtime-preview-programming-request-'));
+    const logger = new RuntimePreviewLogger(join(logRoot, 'runtime-preview.log'));
+    const routeContext = { runtimeContext, settingsProvider, logger };
+
+    const chunkRoot = join(programmingRoot, 'packer-driver', 'targets', 'preview', 'chunks');
+    const systemJsRoot = join(programmingRoot, 'preview', 'systemjs');
+    await mkdir(chunkRoot, { recursive: true });
+    await mkdir(systemJsRoot, { recursive: true });
+    await writeFile(join(chunkRoot, 'valid.js'), 'System.register([], function () {});', 'utf8');
+    await writeFile(join(programmingRoot, 'packer-driver', 'targets', 'preview', 'import-map.json'), '{}', 'utf8');
+    await writeFile(join(systemJsRoot, 'system.js'), 'const System = {};', 'utf8');
+    await writeFile(join(programmingRoot, 'custom-macro.js'), 'export default {};', 'utf8');
+
+    const recordResponse = await handleRuntimePreviewRequest(
+      routeContext,
+      '/scripting/x/packer-driver/targets/preview/import-map.json',
+    );
+    expect(recordResponse.statusCode).toBe(200);
+    const validChunkResponse = await handleRuntimePreviewRequest(
+      routeContext,
+      '/scripting/x/packer-driver/targets/preview/chunks/valid.js',
+    );
+    expect(validChunkResponse.statusCode).toBe(200);
+    const systemJsResponse = await handleRuntimePreviewRequest(routeContext, '/scripting/systemjs/system.js');
+    expect(systemJsResponse.statusCode).toBe(200);
+    const macroResponse = await handleRuntimePreviewRequest(routeContext, '/scripting/userland/macro');
+    expect(macroResponse.statusCode).toBe(200);
+
+    const duplicatedResponse = await handleRuntimePreviewRequest(
+      routeContext,
+      '/scripting/x/packer-driver/targets/preview/packer-driver/targets/preview/=1785228545736',
+    );
+    expect(duplicatedResponse.statusCode).toBe(400);
+    expect(await responseBodyText(duplicatedResponse)).toContain('duplicate-preview-target');
+
+    const timestampResponse = await handleRuntimePreviewRequest(
+      routeContext,
+      '/scripting/x/packer-driver/targets/preview/=1785228545736',
+    );
+    expect(timestampResponse.statusCode).toBe(400);
+    expect(await responseBodyText(timestampResponse)).toContain('timestamp-path-segment');
+
+    const missingResponse = await handleRuntimePreviewRequest(
+      routeContext,
+      '/scripting/x/packer-driver/targets/preview/chunks/missing.js',
+    );
+    expect(missingResponse.statusCode).toBe(404);
+
+    const logSource = await readFile(logger.logFilePath, 'utf8');
+    expect(logSource).toContain('programming:request:rejected reason=duplicate-preview-target');
+    expect(logSource).toContain('programming:request:rejected reason=timestamp-path-segment');
+    expect(logSource).toContain('path="/scripting/x/packer-driver/targets/preview/');
+    expect(logSource).not.toContain('chunks/missing.js');
+  });
 
   it('serves captured asset URLs without requiring settings generation', async () => {
     const paths = getFixturePaths();

@@ -19,6 +19,7 @@ async function createResolverFixture() {
   const projectLibraryRoot = join(root, 'project-library');
   const extensionLibraryRoot = join(root, 'extension-library');
   const internalLibraryRoot = join(root, 'internal-library');
+  const projectProgrammingRoot = join(root, 'temp', 'cli', 'programming');
   await mkdir(projectLibraryRoot, { recursive: true });
   await mkdir(extensionLibraryRoot, { recursive: true });
   await mkdir(internalLibraryRoot, { recursive: true });
@@ -28,9 +29,9 @@ async function createResolverFixture() {
     projectLibraryRoot,
     extensionLibraryRoots: [{ name: 'view-state-group', root: extensionLibraryRoot }],
     internalLibraryRoot,
-    projectProgrammingRoot: join(root, 'temp', 'cli', 'programming'),
+    projectProgrammingRoot,
   });
-  return { root, projectLibraryRoot, extensionLibraryRoot, internalLibraryRoot, context };
+  return { root, projectLibraryRoot, extensionLibraryRoot, internalLibraryRoot, projectProgrammingRoot, context };
 }
 
 describe('runtime preview on-demand resolvers', () => {
@@ -51,6 +52,42 @@ describe('runtime preview on-demand resolvers', () => {
 
     const programming = await resolveProgrammingRequest(context, '/scripting/x/packer-driver/targets/preview/import-map.json');
     expect(programming?.absolutePath.replace(/\\/g, '/')).toMatch(/\/programming\/packer-driver\/targets\/preview\/import-map\.json$/);
+  });
+
+  it('rejects malformed programming paths before resolving existing files', async () => {
+    const { context, projectProgrammingRoot } = await createResolverFixture();
+    const validChunkRelativePath = 'packer-driver/targets/preview/chunks/aa/valid.js';
+    const validChunkPath = await createLibraryFile(projectProgrammingRoot, validChunkRelativePath, 'valid');
+    const duplicatedRelativePath = [
+      'packer-driver',
+      'targets',
+      'preview',
+      'packer-driver',
+      'targets',
+      'preview',
+      '=1785228545736',
+    ].join('/');
+    await createLibraryFile(projectProgrammingRoot, duplicatedRelativePath, 'should-not-be-served');
+
+    await expect(
+      resolveProgrammingRequest(context, `/scripting/x/${duplicatedRelativePath}`),
+    ).rejects.toThrow('duplicate-preview-target');
+    await expect(
+      resolveProgrammingRequest(context, '/scripting/x/packer-driver/targets/preview/=1785228545736'),
+    ).rejects.toThrow('timestamp-path-segment');
+    await expect(
+      resolveProgrammingRequest(context, '/scripting/x/C:/outside.js'),
+    ).rejects.toThrow('absolute-path');
+
+    await expect(
+      resolveProgrammingRequest(context, `/scripting/x/${validChunkRelativePath}`),
+    ).resolves.toEqual({ absolutePath: validChunkPath });
+    await expect(
+      resolveProgrammingRequest(context, '/scripting/x/packer-driver/targets/preview/chunks/missing.js'),
+    ).resolves.toBeNull();
+    await expect(
+      resolveProgrammingRequest(context, '/scripting/systemjs/../custom-macro.js'),
+    ).resolves.toBeNull();
   });
 
   it('serves non-general import requests by tail from project library root', async () => {

@@ -5,6 +5,7 @@ import { resolveLibraryRequest } from '../library/resolve-library-request';
 import type { RuntimePreviewLogger } from '../logging/runtime-preview-logger';
 import {
     createRuntimePreviewGlobalImportMap,
+    InvalidProgrammingRequestError,
     resolveProgrammingRequest,
 } from '../programming/resolve-programming-request';
 import type { PreviewSettingsProvider } from '../settings/preview-settings-provider';
@@ -315,7 +316,22 @@ export async function tryHandleRuntimePreviewRequest(
         return serveOnDemandFile({ absolutePath: scriptLibraryFile });
     }
 
-    const programmingFile = await resolveProgrammingRequest(context.runtimeContext, pathname);
+    let programmingFile;
+    try {
+        programmingFile = await resolveProgrammingRequest(context.runtimeContext, pathname);
+    } catch (error) {
+        if (!(error instanceof InvalidProgrammingRequestError)) {
+            throw error;
+        }
+        await context.logger?.write(
+            `programming:request:rejected reason=${error.reason} path=${JSON.stringify(error.normalizedPath)}`,
+        );
+        return textResponse(
+            400,
+            `Invalid runtime preview programming request: ${error.reason}`,
+            'text/plain; charset=utf-8',
+        );
+    }
     if (programmingFile) {
         return serveOnDemandFile(programmingFile);
     }

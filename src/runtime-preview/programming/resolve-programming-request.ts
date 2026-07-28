@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { RuntimePreviewContext } from '../context/runtime-preview-context';
 import type { ResolvedRuntimePreviewFile } from '../library/resolve-library-request';
@@ -68,12 +68,69 @@ interface ProgrammingRouteTarget {
     preferCliRoot: boolean;
 }
 
+export type InvalidProgrammingRequestReason =
+    | 'absolute-path'
+    | 'duplicate-preview-target'
+    | 'timestamp-path-segment'
+    | 'outside-programming-root';
+
+export class InvalidProgrammingRequestError extends Error {
+    constructor(
+        public readonly reason: InvalidProgrammingRequestReason,
+        public readonly normalizedPath: string,
+    ) {
+        super(`Invalid runtime preview programming request (${reason}): ${normalizedPath}`);
+        this.name = 'InvalidProgrammingRequestError';
+    }
+}
+
+function validateProgrammingRelativePath(
+    relativePath: string,
+    normalizedPath: string,
+    options: { validatePreviewTarget: boolean },
+): boolean {
+    if (!relativePath) {
+        return false;
+    }
+    if (isAbsolute(relativePath) || /^[A-Za-z]:/.test(relativePath)) {
+        throw new InvalidProgrammingRequestError('absolute-path', normalizedPath);
+    }
+
+    const segments = relativePath.split('/');
+    if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+        return false;
+    }
+
+    if (options.validatePreviewTarget) {
+        const previewTargetPrefix = `${previewRecordsBase}/`;
+        const isPreviewTarget = relativePath.startsWith(previewTargetPrefix);
+        const previewTargetTail = isPreviewTarget
+            ? relativePath.slice(previewTargetPrefix.length)
+            : '';
+        if (previewTargetTail.startsWith(previewTargetPrefix)) {
+            throw new InvalidProgrammingRequestError('duplicate-preview-target', normalizedPath);
+        }
+        if (isPreviewTarget && segments.some((segment) => /^=\d+$/.test(segment))) {
+            throw new InvalidProgrammingRequestError('timestamp-path-segment', normalizedPath);
+        }
+    }
+    return true;
+}
+
+function isPathInsideRoot(root: string, absolutePath: string): boolean {
+    const relativePath = relative(resolve(root), absolutePath);
+    return relativePath !== ''
+        && relativePath !== '..'
+        && !relativePath.startsWith(`..${sep}`)
+        && !isAbsolute(relativePath);
+}
+
 function toProgrammingRouteTarget(requestPath: string): ProgrammingRouteTarget | null {
     const normalized = requestPath.replace(/\\/g, '/');
     if (!normalized.startsWith(scriptingPrefix)) {
         if (normalized.startsWith(scriptingSystemJsPrefix)) {
             const relativePath = normalized.slice(scriptingSystemJsPrefix.length);
-            if (!relativePath || relativePath.split('/').includes('..')) {
+            if (!validateProgrammingRelativePath(relativePath, normalized, { validatePreviewTarget: false })) {
                 return null;
             }
 
@@ -94,7 +151,7 @@ function toProgrammingRouteTarget(requestPath: string): ProgrammingRouteTarget |
     }
 
     const relativePath = normalized.slice(scriptingPrefix.length);
-    if (!relativePath || relativePath.split('/').includes('..')) {
+    if (!validateProgrammingRelativePath(relativePath, normalized, { validatePreviewTarget: true })) {
         return null;
     }
 
@@ -129,6 +186,9 @@ export async function resolveProgrammingRequest(
         : [context.projectProgrammingRoot];
     for (const root of roots) {
         const absolutePath = resolve(root, target.relativePath);
+        if (!isPathInsideRoot(root, absolutePath)) {
+            throw new InvalidProgrammingRequestError('outside-programming-root', requestPath.replace(/\\/g, '/'));
+        }
         try {
             const fileStat = await stat(absolutePath);
             if (fileStat.isFile()) {
